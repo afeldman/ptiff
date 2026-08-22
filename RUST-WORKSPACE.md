@@ -97,6 +97,10 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │               ├── tile_index.rs        TileIndex   (column/row/level)
 │               ├── tile_layout.rs       TileLayout  (columns/rows/region_for/index_for)
 │               └── tile_region.rs       TileRegion  (x/y/extent)
+├── crates/ptiff-rust/       idiomatische Rust-API (Paketname `ptiff`) auf ptiff-core
+│   └── src/                kein C-ABI; ergonomische High-Level-Einstiege über die Core-Traits
+│       ├── lib.rs          Re-Exports (Scene/Image/ImageDescriptor/geometry/...) + prelude
+│       └── tiff.rs         Tiff (open/from_bytes wrt Scene; images(); to_bytes/write via TiffBackend)
 ├── bindings/
 │   └── c/                      bestehende hand-gepflegte C-Header (verbleiben als SOT)
 └── PTIFF-1.0-RUST-CORE-PLAN.md architektonischer Plan (Referenz)
@@ -270,7 +274,14 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    standardkonform (die Breiten-Tabelle wuchs nie, weil `have_previous` nur
    bedingt gesetzt wurde) — der Bitwriter spiegelt jetzt exakt das C++-Oracle
    und die Streams werden von `weezl` gelesen.
-6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
+6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`). **Begonnen:**
+   Crate `crates/ptiff-rust/` als Workspace-Member angelegt (dependency-light: nur
+   `ptiff-core` + `std`; `forbid(unsafe_code)` + `warn(missing_docs)`). Erster Slice:
+   `Tiff`-Fassade mit `open`/`from_bytes` (→ `Scene` + `images()`-Iterator) und
+   `to_bytes`/`write` (Scene → TIFF/BigTIFF via `TiffBackend` + `SceneSerializer`);
+   Roundtrip für Scene-Metadaten getestet (None/LZW symmetrisch; Deflate/Jpeg im
+   `SceneDeserializer` des Cores wie im C++-Oracle noch nicht rückschreibbar). Ausbau
+   (Pixel/Tile-Tier, Camera/Geometry) folgt.
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.
 

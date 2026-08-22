@@ -109,6 +109,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptiff"
+version = "0.1.0"
+dependencies = [
+ "ptiff-core",
+]
+
+[[package]]
 name = "ptiff-core"
 version = "0.1.0"
 dependencies = [
