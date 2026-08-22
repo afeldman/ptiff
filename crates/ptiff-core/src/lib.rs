@@ -37,7 +37,7 @@ pub use geometry::{
     Camera, CoordinateReferenceSystem, Extrinsics, ExtrinsicsMatrix, Frame, FramePair, Geometry,
     GeometryKind, Intrinsics, IntrinsicsMatrix, LensModel, LensModelKind, Planet, Pose, Projection,
     ProjectionKind, ProjectionMatrix, Quaternion, RotationMatrix, Screw, ScrewAxis, ScrewMotion,
-    Vec3,
+    SpiceState, Vec3,
 };
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
 pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};

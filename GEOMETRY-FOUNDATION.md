@@ -1,15 +1,23 @@
 # PTIFF Geometry Foundation — `multicalc` + Screw Theory Integration
 
-**Status:** Analysis + Phases I–II implemented on `rust` branch (proposal text below documents the plan)
+**Status:** Analysis + Phases I–IV implemented on `rust` branch (proposal text below documents the plan)
 **Scope:** Current `rust` branch of the PTIFF 1.0 Rust core
 **Branch:** `rust`
 
-> **Implementation status** (updated after Phase II):
+> **Implementation status** (updated after Phase IV):
 > - ✅ **Phase I** (commit `4246dd9`): `multicalc` dep, storage values (`Vec3`, `Quaternion`,
 >   `Extrinsics`, `Intrinsics`), `Frame`/`FramePair`.
-> - ✅ **Phase II** (in progress): `Pose` (SE3+frames), `Screw`/`ScrewAxis`/`ScrewMotion`,
+> - ✅ **Phase II** (commit `b6e8725`): `Pose` (SE3+frames), `Screw`/`ScrewAxis`/`ScrewMotion`,
 >   `Camera` (K·[R|t]), `Planet`, `Ellipsoid`, `LensModel`, `Projection`,
->   `CoordinateReferenceSystem`, `Geometry`. 159 tests green (was 99 at proposal time).
+>   `CoordinateReferenceSystem`, `Geometry`.
+> - ✅ **Phase III** (this commit): `Quaternion` Euler helpers (`from_euler_angles[_deg]`,
+>   `to_rad`/`quaternion2rad`/`to_deg`, `to_angle_axis`), serialization MVP (serde round-trip
+>   tests for the serde-capable geometry values), 182 tests green.
+> - ✅ **Phase IV** (this commit): `SpiceState` SPICE pose mapping (`(p, q, v, ω)` → `Pose` +
+>   `Twist`/`Screw`, `SE3::adjoint` body↔spatial transform, `propagate`/`propagate_screw`).
+>   Scene wiring + `ptiff-c`/`ptiff-rust` exposure deliberately deferred: the C++ `Scene`
+>   oracle has no `addCamera`/`addGeometry` yet (M3 is an open RFC per `ROADMAP.md`) and the
+>   `ptiff-c` crate does not yet exist.
 
 > This document is an implementation-oriented architecture proposal. It does **not**
 > redesign PTIFF 1.0. It extends the *current* Rust core with a reusable mathematical
