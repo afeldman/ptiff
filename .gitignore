@@ -232,3 +232,8 @@ scripts/samples/
 
 scripts/gen_interop_fixture
 scripts/gen_interop_fixture.dSYM/
+
+##############################################
+# Rust workspace (PTIFF 1.0 green-field core)
+##############################################
+target/
