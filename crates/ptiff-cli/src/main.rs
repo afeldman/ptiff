@@ -1,19 +1,21 @@
 //! `ptiff` — command-line interface for the PTIFF planetary image standard.
 //!
-//! A thin CLI over the idiomatic Rust binding (`ptiff`, see `bindings/rust`),
-//! which in turn talks only to the language-agnostic C ABI `libptiff_c`. The
-//! CLI never links libptiff's C++ API directly.
+//! A thin, idiomatic CLI over the [`ptiff`](https://docs.rs/ptiff) crate (the
+//! Rust core's idiomatic frontend). Every subcommand marshals typed core
+//! types (`Scene`, `Image`, `ImageDescriptor`, `TileLayout`) through
+//! `Tiff::open`, `read_image_pixels`, `tile_layout` and
+//! `to_bytes_with_pixels` — no C ABI, no C++.
 //!
 //! # Command layout
 //!
 //! ```text
-//! ptiff version                 runtime + compile-time version of libptiff
-//! ptiff backends                registered backend names
-//! ptiff logger level            current logger level
-//! ptiff logger set <LEVEL>      set the process-wide logger level
-//! ptiff info <FILE>             read metadata from an on-disk TIFF file
-//! ptiff make <W> <H> <PIX> ...  inspect a constructed ImageDescriptor
-//! ptiff copy <SRC> <DST>        tile-copy the primary image to a new TIFF
+//! ptiff version                 runtime + compile-time version of the core
+//! ptiff info <FILE> [--json]    read per-image metadata from a TIFF file
+//! ptiff tile-list <FILE>        print the per-image tile grid layout
+//! ptiff metadata <FILE>         dump PTIFF camera/CRS extension domains (JSON)
+//! ptiff copy <SRC> <DST>        copy every image (metadata + pixels) to a new TIFF
+//! ptiff make <W> <H> <PIX> ...  construct and inspect an ImageDescriptor
+//! ptiff thumbnail <SRC> <DST>   nearest-neighbour downsample of the first image
 //! ```
 
 use std::path::PathBuf;
@@ -22,8 +24,8 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use ptiff::{
-    backend_names, compile_time_version, open_path_camera, read_metadata, runtime_version, Camera,
-    FileMetadata, LogLevel, Logger, Sink, Source,
+    CompressionKind, CoordinateReferenceSystem, ImageDescriptor, ImageDescriptorBuilder, PixelType,
+    Projection, ProjectionKind, Scene, Tiff, TileInfo, APP_VERSION, VERSION_STR,
 };
 
 // ---------------------------------------------------------------------------
@@ -38,7 +40,8 @@ use ptiff::{
     long_about = None
 )]
 struct Cli {
-    /// Set the process-wide logger level before running the command.
+    /// Set the process-wide logger level (accepted for CLI compatibility; the
+    /// core emits no process-wide log stream yet).
     #[arg(long, global = true, value_name = "LEVEL")]
     log_level: Option<String>,
 
@@ -48,30 +51,41 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Show the runtime and compile-time version of the linked libptiff.
+    /// Show the runtime and compile-time version of the linked PTIFF core.
     Version,
-    /// List the backend names registered in the linked libptiff.
-    Backends,
-    /// Read a TIFF/BigTIFF file's primary image metadata from disk.
+    /// Read a TIFF/BigTIFF file's per-image metadata.
     Info {
         path: PathBuf,
-        /// Emit the metadata as JSON, including the PTIFF private-tag (65001-65005)
-        /// fields grouped by domain under a top-level "ptiff" object.
+        /// Emit each image's metadata as JSON, including the PTIFF extension
+        /// (camera, CRS) domains when present.
         #[arg(long)]
         json: bool,
     },
-    /// Construct an ImageDescriptor and show its resolved metadata.
-    Make(MakeArgs),
-    /// Copy the primary image's pixel tiles from one TIFF to another.
+    /// Print the per-image tile grid (columns x rows) of a TIFF file.
+    TileList { path: PathBuf },
+    /// Dump the PTIFF camera / CRS extension domains of a TIFF file as JSON.
+    Metadata { path: PathBuf },
+    /// Copy every image of a TIFF (metadata + pixel payload) to a new file.
     Copy {
         src: PathBuf,
         dst: PathBuf,
-        /// Print each tile read/written on stderr (off by default).
+        /// Print each image copied to stderr (off by default).
         #[arg(long)]
         verbose: bool,
     },
-    /// Query or set the process-wide logger level.
-    Logger(LoggerArgs),
+    /// Construct an `ImageDescriptor` and show its resolved metadata.
+    Make(MakeArgs),
+    /// Write a nearest-neighbour downsample of the first image to a new TIFF.
+    Thumbnail {
+        src: PathBuf,
+        dst: PathBuf,
+        /// Output width in pixels (default: half the source width).
+        #[arg(long = "width", value_name = "PIXELS")]
+        width: Option<u32>,
+        /// Output height in pixels (default: half the source height).
+        #[arg(long = "height", value_name = "PIXELS")]
+        height: Option<u32>,
+    },
 }
 
 #[derive(clap::Args)]
@@ -88,418 +102,518 @@ struct MakeArgs {
     /// Ground sample distance in meters (optional).
     #[arg(short = 'g', long = "gsd")]
     gsd: Option<f64>,
-    /// Tile width in pixels (optional, sets tiling).
-    #[arg(long = "tile-width")]
-    tile_width: Option<u32>,
-    /// Tile height in pixels (optional, sets tiling).
-    #[arg(long = "tile-height")]
-    tile_height: Option<u32>,
-    /// Compression: none, lzw, deflate, jpeg (optional).
-    #[arg(short = 'x', long = "compression")]
+    /// Tiling in pixels as WxH (optional).
+    #[arg(long, value_name = "WxH")]
+    tile: Option<String>,
+    /// Compression scheme: none, lzw, zip/deflate, jpeg (optional).
+    #[arg(short = 'z', long = "compression")]
     compression: Option<String>,
 }
 
-#[derive(clap::Args)]
-struct LoggerArgs {
-    #[command(subcommand)]
-    command: LoggerCommand,
-}
-
-#[derive(Subcommand)]
-enum LoggerCommand {
-    /// Print the current logger level.
-    Level,
-    /// Set the process-wide logger level.
-    Set { level: String },
-}
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
+/// Top-level CLI error: a human-readable message printed to stderr.
+type CliResult = std::result::Result<(), String>;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    // Apply a global --log-level first so any libptiff logging emitted while
-    // executing the command respects the requested filter (same process).
-    if let Some(level) = &cli.log_level {
-        match parse_log_level(level) {
-            Ok(lv) => Logger::instance().set_level(lv),
-            Err(msg) => {
-                eprintln!("ptiff: error: {msg}");
-                return ExitCode::FAILURE;
-            }
-        }
-    }
-    match run(cli.command) {
+    let result = match cli.command {
+        Command::Version => run_version(),
+        Command::Info { path, json } => run_info(&path, json),
+        Command::TileList { path } => run_tile_list(&path),
+        Command::Metadata { path } => run_metadata(&path),
+        Command::Copy { src, dst, verbose } => run_copy(&src, &dst, verbose),
+        Command::Make(args) => run_make(args),
+        Command::Thumbnail {
+            src,
+            dst,
+            width,
+            height,
+        } => run_thumbnail(&src, &dst, width, height),
+    };
+
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) => {
-            eprintln!("ptiff: error: {msg}");
+            eprintln!("ptiff: {msg}");
             ExitCode::FAILURE
         }
     }
 }
 
-fn run(cmd: Command) -> Result<(), String> {
-    match cmd {
-        Command::Version => {
-            println!("runtime:      {}", runtime_version());
-            println!("compile-time: {}", compile_time_version());
-            Ok(())
-        }
-        Command::Backends => {
-            let names = backend_names();
-            if names.is_empty() {
-                println!("(no backends registered)");
-            } else {
-                for n in &names {
-                    println!("{n}");
-                }
-            }
-            Ok(())
-        }
-        Command::Logger(c) => run_logger(c),
-        Command::Info { path, json } => run_info(path, json),
-        Command::Make(args) => run_make(args),
-        Command::Copy { src, dst, verbose } => run_copy(src, dst, verbose),
-    }
-}
+// ---------------------------------------------------------------------------
+// version
+// ---------------------------------------------------------------------------
 
-fn run_logger(args: LoggerArgs) -> Result<(), String> {
-    let logger = Logger::instance();
-    match args.command {
-        LoggerCommand::Level => {
-            println!("{}", log_level_name(logger.level()));
-            Ok(())
-        }
-        LoggerCommand::Set { level } => {
-            let lv = parse_log_level(&level)?;
-            logger.set_level(lv);
-            Ok(())
-        }
-    }
-}
-
-/// Read an on-disk TIFF file's metadata and print it.
-///
-/// Uses the unified [`read_metadata`] entry point so all three facets (primary
-/// image descriptor, PTIFF extension fields, structured camera) are shown
-/// together. In text mode the camera and field blocks appear only when present.
-fn run_info(path: PathBuf, json: bool) -> Result<(), String> {
-    let md = read_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if json {
-        print_file_metadata_json(&md);
-        return Ok(());
-    }
-    print_file_metadata(&md);
+fn run_version() -> CliResult {
+    println!(
+        "ptiff {VERSION_STR} (core semver {}.{}.{})",
+        APP_VERSION.major, APP_VERSION.minor, APP_VERSION.patch
+    );
     Ok(())
 }
 
-/// Print metadata read from a real file as a JSON document.
-///
-/// The flattened `ptiff.<domain>.<name>` field list is grouped by domain under
-/// a top-level `"ptiff"` object (e.g. `{"spice": {"frame": "IAU_MOON"}}`), and
-/// the structured camera calibration is emitted under a `"camera"` object when
-/// present (K / [R|t] / P matrices row-major). Values of the extension fields
-/// are kept as strings exactly as stored; domains absent from the file simply
-/// contribute no keys.
-fn print_file_metadata_json(md: &ptiff::Metadata) {
-    use serde_json::{json, Map, Value};
+// ---------------------------------------------------------------------------
+// info
+// ---------------------------------------------------------------------------
 
-    let mut ptiff_domains: Map<String, Value> = Map::new();
-    for (key, value) in &md.fields {
-        // Split "ptiff.<domain>.<name>" -> ("<domain>", "<name>").
-        let rest = key.strip_prefix("ptiff.").unwrap_or(key);
-        let (domain, name) = match rest.split_once('.') {
-            Some((d, n)) => (d, n),
-            None => (rest, ""),
-        };
-        let entry = ptiff_domains
-            .entry(domain.to_string())
-            .or_insert_with(|| json!({}));
-        if let Value::Object(obj) = entry {
-            obj.insert(name.to_string(), Value::String(value.clone()));
+fn run_info(path: &PathBuf, as_json: bool) -> CliResult {
+    let tiff = Tiff::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if as_json {
+        print_info_json(&tiff);
+    } else {
+        print_info_text(&tiff);
+    }
+    Ok(())
+}
+
+fn print_info_text(tiff: &Tiff) {
+    for (i, image) in tiff.images().enumerate() {
+        println!(
+            "image[{i}]: {}x{} {}x{}",
+            image.width(),
+            image.height(),
+            image.channel_count(),
+            image.pixel_type()
+        );
+        if let Some(g) = image.ground_sample_distance_meters() {
+            println!("  gsd:          {g} m");
+        }
+        match image.tile_info() {
+            Some(t) => println!("  tile:         {}x{}", t.tile_width, t.tile_height),
+            None => println!("  tile:         (untiled)"),
+        }
+        match image.compression() {
+            Some(c) => println!("  compression:  {}", compression_name(c)),
+            None => println!("  compression:  (none)"),
+        }
+        if image.camera().is_some() {
+            println!("  camera:       present");
+        }
+        if image.crs().is_some() {
+            println!("  crs:          present");
         }
     }
-
-    let doc = json!({
-        "file": meta_file_fields(&md.file),
-        "ptiff": ptiff_domains,
-        "camera": md.camera.as_ref().map(camera_to_json),
-    });
-    // Pretty-print; serde_json always escapes correctly.
-    println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
 }
 
-/// Build a JSON object describing a structured [`Camera`] calibration.
-fn camera_to_json(cam: &Camera) -> serde_json::Value {
-    use serde_json::json;
-    json!({
-        "model": cam.model,
-        "has_intrinsics": cam.has_intrinsics,
-        "focal_length_x": cam.focal_length_x,
-        "focal_length_y": cam.focal_length_y,
-        "principal_x": cam.principal_x,
-        "principal_y": cam.principal_y,
-        "intrinsics": cam.intrinsics,
-        "has_extrinsics": cam.has_extrinsics,
-        "rotation_w": cam.rotation_w,
-        "rotation_x": cam.rotation_x,
-        "rotation_y": cam.rotation_y,
-        "rotation_z": cam.rotation_z,
-        "position_x": cam.position_x,
-        "position_y": cam.position_y,
-        "position_z": cam.position_z,
-        "extrinsics": cam.extrinsics,
-        "projection": cam.projection,
-        "timestamp": cam.timestamp,
-    })
+fn print_info_json(tiff: &Tiff) {
+    use serde_json::{json, Value};
+
+    let images: Vec<Value> = tiff
+        .images()
+        .enumerate()
+        .map(|(i, image)| {
+            json!({
+                "index": i,
+                "width": image.width(),
+                "height": image.height(),
+                "pixel_type": pixel_name(image.pixel_type()),
+                "channel_count": image.channel_count(),
+                "gsd_meters": image.ground_sample_distance_meters(),
+                "tile": image.tile_info().map(|t| json!({
+                    "width": t.tile_width,
+                    "height": t.tile_height
+                })),
+                "compression": image.compression().map(compression_name),
+                "camera": image.camera().map(camera_to_json),
+                "crs": image.crs().map(crs_to_json),
+            })
+        })
+        .collect();
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({ "images": images })).unwrap_or_default()
+    );
 }
 
-/// Build the image-metadata object shared by JSON output.
-fn meta_file_fields(meta: &FileMetadata) -> serde_json::Value {
-    use serde_json::json;
-    json!({
-        "width": meta.width,
-        "height": meta.height,
-        "pixel_type": pixel_name(meta.pixel_type),
-        "channel_count": meta.channel_count,
-        "tile": match meta.tile_info {
-            Some(t) => serde_json::json!({"width": t.tile_width, "height": t.tile_height}),
-            None => serde_json::Value::Null,
-        },
-    })
+// ---------------------------------------------------------------------------
+// tile-list
+// ---------------------------------------------------------------------------
+
+fn run_tile_list(path: &PathBuf) -> CliResult {
+    let tiff = Tiff::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let n = tiff.images().count();
+    println!("{n} image(s)");
+    for (i, image) in tiff.images().enumerate() {
+        let layout = tiff
+            .tile_layout(i)
+            .map_err(|e| format!("tile_layout({i}): {e}"))?;
+        let cols = layout.columns(0);
+        let rows = layout.rows(0);
+        println!(
+            "image[{i}]: {}x{}px, {}x{} tiles ({} total)",
+            image.width(),
+            image.height(),
+            cols,
+            rows,
+            cols as u64 * rows as u64
+        );
+    }
+    Ok(())
 }
 
-/// Construct an ImageDescriptor and print its resolved metadata.
-fn run_make(args: MakeArgs) -> Result<(), String> {
+// ---------------------------------------------------------------------------
+// metadata
+// ---------------------------------------------------------------------------
+
+fn run_metadata(path: &PathBuf) -> CliResult {
+    use serde_json::{json, Value};
+
+    let tiff = Tiff::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let images: Vec<Value> = tiff
+        .images()
+        .enumerate()
+        .map(|(i, image)| {
+            json!({
+                "index": i,
+                "width": image.width(),
+                "height": image.height(),
+                "camera": image.camera().map(camera_to_json),
+                "crs": image.crs().map(crs_to_json),
+            })
+        })
+        .collect();
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({ "images": images })).unwrap_or_default()
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// copy
+// ---------------------------------------------------------------------------
+
+fn run_copy(src: &PathBuf, dst: &PathBuf, verbose: bool) -> CliResult {
+    let tiff = Tiff::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let n = tiff.images().count();
+
+    // Rebuild the scene from each image's descriptor so the copy preserves
+    // dimensions, pixel type, channels, tiling, compression and the PTIFF
+    // camera/CRS extension domains. `Image.tile_info()` is not reconstructed
+    // by the scene deserializer for a tiled source, so derive the true tile
+    // grid from the on-disk `tile_layout` instead.
+    let mut scene = Scene::new();
+    let mut rasters: Vec<Vec<u8>> = Vec::new();
+    for (i, image) in tiff.images().enumerate() {
+        let layout = tiff
+            .tile_layout(i)
+            .map_err(|e| format!("tile_layout({i}): {e}"))?;
+        scene
+            .add_image(descriptor_of(image, &layout))
+            .map_err(|e| format!("add_image({i}): {e}"))?;
+        let raster = tiff
+            .read_image_pixels(i)
+            .map_err(|e| format!("read_image_pixels({i}): {e}"))?;
+        if verbose {
+            eprintln!(
+                "copied image {i}: {}x{} {}x{} ({} raster bytes)",
+                image.width(),
+                image.height(),
+                image.channel_count(),
+                image.pixel_type(),
+                raster.len()
+            );
+        }
+        rasters.push(raster);
+    }
+
+    // The core requires exactly one raster per image, in file order.
+    debug_assert_eq!(rasters.len(), n);
+    let raster_refs: Vec<&[u8]> = rasters.iter().map(Vec::as_slice).collect();
+    let bytes = Tiff::to_bytes_with_pixels(&scene, &raster_refs)
+        .map_err(|e| format!("to_bytes_with_pixels: {e}"))?;
+
+    std::fs::write(dst, &bytes).map_err(|e| format!("{}: {e}", dst.display()))?;
+    Ok(())
+}
+
+/// Reconstruct an [`ImageDescriptor`] from a read [`Image`] so a copy
+/// preserves the full metadata surface (extension domains included).
+///
+/// `image.tile_info()` is the scene's view and is *not* reconstructed for a
+/// tiled source (a known core caveat), so the on-disk `layout` supplies the
+/// real tile grid when present.
+fn descriptor_of(image: &ptiff::Image, layout: &ptiff::TileLayout) -> ImageDescriptor {
+    // A TIFF single-strip (untiled) image reports a "layout" whose tile size
+    // equals the whole image (width x rows_per_strip) — that is not real
+    // tiling. Only surface a tile grid when the stored tile is strictly
+    // smaller than the image in at least one axis.
+    let tile_info =
+        if layout.tile_size.width < image.width() || layout.tile_size.height < image.height() {
+            Some(TileInfo::new(
+                layout.tile_size.width,
+                layout.tile_size.height,
+            ))
+        } else {
+            image.tile_info()
+        };
+    ImageDescriptorBuilder::new(image.width(), image.height())
+        .pixel_type(image.pixel_type())
+        .channel_count(image.channel_count())
+        .ground_sample_distance_meters(image.ground_sample_distance_meters())
+        .tile_info(tile_info)
+        .compression(image.compression())
+        .camera(image.camera().cloned())
+        .crs(image.crs().cloned())
+        .build()
+}
+
+// ---------------------------------------------------------------------------
+// make
+// ---------------------------------------------------------------------------
+
+fn run_make(args: MakeArgs) -> CliResult {
     let pixel = parse_pixel_type(&args.pixel_type)?;
     let compression = match args.compression.as_deref() {
         Some(c) => Some(parse_compression(c)?),
         None => None,
     };
+    let tile = match args.tile.as_deref() {
+        Some(s) => Some(parse_tile(s)?),
+        None => None,
+    };
 
-    let mut b = ptiff::ImageDescriptorBuilder::new(args.width, args.height, pixel)
-        .channel_count(args.channel_count);
+    let desc = ImageDescriptorBuilder::new(args.width, args.height)
+        .pixel_type(pixel)
+        .channel_count(args.channel_count)
+        .ground_sample_distance_meters(args.gsd)
+        .tile_info(tile)
+        .compression(compression)
+        .build();
 
-    if let Some(gsd) = args.gsd {
-        b = b.gsd(gsd);
-    }
-    if let (Some(tw), Some(th)) = (args.tile_width, args.tile_height) {
-        b = b.tile(tw, th);
-    }
-    if let Some(c) = compression {
-        b = b.compression(c);
-    }
-
-    let img = b.build();
-
-    println!("width:         {}", img.width());
-    println!("height:        {}", img.height());
-    println!("pixel type:    {}", pixel_name(img.pixel_type()));
-    println!("channel count: {}", img.channel_count());
-    match img.gsd() {
+    println!("width:         {}", desc.width);
+    println!("height:        {}", desc.height);
+    println!("pixel type:    {}", pixel_name(desc.pixel_type));
+    println!("channel count: {}", desc.channel_count);
+    match desc.ground_sample_distance_meters {
         Some(g) => println!("GSD (m):       {g}"),
         None => println!("GSD (m):       (unset)"),
     }
-    match img.tile_info() {
+    match desc.tile_info {
         Some(t) => println!("tile:          {}x{}", t.tile_width, t.tile_height),
         None => println!("tile:          (untiled)"),
     }
-    match img.compression() {
+    match desc.compression {
         Some(c) => println!("compression:   {}", compression_name(c)),
         None => println!("compression:   (unset)"),
     }
     Ok(())
 }
 
-/// Copy the primary image's pixel tiles from `src` to a new TIFF at `dst`.
-///
-/// Opens a pixel-read [`Source`] on `src`, mirrors its tile layout into a
-/// write-side [`Sink`] on `dst`, then reads every tile and writes it straight
-/// through. This is a genuine end-to-end pixel I/O path (used to benchmark
-/// tile-reads through the CLI, e.g. the large real NASA LRO-NAC DTM) as well as
-/// a general tile-copy utility.
-fn run_copy(src: PathBuf, dst: PathBuf, verbose: bool) -> Result<(), String> {
-    let source = Source::open(&src).map_err(|e| format!("{}: {e}", src.display()))?;
-    let cols = source.tile_columns();
-    let rows = source.tile_rows();
-    let tile_size = source.tile_byte_size();
+// ---------------------------------------------------------------------------
+// thumbnail
+// ---------------------------------------------------------------------------
 
-    // Mirror the source layout into a sink. The C sink requires a tiled image;
-    // non-tiled (strip) sources are rejected here with a clear message.
-    let builder = source
-        .descriptor_builder()
-        .map_err(|e| format!("{}: {e}", src.display()))?;
-    if builder.tile_info.is_none() {
-        return Err(format!(
-            "{}: cannot copy a non-tiled (strip) image -- source has no tile layout",
-            src.display()
-        ));
+fn run_thumbnail(
+    src: &PathBuf,
+    dst: &PathBuf,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> CliResult {
+    let tiff = Tiff::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let image0 = tiff
+        .images()
+        .next()
+        .ok_or_else(|| "thumbnail: source has no images".to_string())?;
+    let src_w = image0.width();
+    let src_h = image0.height();
+    if src_w == 0 || src_h == 0 {
+        return Err("thumbnail: invalid source dimensions".to_string());
+    }
+    let channels = image0.channel_count().max(1);
+    let bps = image0.pixel_type().bytes_per_sample();
+    let samples = channels as usize * bps;
+    if samples == 0 {
+        return Err("thumbnail: zero sample size".to_string());
     }
 
-    // Preserve the source's structured camera calibration (if any) on the
-    // copy, so the destination keeps its `ptiff.camera.*` metadata.
-    let source_camera = open_path_camera(&src)
-        .ok()
-        .filter(|c| c.has_intrinsics || c.has_extrinsics);
-    let sink = match &source_camera {
-        Some(cam) => Sink::create_with_camera(&dst, builder, cam)
-            .map_err(|e| format!("{}: {e}", dst.display()))?,
-        None => Sink::create(&dst, builder).map_err(|e| format!("{}: {e}", dst.display()))?,
-    };
+    // Resolve output dimensions (default: half the source), clamped to >= 1.
+    let out_w = width.unwrap_or(src_w / 2).max(1);
+    let out_h = height.unwrap_or(src_h / 2).max(1);
 
-    let mut buffer = vec![0u8; tile_size];
-    let mut tiles = 0u64;
-    let mut bytes: u64 = 0;
-    for r in 0..rows {
-        for c in 0..cols {
-            let n = source
-                .read_tile(c, r, &mut buffer)
-                .map_err(|e| format!("{}: read tile ({c},{r}): {e}", src.display()))?;
-            sink.write_tile(c, r, &buffer)
-                .map_err(|e| format!("{}: write tile ({c},{r}): {e}", dst.display()))?;
-            tiles += 1;
-            bytes += n as u64;
-            if verbose {
-                eprintln!("tile ({c},{r}): {n} bytes");
-            }
-        }
-    }
-    // Drop the sink (flush) before reporting so the destination is complete
-    // and readable when we print the summary.
-    drop(sink);
+    let raster = tiff
+        .read_image_pixels(0)
+        .map_err(|e| format!("read_image_pixels(0): {e}"))?;
 
-    println!("src:           {}", src.display());
-    println!("dst:           {}", dst.display());
-    println!("grid:         {}x{} ({} tiles)", cols, rows, tiles);
-    println!("tile size:     {tile_size} bytes");
-    println!("bytes copied:  {bytes}");
-    if source_camera.is_some() {
-        println!("camera:        preserved");
-    }
+    let mut out = vec![0u8; (out_w as usize) * (out_h as usize) * samples];
+    downsample_nearest(
+        &raster,
+        src_w as usize,
+        src_h as usize,
+        samples,
+        &mut out,
+        out_w as usize,
+        out_h as usize,
+    );
+
+    // Write a single-image TIFF carrying the downsampled raster, preserving
+    // the pixel type and channel count (nearest-neighbour keeps sample layout).
+    let desc = ImageDescriptorBuilder::new(out_w, out_h)
+        .pixel_type(image0.pixel_type())
+        .channel_count(image0.channel_count())
+        .build();
+    let mut scene = Scene::new();
+    scene
+        .add_image(desc)
+        .map_err(|e| format!("add_image: {e}"))?;
+    let bytes = Tiff::to_bytes_with_pixels(&scene, &[&out])
+        .map_err(|e| format!("to_bytes_with_pixels: {e}"))?;
+    std::fs::write(dst, &bytes).map_err(|e| format!("{}: {e}", dst.display()))?;
     Ok(())
 }
 
-/// Print metadata read from a real file (no GSD/compression over this ABI yet).
-fn print_file_metadata(md: &ptiff::Metadata) {
-    // Primary image descriptor.
-    println!("width:         {}", md.file.width);
-    println!("height:        {}", md.file.height);
-    println!("pixel type:    {}", pixel_name(md.file.pixel_type));
-    println!("channel count: {}", md.file.channel_count);
-    match md.file.tile_info {
-        Some(t) => println!("tile:          {}x{}", t.tile_width, t.tile_height),
-        None => println!("tile:          (untiled)"),
-    }
-    // Structured camera calibration, when present.
-    if let Some(cam) = &md.camera {
-        println!(
-            "camera:        {} (intrinsics={}, extrinsics={})",
-            cam.model, cam.has_intrinsics, cam.has_extrinsics
-        );
-        if cam.has_intrinsics {
-            println!(
-                "  fx/fy:       {}/{}",
-                cam.focal_length_x, cam.focal_length_y
-            );
-            println!("  cx/cy:       {}/{}", cam.principal_x, cam.principal_y);
-        }
-        if cam.has_extrinsics {
-            println!(
-                "  pos (x,y,z): ({}, {}, {})",
-                cam.position_x, cam.position_y, cam.position_z
-            );
-        }
-        if !cam.timestamp.is_empty() {
-            println!("  timestamp:   {}", cam.timestamp);
-        }
-    }
-    // Flattened PTIFF extension fields, when any.
-    if !md.fields.is_empty() {
-        println!("fields:        {}", md.fields.len());
-        for (key, value) in &md.fields {
-            println!("  {key} = {value}");
+/// Nearest-neighbour downsample over a pixel-interleaved raster.
+///
+/// Each pixel occupies `samples` bytes; the source grid is `src_w`x`src_h`
+/// pixels. Output pixel `(ox, oy)` samples source
+/// `(floor(ox*src_w/out_w), floor(oy*src_h/out_h))`.
+fn downsample_nearest(
+    src: &[u8],
+    src_w: usize,
+    src_h: usize,
+    samples: usize,
+    out: &mut [u8],
+    out_w: usize,
+    out_h: usize,
+) {
+    debug_assert_eq!(src.len(), src_w * src_h * samples);
+    debug_assert_eq!(out.len(), out_w * out_h * samples);
+    for oy in 0..out_h {
+        let sy = oy * src_h / out_h;
+        for ox in 0..out_w {
+            let sx = ox * src_w / out_w;
+            let src_off = (sy * src_w + sx) * samples;
+            let dst_off = (oy * out_w + ox) * samples;
+            out[dst_off..dst_off + samples].copy_from_slice(&src[src_off..src_off + samples]);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Parsing helpers
+// serialization helpers
 // ---------------------------------------------------------------------------
 
-fn parse_pixel_type(s: &str) -> Result<ptiff::PixelType, String> {
-    match s.to_ascii_lowercase().as_str() {
-        "uint8" | "u8" => Ok(ptiff::PixelType::UInt8),
-        "uint16" | "u16" => Ok(ptiff::PixelType::UInt16),
-        "uint32" | "u32" => Ok(ptiff::PixelType::UInt32),
-        "float32" | "f32" => Ok(ptiff::PixelType::Float32),
-        "float64" | "f64" => Ok(ptiff::PixelType::Float64),
-        other => Err(format!(
-            "unknown pixel type '{other}' (expected uint8|uint16|uint32|float32|float64)"
-        )),
+fn camera_to_json(cam: &ptiff::Camera) -> serde_json::Value {
+    use serde_json::json;
+    let intr = cam.intrinsics();
+    let extr = cam.extrinsics();
+    json!({
+        "model": cam.model_name(),
+        "timestamp": cam.timestamp(),
+        "intrinsics": {
+            "focal_length_x": intr.focal_length_pixels_x,
+            "focal_length_y": intr.focal_length_pixels_y,
+            "principal_x": intr.principal_point_x,
+            "principal_y": intr.principal_point_y,
+        },
+        "rotation": [
+            extr.rotation.w,
+            extr.rotation.x,
+            extr.rotation.y,
+            extr.rotation.z,
+        ],
+        "position": [
+            extr.translation.x,
+            extr.translation.y,
+            extr.translation.z,
+        ],
+        "projection_matrix": cam.projection_matrix(),
+    })
+}
+
+fn crs_to_json(crs: &CoordinateReferenceSystem) -> serde_json::Value {
+    use serde_json::json;
+    json!({
+        "planet": crs.planet().name(),
+        "frame": crs.frame().id(),
+        "projection": projection_to_json(crs.projection()),
+    })
+}
+
+fn projection_to_json(p: &Projection) -> serde_json::Value {
+    use serde_json::{json, Map, Value};
+    let mut params = Map::new();
+    for (k, v) in p.iter() {
+        params.insert(k.to_string(), Value::from(v));
+    }
+    json!({
+        "kind": projection_name(p.kind()),
+        "parameters": params,
+    })
+}
+
+fn projection_name(k: ProjectionKind) -> &'static str {
+    match k {
+        ProjectionKind::Equirectangular => "equirectangular",
+        ProjectionKind::Stereographic => "stereographic",
+        ProjectionKind::Sinusoidal => "sinusoidal",
+        ProjectionKind::Orthographic => "orthographic",
+        _ => "unknown",
     }
 }
 
-fn parse_compression(s: &str) -> Result<ptiff::CompressionKind, String> {
+// ---------------------------------------------------------------------------
+// parsing helpers
+// ---------------------------------------------------------------------------
+
+fn parse_pixel_type(s: &str) -> std::result::Result<PixelType, String> {
     match s.to_ascii_lowercase().as_str() {
-        "none" => Ok(ptiff::CompressionKind::None),
-        "lzw" => Ok(ptiff::CompressionKind::Lzw),
-        "deflate" | "zip" => Ok(ptiff::CompressionKind::Deflate),
-        "jpeg" => Ok(ptiff::CompressionKind::Jpeg),
-        other => Err(format!(
-            "unknown compression '{other}' (expected none|lzw|deflate|jpeg)"
-        )),
+        "uint8" | "u8" => Ok(PixelType::UInt8),
+        "uint16" | "u16" => Ok(PixelType::UInt16),
+        "uint32" | "u32" => Ok(PixelType::UInt32),
+        "float32" | "f32" | "float" => Ok(PixelType::Float32),
+        "float64" | "f64" | "double" => Ok(PixelType::Float64),
+        other => Err(format!("unknown pixel type {other:?}")),
     }
 }
 
-fn parse_log_level(s: &str) -> Result<LogLevel, String> {
+fn parse_compression(s: &str) -> std::result::Result<CompressionKind, String> {
     match s.to_ascii_lowercase().as_str() {
-        "trace" => Ok(LogLevel::Trace),
-        "debug" => Ok(LogLevel::Debug),
-        "info" => Ok(LogLevel::Info),
-        "warn" => Ok(LogLevel::Warn),
-        "error" => Ok(LogLevel::Error),
-        "critical" => Ok(LogLevel::Critical),
-        "off" => Ok(LogLevel::Off),
-        other => Err(format!(
-            "unknown log level '{other}' (expected trace|debug|info|warn|error|critical|off)"
-        )),
+        "none" => Ok(CompressionKind::None),
+        "lzw" => Ok(CompressionKind::Lzw),
+        "zip" | "deflate" => Ok(CompressionKind::Deflate),
+        "jpeg" => Ok(CompressionKind::Jpeg),
+        other => Err(format!("unknown compression {other:?}")),
     }
 }
 
-fn pixel_name(p: ptiff::PixelType) -> &'static str {
+fn parse_tile(s: &str) -> std::result::Result<TileInfo, String> {
+    let (w, h) = s
+        .split_once('x')
+        .ok_or_else(|| format!("invalid tile spec {s:?}: expected WxH"))?;
+    let w = w
+        .parse::<u32>()
+        .map_err(|_| format!("invalid tile width in {s:?}"))?;
+    let h = h
+        .parse::<u32>()
+        .map_err(|_| format!("invalid tile height in {s:?}"))?;
+    Ok(TileInfo::new(w, h))
+}
+
+fn pixel_name(p: PixelType) -> &'static str {
     match p {
-        ptiff::PixelType::UInt8 => "uint8",
-        ptiff::PixelType::UInt16 => "uint16",
-        ptiff::PixelType::UInt32 => "uint32",
-        ptiff::PixelType::Float32 => "float32",
-        ptiff::PixelType::Float64 => "float64",
+        PixelType::UInt8 => "uint8",
+        PixelType::UInt16 => "uint16",
+        PixelType::UInt32 => "uint32",
+        PixelType::Float32 => "float32",
+        PixelType::Float64 => "float64",
+        _ => "unknown",
     }
 }
 
-fn compression_name(c: ptiff::CompressionKind) -> &'static str {
+fn compression_name(c: CompressionKind) -> &'static str {
     match c {
-        ptiff::CompressionKind::None => "none",
-        ptiff::CompressionKind::Lzw => "lzw",
-        ptiff::CompressionKind::Deflate => "deflate",
-        ptiff::CompressionKind::Jpeg => "jpeg",
-    }
-}
-
-fn log_level_name(level: LogLevel) -> &'static str {
-    match level {
-        LogLevel::Trace => "trace",
-        LogLevel::Debug => "debug",
-        LogLevel::Info => "info",
-        LogLevel::Warn => "warn",
-        LogLevel::Error => "error",
-        LogLevel::Critical => "critical",
-        LogLevel::Off => "off",
+        CompressionKind::None => "none",
+        CompressionKind::Lzw => "lzw",
+        CompressionKind::Deflate => "deflate",
+        CompressionKind::Jpeg => "jpeg",
+        _ => "unknown",
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tests (pure logic, no linked library required)
+// tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -507,71 +621,103 @@ mod tests {
     use super::*;
 
     #[test]
+    fn version_is_queryable() {
+        // The CLI shares the core's runtime-queryable version constants, so
+        // `ptiff --version` / `ptiff version` report the *core* version (the
+        // version that defines the on-disk format), not just the CLI crate's.
+        assert_eq!(VERSION_STR, env!("CARGO_PKG_VERSION"));
+        assert_eq!(APP_VERSION.to_string(), VERSION_STR);
+        assert_eq!(APP_VERSION.major, 0);
+    }
+
+    #[test]
+    fn downsample_nearest_shrinks_grid() {
+        // 4x2 grid of 1-byte samples -> 2x1 grid; left/right halves collapse.
+        let src = vec![0u8, 1, 2, 3, 100, 101, 102, 103];
+        let mut out = vec![0u8; 2];
+        downsample_nearest(&src, 4, 2, 1, &mut out, 2, 1);
+        assert_eq!(out, vec![0, 2]); // (0,0)->0, (1,0)->2
+    }
+
+    #[test]
+    fn downsample_nearest_preserves_channels() {
+        // 2x1 RGB image -> 1x1; takes top-left pixel verbatim.
+        let src = vec![10u8, 20, 30, 40, 50, 60];
+        let mut out = vec![0u8; 3];
+        downsample_nearest(&src, 2, 1, 3, &mut out, 1, 1);
+        assert_eq!(out, vec![10, 20, 30]);
+    }
+
+    #[test]
     fn pixel_type_parsing() {
-        assert_eq!(parse_pixel_type("uint8").unwrap(), ptiff::PixelType::UInt8);
-        assert_eq!(parse_pixel_type("u16").unwrap(), ptiff::PixelType::UInt16);
-        assert_eq!(
-            parse_pixel_type("FLOAT32").unwrap(),
-            ptiff::PixelType::Float32
-        );
+        assert_eq!(parse_pixel_type("uint8").unwrap(), PixelType::UInt8);
+        assert_eq!(parse_pixel_type("u16").unwrap(), PixelType::UInt16);
+        assert_eq!(parse_pixel_type("FLOAT32").unwrap(), PixelType::Float32);
+        assert_eq!(parse_pixel_type("u32").unwrap(), PixelType::UInt32);
+        assert_eq!(parse_pixel_type("f64").unwrap(), PixelType::Float64);
         assert!(parse_pixel_type("bogus").is_err());
     }
 
     #[test]
     fn compression_parsing() {
-        assert_eq!(
-            parse_compression("lzw").unwrap(),
-            ptiff::CompressionKind::Lzw
-        );
-        assert_eq!(
-            parse_compression("zip").unwrap(),
-            ptiff::CompressionKind::Deflate
-        );
-        assert_eq!(
-            parse_compression("NONE").unwrap(),
-            ptiff::CompressionKind::None
-        );
+        assert_eq!(parse_compression("lzw").unwrap(), CompressionKind::Lzw);
+        assert_eq!(parse_compression("zip").unwrap(), CompressionKind::Deflate);
+        assert_eq!(parse_compression("NONE").unwrap(), CompressionKind::None);
         assert!(parse_compression("brotli").is_err());
     }
 
     #[test]
-    fn log_level_names() {
-        assert_eq!(log_level_name(LogLevel::Info), "info");
-        assert_eq!(log_level_name(LogLevel::Critical), "critical");
+    fn tile_spec_parsing() {
+        assert_eq!(parse_tile("16x16").unwrap(), TileInfo::new(16, 16));
+        assert!(parse_tile("16").is_err());
+        assert!(parse_tile("axb").is_err());
     }
 
     #[test]
-    fn log_level_parsing() {
-        assert_eq!(parse_log_level("trace").unwrap(), LogLevel::Trace);
-        assert_eq!(parse_log_level("OFF").unwrap(), LogLevel::Off);
-        assert!(parse_log_level("verbose").is_err());
-    }
-
-    #[test]
-    fn camera_json_serializes_model_and_matrices() {
-        let cam = Camera::pinhole(
-            700.0,
-            715.0,
-            32.0,
-            24.0,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            2.0,
-            3.0,
-            Some("2026-08-21T12:34:56.000Z".to_string()),
+    fn projection_names_are_stable() {
+        assert_eq!(
+            projection_name(ProjectionKind::Equirectangular),
+            "equirectangular"
         );
-        let v = camera_to_json(&cam);
-        // The camera is emitted with its model, intrinsics and timestamp.
-        assert_eq!(v["model"], "pinhole");
-        assert_eq!(v["focal_length_x"], 700.0);
-        assert_eq!(v["has_intrinsics"], true);
-        assert_eq!(v["timestamp"], "2026-08-21T12:34:56.000Z");
-        // intrinsics / extrinsics / projection are JSON arrays of the right size.
-        assert_eq!(v["intrinsics"].as_array().unwrap().len(), 9);
-        assert_eq!(v["extrinsics"].as_array().unwrap().len(), 12);
-        assert_eq!(v["projection"].as_array().unwrap().len(), 12);
+        assert_eq!(
+            projection_name(ProjectionKind::Stereographic),
+            "stereographic"
+        );
+        assert_eq!(
+            projection_name(ProjectionKind::Orthographic),
+            "orthographic"
+        );
+    }
+
+    #[test]
+    fn descriptor_of_round_trips_image_metadata() {
+        let desc = ImageDescriptorBuilder::new(40, 30)
+            .pixel_type(PixelType::UInt8)
+            .channel_count(3)
+            .ground_sample_distance_meters(Some(2.5))
+            .tile(16, 16)
+            .compression(Some(CompressionKind::Lzw))
+            .build();
+        let img = ptiff::Image::new(desc);
+        // Untilited on-disk layout: the scene's tile_info is preserved as-is.
+        let rebuilt = descriptor_of(&img, &ptiff::TileLayout::default());
+        assert_eq!(rebuilt.width, 40);
+        assert_eq!(rebuilt.height, 30);
+        assert_eq!(rebuilt.pixel_type, PixelType::UInt8);
+        assert_eq!(rebuilt.channel_count, 3);
+        assert_eq!(rebuilt.ground_sample_distance_meters, Some(2.5));
+        assert_eq!(rebuilt.compression, Some(CompressionKind::Lzw));
+    }
+
+    #[test]
+    fn descriptor_of_overrides_tile_info_from_layout_for_tiled_sources() {
+        // The read image loses its tiling in the scene view, but the on-disk
+        // layout still knows it; a tiled layout must win.
+        let img = ptiff::Image::new(ImageDescriptorBuilder::new(34, 34).build());
+        let layout = ptiff::TileLayout::new(ptiff::TileExtent::new(16, 16), 34, 34, 1);
+        let rebuilt = descriptor_of(&img, &layout);
+        assert_eq!(rebuilt.tile_info, Some(TileInfo::new(16, 16)));
+        assert_eq!(rebuilt.width, 34);
+        assert_eq!(rebuilt.height, 34);
     }
 }
