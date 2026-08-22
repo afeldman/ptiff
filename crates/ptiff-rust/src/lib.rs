@@ -50,6 +50,13 @@ pub use ptiff_core::{
     TileInfo, Vec3,
 };
 
+/// Runtime-queryable crate version (e.g. for a `ptiff --version` CLI flag).
+///
+/// [`APP_VERSION`] is the parsed, comparable [`semver::Version`] (use
+/// `.major`/`.minor`/`.patch` comparisons); [`VERSION_STR`] is the raw
+/// `"x.y.z"` string from `Cargo.toml`, best for display/logging.
+pub use ptiff_core::{APP_VERSION, VERSION_STR};
+
 /// Convenience re-exports for `use ptiff::prelude::*;`.
 pub mod prelude {
     pub use crate::{
@@ -61,3 +68,18 @@ pub mod prelude {
 mod tiff;
 
 pub use tiff::Tiff;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_constants_are_queryable() {
+        // The crate version is available for a future `ptiff --version` CLI
+        // flag: `VERSION_STR` mirrors Cargo.toml's `version` and `APP_VERSION`
+        // parses it into a comparable semver.
+        assert_eq!(VERSION_STR, env!("CARGO_PKG_VERSION"));
+        assert_eq!(APP_VERSION.to_string(), VERSION_STR);
+        assert_eq!(APP_VERSION.major, 0);
+    }
+}
