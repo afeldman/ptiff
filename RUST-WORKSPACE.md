@@ -101,6 +101,9 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │   └── src/                kein C-ABI; ergonomische High-Level-Einstiege über die Core-Traits
 │       ├── lib.rs          Re-Exports (Scene/Image/ImageDescriptor/geometry/...) + prelude
 │       └── tiff.rs         Tiff (open/from_bytes wrt Scene; images(); to_bytes/write via TiffBackend)
+├── crates/ptiff-cli/        CLI (Binary `ptiff`, Paketname `ptiff-cli`) auf dem idiomatischen `ptiff`-Crate
+│   ├── src/main.rs         Subcommands: version/info/tile-list/metadata/copy/make/thumbnail
+│   └── tests/cli.rs        CLI-Behavior-Tests (spawning the real binary against a temp TIFF)
 ├── bindings/
 │   └── c/                      bestehende hand-gepflegte C-Header (verbleiben als SOT)
 └── PTIFF-1.0-RUST-CORE-PLAN.md architektonischer Plan (Referenz)
@@ -116,6 +119,7 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::PixelType` | `ptiff::PixelType` | UInt8, UInt16, UInt32, Float32, Float64 |
 | `ptiff_core::CompressionKind` | `ptiff::CompressionKind` | None, Lzw, Deflate, Jpeg |
 | `ptiff_core::ImageDescriptor` | `ptiff::ImageDescriptor` | width/height/pixelType/channelCount/... |
+| `ptiff_core::ImageDescriptorBuilder` | *(Rust-first, ersetzt altes Builder-Muster)* | fluenter Konstruktionspfad für das `#[non_exhaustive]` `ImageDescriptor`; re-exportiert von `ptiff` |
 | `ptiff_core::TileInfo` | `ptiff::TileInfo` | tileWidth/tileHeight |
 | `ptiff_core::tile::TileExtent` | `ptiff::io::tile::TileExtent` | width/height |
 | `ptiff_core::tile::TileIndex` | `ptiff::io::tile::TileIndex` | column/row/level |
@@ -196,9 +200,10 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **343 `ptiff-core`-Tests** — 317 Unit + 10 Corrupted + 6 Golden + 7
-  Property + 3 `tiled_write`-Integration — plus 13 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl.
-  idiomatischem `ptiff`-Crate).
+  muss grün sein (Stand: **345 `ptiff-core`-Unit-Tests** — 319 Unit + 10 Corrupted + 6 Golden + 7
+  Property + 3 `tiled_write`-Integration — plus 13 idiomatische `ptiff` + 17 `ptiff-cli`
+  (9 Unit + 8 CLI-Behavior) + 2 Doc-Tests; workspace inkl. idiomatischem `ptiff`- und
+  `ptiff-cli`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -311,6 +316,23 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    Camera/Geometry/CRS sind im idiomatischen Layer re-exportiert und tragen über
    `ImageDescriptor.camera`/`crs` typisiert auf jedem `Scene`-Bild (end-to-end durch die
    PTIFF-Tags 65002/65003, siehe Punkt 4).
+
+   **`ptiff-cli` fertig (Phase 11, erster Slice):** `crates/ptiff-cli` (Binary `ptiff`)
+   ist nun als Workspace-Member auf dem idiomatischen `ptiff`-Crate neu geschrieben
+   (ersetzt das prä-1.0-FFI-Stub, das gegen das neue Crate nicht mehr kompilierte).
+   Subcommands: `version` (+ globales `--version`, reportet `ptiff::{APP_VERSION,
+   VERSION_STR}` — die zuvor anlegen Grundlage für eine CLI-Versionsabfrage),
+   `info <FILE> [--json]`, `tile-list <FILE>`, `metadata <FILE>` (PTIFF camera/CRS-Domänen),
+   `copy <SRC> <DST>` (pixel-identisch, inkl. getiltet: gleicht das single-strip-Layout
+   vom on-disk `tile_layout` ab, da `Image.tile_info` nach Roundtrip nicht rekonstruiert
+   wird), `make <W> <H> <PIX> ...` (ImageDescriptor-Builder) und
+   `thumbnail <SRC> <DST> [--width] [--height]` (nearest-neighbour-Downsample).
+   Dafür ist im Core ein `ImageDescriptorBuilder` ergänzt (das `#[non_exhaustive]`
+   `ImageDescriptor` lässt sich außerhalb des Cores nicht per Struct-Literal erzeugen)
+   und die bisher fehlenden Geometrie-Typen (`CoordinateReferenceSystem`,
+   `ProjectionKind`, `Planet`, `Ellipsoid`) sind übers idiomatische `ptiff` erreichbar.
+   17 neue CLI-Tests (9 Unit + 8 CLI-Behavior, die den echten Binary gegenüber einer
+   temp TIFF-Datei spawnen).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11. **Fertig (Kern in Rust als Referenzimpl.):
    - `tests/golden.rs` (§11.3): SHA-256-Goldendigests für die **verlustfreien** Serialsierungen
