@@ -404,14 +404,23 @@ dependencies = [
 
 [[package]]
 name = "ptiff"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ptiff-core",
 ]
 
 [[package]]
+name = "ptiff-c"
+version = "1.0.0"
+dependencies = [
+ "ptiff",
+ "ptiff-core",
+ "tempfile",
+]
+
+[[package]]
 name = "ptiff-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "clap",
  "ptiff",
@@ -421,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "ptiff-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "flate2",
  "jpeg-decoder",
