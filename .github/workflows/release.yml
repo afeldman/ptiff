@@ -76,7 +76,7 @@ jobs:
             sed -i "s/^compiler.libcxx=.*/compiler.libcxx=libstdc++11/" ~/.conan2/profiles/default
             sed -i "s/^compiler.cppstd=.*/compiler.cppstd=23/" ~/.conan2/profiles/default
           fi
-          conan profile show default
+          conan profile show
 
       - name: Install dependencies (Conan, Release)
         run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23
