@@ -52,32 +52,31 @@ jobs:
       - name: Install Conan
         run: pip install conan
 
+      - name: Install system tools + packagers
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            # clang (the preferred compiler), ninja (generator), rpm/dpkg/patchelf
+            # for CPack DEB/RPM packaging and rpath rewriting.
+            sudo apt-get install -y clang ninja-build rpm dpkg patchelf
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install ninja || brew link ninja
+          fi
+
       - name: Configure Conan (clang profile)
         # Ensure the Conan host profile uses the same clang toolchain that
         # compiles the C/C++ sources, so deps and the project share an ABI.
-        # (done with sed: avoids a heredoc whose body would have to be both
-        #  YAML-indented and column-0 for bash.)
+        # On Linux the default profile uses gcc; switch it to clang with sed.
         run: |
           conan profile detect --force
           if [[ "$RUNNER_OS" == "Linux" ]]; then
-            VER="$(clang -dumpversion)"
-            sed -i "s/^compiler=.*/compiler=clang/" ~/.conan2/profiles/default
+            VER="$(clang -dumpversion | cut -d. -f1)"
+            sed -i "s/^compiler=.*/compiler=clang/"        ~/.conan2/profiles/default
             sed -i "s/^compiler.version=.*/compiler.version=$VER/" ~/.conan2/profiles/default
             sed -i "s/^compiler.libcxx=.*/compiler.libcxx=libstdc++11/" ~/.conan2/profiles/default
             sed -i "s/^compiler.cppstd=.*/compiler.cppstd=23/" ~/.conan2/profiles/default
           fi
           conan profile show default
-
-      - name: Install system packaging tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build rpm dpkg patchelf
-
-      - name: Install Packager (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install ninja || brew link ninja
 
       - name: Install dependencies (Conan, Release)
         run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23
