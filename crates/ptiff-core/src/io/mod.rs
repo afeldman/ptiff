@@ -3,6 +3,9 @@
 //! Mirrors the C++ `ptiff::io` layer's foundational, dependency-free types.
 
 pub mod backend_capabilities;
+// The concrete storage backends live in `backend/`, each gated by a feature.
+#[cfg(feature = "memory-backend")]
+pub mod backend;
 pub mod binary_reader;
 pub mod binary_writer;
 pub mod deserializer;
