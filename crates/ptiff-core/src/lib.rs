@@ -33,7 +33,12 @@ pub mod scene;
 pub mod tile;
 
 pub use error::{Error, ErrorCode, Result};
-pub use geometry::{Extrinsics, Frame, FramePair, Intrinsics, Quaternion, Vec3};
+pub use geometry::{
+    Camera, CoordinateReferenceSystem, Extrinsics, ExtrinsicsMatrix, Frame, FramePair, Geometry,
+    GeometryKind, Intrinsics, IntrinsicsMatrix, LensModel, LensModelKind, Planet, Pose, Projection,
+    ProjectionKind, ProjectionMatrix, Quaternion, RotationMatrix, Screw, ScrewAxis, ScrewMotion,
+    Vec3,
+};
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
 pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
 pub use io::{

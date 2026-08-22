@@ -27,13 +27,22 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           ├── error.rs        ErrorCode / Error / Result (stabil, additiv)
 │           ├── id.rs           Id<Tag> (ImageId/CameraId/.../TileId)
 │           ├── pixel_type.rs   PixelType (UInt8..Float64, additiv)
-│           ├── geometry/       Spatial-Geometry: Domain-Werte + Frame-Semantik (GEOMETRY-FOUNDATION.md)
+│           ├── geometry/       Spatial-Geometry: Domain-Werte + Frame-Semantik + SE(3)/Screw (GEOMETRY-FOUNDATION.md)
 │           │   ├── mod.rs        Re-Exports
 │           │   ├── vector3.rs    Vec3 (x/y/z; Storage-only POD, C++ 1:1)
 │           │   ├── quaternion.rs Quaternion (w/x/y/z; scalar-first, default identity)
-│           │   ├── extrinsics.rs Extrinsics (rotation + translation; canonical Pose)
+│           │   ├── extrinsics.rs Extrinsics (rotation + translation; canonical Pose-Storage)
 │           │   ├── intrinsics.rs Intrinsics (fx/fy/cx/cy; pinhole pixel params)
-│           │   └── frames.rs    Frame / FramePair (from→to; 'static Labels)
+│           │   ├── frames.rs     Frame / FramePair (from→to; 'static Labels)
+│           │   ├── pose.rs       Pose (SE(3)-Wrapper + Frame-Semantik; compose/inverse/relative/act/interpolate)
+│           │   ├── screw.rs      Screw / ScrewAxis / ScrewMotion (Axis/Pitch/Motion über Twist)
+│           │   ├── camera.rs     Camera + intrinsics/extrinsics/projection-Matrix (K·[R|t])
+│           │   ├── planet.rs     Planet (name/IAU-id/Ellipsoid/reference-frame; Extension-by-instance)
+│           │   ├── ellipsoid.rs  Ellipsoid (semi-major/semi-minor, meters)
+│           │   ├── lens_model.rs LensModel / LensModelKind (Pinhole/Fisheye/Pushbroom + params)
+│           │   ├── projection.rs Projection / ProjectionKind (Equirect./Stereogr./Sinusoidal/Orthogr.)
+│           │   ├── coordinate_reference_system.rs CRS (Planet + Frame-Override + Projection; identifier=NotImplemented-Stub)
+│           │   └── scene_geometry.rs Geometry / GeometryKind (3D-Produkt; Unspecified + named params)
 │           ├── image/          image-Domain-Typen
 │           │   ├── mod.rs               Image (width/height/pixelType/...; direct)
 │           │   ├── compression_kind.rs  CompressionKind (None/Lzw/Deflate/Jpeg)
@@ -119,6 +128,16 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::geometry::Extrinsics` | `ptiff::Extrinsics` | rotation + translation; canonical Pose-Storage |
 | `ptiff_core::geometry::Frame` | *(Rust-first)* | `'static` Frame-Label; J2000/IAU_MOON/SPACECRAFT/CAMERA |
 | `ptiff_core::geometry::FramePair` | *(Rust-first)* | gerichtetes Frame-Paar from→to |
+| `ptiff_core::geometry::Pose` | *(Rust-first, auf multicalc)* | SE(3)-Wrapper + Frame-Semantik; compose/inverse/relative/act/interpolate/exp/log/adjoint |
+| `ptiff_core::geometry::Screw` | *(Rust-first, auf multicalc)* | Twist + Axis/Pitch/Motion (ScrewAxis/ScrewMotion) |
+| `ptiff_core::geometry::Camera` | `ptiff::Camera` | model+intrinsics+extrinsics+timestamp; intrinsics/extrinsics/projection-Matrix |
+| `ptiff_core::geometry::Camera::projectionMatrix` | `ptiff::Camera::projectionMatrix` | `P = K·[R\|t]` (pinhole) — C++ 1:1 |
+| `ptiff_core::geometry::Planet` | `ptiff::Planet` | name/IAU-id/Ellipsoid/reference-frame; Extension-by-instance |
+| `ptiff_core::geometry::Ellipsoid` | `ptiff::Ellipsoid` | semi-major/semi-minor, meters |
+| `ptiff_core::geometry::LensModel` | `ptiff::LensModel` | LensModelKind (Pinhole/Fisheye/Pushbroom) + named params |
+| `ptiff_core::geometry::Projection` | `ptiff::Projection` | ProjectionKind (Equirect./Stereogr./Sinusoidal/Orthogr.) + named params |
+| `ptiff_core::geometry::CoordinateReferenceSystem` | `ptiff::CoordinateReferenceSystem` | Planet + Frame-Override + Projection; identifier()=NotImplemented-Stub |
+| `ptiff_core::geometry::Geometry` | `ptiff::Geometry` | GeometryKind (Unspecified) + sourceImage + named params (3D-Produkt) |
 
 Die `TileLayout`-Abfragen (`columns`, `rows`, `region_for`, `index_for`, `from_descriptor`)
 sind semantisch **identisch zum C++-Referenzverhalten** (gleiche Rundung `/ div_ceil`, gleiche
@@ -130,7 +149,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **115 Tests grün**).
+  muss grün sein (Stand: **159 Tests grün**).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -163,12 +182,15 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
 1. ✅ `MemoryBackend`-Pixel-Tier (`MemoryImageSource`/`-Sink`, Multi-Image-Offsets) + `BackendFactory`.
 2. ✅ **Geometry Foundation Phase I:** `multicalc`-Kern + Storage-Werte (`Vec3`, `Quaternion`,
    `Extrinsics`, `Intrinsics`) + `Frame`/`FramePair` (GEOMETRY-FOUNDATION.md §8 Phase I).
-3. ⏳ **Geometry Foundation Phase II:** `Pose` (SE(3)-Wrapper + Frame-Semantik), `Screw`
-   (Axis/Pitch/Motion), `Camera`+`Planet`/`CRS`/`Projection`/`LensModel` (GEOMETRY-FOUNDATION.md §8 Phase II).
-4. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
-5. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
-6. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
-7. Tests / Golden / Property & Fuzz gemäß §11.
+3. ✅ **Geometry Foundation Phase II:** `Pose` (SE(3)-Wrapper + Frame-Semantik), `Screw`
+   (Axis/Pitch/Motion), `Camera`+`Planet`/`CRS`/`Projection`/`LensModel` + edge-case-Tests
+   (GEOMETRY-FOUNDATION.md §8 Phase II).
+4. ⏳ **Geometry Foundation Phase III/IV:** Geometry in `Scene`/`StorageModel` verdrahten;
+   SPICE-Pose-Mapping; `ptiff-rust`/`ptiff-c`-Exposition (GEOMETRY-FOUNDATION.md §8 Phase IV).
+5. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
+6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
+7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
+8. Tests / Golden / Property & Fuzz gemäß §11.
 
 > **Wichtig:** Der Kern enthält **keine** `#[no_mangle]`-Funktionen. Die C-ABI ist die
 > Plattform-Grenze (Architectural Response §3.1.4) und lebt in `ptiff-c`, nicht hier.
