@@ -88,6 +88,16 @@ pub struct TiffDirectory {
     /// Meaningful only when `compression != None`: the Sink patches the
     /// compressed byte count here after encode.
     pub strip_byte_counts_patch_offset: u64,
+    /// Absolute file offset, one per tile in row-major order, of the tile's
+    /// value slot inside the TileOffsets value array. Populated only for tiled
+    /// layouts; the Sink back-patches each tile's actual (compressed) offset
+    /// here after writing it.
+    pub tile_offsets_value_addresses: Vec<u64>,
+    /// Absolute file offset, one per tile in row-major order, of the tile's
+    /// value slot inside the TileByteCounts value array. Populated only for
+    /// tiled layouts; the Sink back-patches each tile's actual (compressed)
+    /// byte count here after writing it.
+    pub tile_byte_counts_value_addresses: Vec<u64>,
     /// libjpeg-turbo quality parameter, [0, 100]. Meaningful only when
     /// `compression == Jpeg`.
     pub jpeg_quality: u32,
@@ -110,6 +120,8 @@ impl Default for TiffDirectory {
             predictor: TiffPredictor::None,
             endian: Endian::Little,
             strip_byte_counts_patch_offset: 0,
+            tile_offsets_value_addresses: Vec::new(),
+            tile_byte_counts_value_addresses: Vec::new(),
             jpeg_quality: 90,
             ptiff_fields: std::collections::BTreeMap::new(),
         }
