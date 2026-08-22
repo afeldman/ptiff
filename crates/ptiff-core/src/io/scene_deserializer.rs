@@ -90,6 +90,13 @@ impl Deserializer for SceneDeserializer {
                 Err(_) => descriptor.compression = Some(CompressionKind::None),
             }
 
+            // PTIFF extension domains (camera + CRS) reconstructed from the
+            // `ptiff.<domain>.<key>` fields the TIFF backend decodes from the
+            // private tags 65002 / 65003. A domain the file doesn't carry stays
+            // `None`.
+            descriptor.camera = crate::geometry::camera_from_model(node)?;
+            descriptor.crs = crate::geometry::crs_from_model(node)?;
+
             scene.add_image(descriptor)?;
         }
 

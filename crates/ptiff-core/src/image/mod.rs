@@ -81,6 +81,18 @@ impl Image {
     pub const fn compression(&self) -> Option<CompressionKind> {
         self.descriptor.compression
     }
+
+    /// Returns the optional camera calibration / pose (PTIFF extension).
+    #[must_use]
+    pub const fn camera(&self) -> Option<&crate::Camera> {
+        self.descriptor.camera.as_ref()
+    }
+
+    /// Returns the optional coordinate reference system (PTIFF extension).
+    #[must_use]
+    pub const fn crs(&self) -> Option<&crate::CoordinateReferenceSystem> {
+        self.descriptor.crs.as_ref()
+    }
 }
 
 impl From<ImageDescriptor> for Image {
@@ -103,6 +115,7 @@ mod tests {
             ground_sample_distance_meters: Some(1.5),
             tile_info: Some(TileInfo::new(16, 16)),
             compression: Some(CompressionKind::Deflate),
+            ..ImageDescriptor::default()
         };
         let image = Image::new(descriptor);
 

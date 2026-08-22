@@ -93,6 +93,20 @@ impl Serializer for SceneSerializer {
                 child.set_field(FIELD_TILE_HEIGHT, tile_info.tile_height.to_string());
             }
 
+            // PTIFF extension domains (camera + CRS) round-trip through the
+            // `ptiff.<domain>.<key>` fields on this image's child node. The
+            // TIFF backend maps these to/from the private tags 65002 / 65003.
+            if let Some(camera) = image.camera() {
+                for (k, v) in crate::geometry::camera_fields(camera) {
+                    child.set_field(k, v);
+                }
+            }
+            if let Some(crs) = image.crs() {
+                for (k, v) in crate::geometry::crs_fields(crs) {
+                    child.set_field(k, v);
+                }
+            }
+
             root.add_child(child);
         }
 
