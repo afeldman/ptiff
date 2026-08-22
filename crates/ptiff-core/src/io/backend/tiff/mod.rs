@@ -15,6 +15,7 @@
 
 pub mod checked_arithmetic;
 pub mod directory;
+pub mod directory_writer;
 pub mod endian;
 pub mod header;
 pub mod ifd;
@@ -27,6 +28,9 @@ pub use checked_arithmetic::{checked_add_u64, checked_mul_u64, K_MAX_TAG_COUNT};
 pub use directory::{
     interpret_tiff_ifd, to_storage_model, TiffCompression, TiffDirectory, TiffPredictor,
     TileByteRange,
+};
+pub use directory_writer::{
+    plan_tiff_write, plan_tiff_write_multi, TiffFileWritePlan, TiffWritePlan,
 };
 pub use endian::{read_u16, read_u32, read_u64, write_u16, write_u32, write_u64, Endian};
 pub use header::{read_tiff_header, TiffHeader};
