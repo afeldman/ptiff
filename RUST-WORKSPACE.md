@@ -196,7 +196,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **308 Tests grün** bei `--features tiff-backend`, workspace inkl. idiomatischem `ptiff`-Crate).
+  muss grün sein (Stand: **331 `ptiff-core`-Tests** — 308 Unit + 10 Corrupted + 6 Golden + 7 Property — plus 8 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl. idiomatischem `ptiff`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -297,7 +297,25 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    `ImageDescriptor.camera`/`crs` typisiert auf jedem `Scene`-Bild (end-to-end durch die
    PTIFF-Tags 65002/65003, siehe Punkt 4).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
-8. Tests / Golden / Property & Fuzz gemäß §11.
+8. Tests / Golden / Property & Fuzz gemäß §11. **Fertig (Kern in Rust als Referenzimpl.):
+   - `tests/golden.rs` (§11.3): SHA-256-Goldendigests für die **verlustfreien** Serialsierungen
+     (Unkomprimiert, PackBits, LZW) + die PTIFF-Metadaten-Tags 65001–65005 inkl. der
+     RFC-provisional `ptiff.camera.*`/`ptiff.crs.*`-Schemas (Punkt 2). Bump-Regel wie im
+     C++-Oracle (`kGolden*Sha256`); Regenerierung via `PTIFF_GOLDEN_REGEN=1`. Ein
+     Cross-Oracle-Test liest dieselben Bytes mit image-rs `tiff` wieder (Dimensionen + Pixel
+     identisch) → Byte-Exakt *und* Kompatibilität.
+   - `tests/corrupted.rs` (§11.2 Corrupted-File-Tests): missgebildete TIFFs (bad byte order/
+     magic, truncation, ungültige/bzw. zyklische IFD-Offsets, überbreite Tag-Counts,
+     out-of-line-Werte > Datei, fehlende Pflicht-Tags) → `InvalidArgument` statt Panic.
+   - `tests/property.rs` (§11.4, `proptest` als dev-dep): Tile-Arithmetik-Invarianten
+     (`columns`/`rows` = `div_ceil`, `index_for`→`region_for`-Konsistenz, lückenlose Raster,
+     keine Überläufe) + LZW/PackBits-Roundtrip-Fixed-Points über generierten Eingaben.
+   - Kompression (§11.2): je Codec cross-Roundtrip bereits im Core (LZW/PackBits/Deflate
+     byte-exakt; JPEG mit Toleranz, da reines Rust-JPEG nicht byte-identisch zu libjpeg-turbo)
+     + image-rs-Oracle-Interop.
+   - Fuzzing (Rust-`cargo fuzz`) ist **deferred**: braucht Nightly-Toolchain + eigenes
+     Fuzz-Crate; die Corrupted-File-Tests liefern die Malformed-Input-Rückweisungs-Garantie
+     bereits im Standard-Toolchain.
 
 > **Wichtig:** Der Kern enthält **keine** `#[no_mangle]`-Funktionen. Die C-ABI ist die
 > Plattform-Grenze (Architectural Response §3.1.4) und lebt in `ptiff-c`, nicht hier.
