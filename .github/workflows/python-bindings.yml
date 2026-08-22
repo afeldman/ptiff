@@ -1,0 +1,104 @@
+name: Python bindings
+
+# Builds the standalone C ABI library (libptiff_c), regenerates the SWIG
+# Python module (bindings/python/src/{ptiff.py,_ptiff.so} -- promoted output,
+# see the "alles in SWIG" migration notes in bindings/swig/README.md), then
+# lints, type-checks, tests and documents bindings/python against it. Uses
+# the same OS/compiler matrix as the C++ and Go binding jobs.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-bindings:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: pip install conan
+
+      - name: Configure Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies (Conan)
+        run: conan install . --output-folder=build --build=missing -s build_type=Debug
+
+      - name: Install SWIG (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y swig
+
+      - name: Install SWIG (macOS)
+        if: runner.os == 'macOS'
+        run: brew install swig
+
+      - name: Configure (C++ + C ABI)
+        shell: bash
+        run: >
+          cmake -B build -S .
+          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPTIFF_BUILD_C_BINDINGS=ON
+          -DPTIFF_BUILD_TESTS=OFF
+          -DBUILD_SHARED_LIBS=ON
+
+      - name: Build libptiff_c
+        run: cmake --build build --target ptiff_c
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync Python bindings (all extras)
+        working-directory: bindings/python
+        run: uv sync --all-extras --dev
+
+      # Regenerates bindings/python/src/{ptiff.py,ptiff_wrap.c} and compiles
+      # src/_ptiff.so against the libptiff_c just built. MUST run after `uv
+      # sync` and MUST build against uv's venv interpreter (PYTHON=uv run
+      # python), not the system python from actions/setup-python: a compiled
+      # extension's ABI is tied to the exact interpreter that imports it, and
+      # uv provisions/manages its own Python (which need not match the
+      # system one setup-python installed) -- building against the wrong one
+      # segfaults on import (confirmed locally: same failure mode).
+      - name: Regenerate SWIG Python module
+        env:
+          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
+        run: make -C bindings/swig python PYTHON="uv run --project bindings/python python"
+
+      # src/ptiff.py is SWIG-generated (never hand-edited, regenerated above)
+      # and is excluded via extend-exclude/mypy_path+follow_imports in
+      # pyproject.toml -- only the hand-written test/ files are checked.
+      - name: Lint (ruff check)
+        working-directory: bindings/python
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        working-directory: bindings/python
+        run: uv run ruff format . --check
+
+      # No trailing `.`: passing an explicit path on the command line
+      # overrides pyproject.toml's [tool.mypy] files/follow_imports config,
+      # which would make mypy check the generated src/ptiff.py directly and
+      # fail on its runtime import-fallback pattern. Bare `mypy` picks up
+      # `files = ["test"]` from pyproject.toml.
+      - name: Type-check (mypy, strict)
+        working-directory: bindings/python
+        run: uv run mypy
+
+      - name: Test (pytest)
+        working-directory: bindings/python
+        run: uv run pytest -v
+
+      - name: Documentation (sphinx)
+        working-directory: bindings/python
+        run: uv run sphinx-build -W -b html docs docs/_build/html

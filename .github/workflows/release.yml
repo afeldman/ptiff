@@ -1,0 +1,67 @@
+name: Release
+
+# Builds a tagged release of libptiff in Release mode, runs the full test
+# suite, packages the installed artifacts, and publishes a GitHub Release.
+# Triggered when a version tag (v0.2.0, ...) is pushed.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: pip install conan
+
+      - name: Configure Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies (Conan, Release)
+        run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23
+
+      - name: Configure (Release)
+        run: >
+          cmake -B build-rel/build -S .
+          -DCMAKE_TOOLCHAIN_FILE=build-rel/build/Release/generators/conan_toolchain.cmake
+          -DCMAKE_BUILD_TYPE=Release
+          -DPTIFF_BUILD_TESTS=ON
+          -DPTIFF_BUILD_DOCS=OFF
+
+      - name: Build all (Release)
+        run: cmake --build build-rel/build --config Release -j 2
+
+      - name: Test (Release)
+        working-directory: build-rel/build
+        run: ctest --output-on-failure --build-config Release
+
+      - name: Install to staging dir
+        run: >
+          cmake --install build-rel/build --config Release
+          --prefix "$GITHUB_WORKSPACE/staging"
+
+      - name: Package staged artifacts
+        run: |
+          tar -czf libptiff-${{ github.ref_name }}-linux-x86_64.tar.gz -C staging .
+          sha256sum libptiff-*.tar.gz > SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            libptiff-*.tar.gz
+            SHA256SUMS
+          fail_on_unmatched_files: true

@@ -1,0 +1,21 @@
+# cmake-format configuration for the ptiff (Planetary TIFF) project.
+# Matches the .editorconfig / .clang-format conventions (4-space indent).
+
+based_on_style: llvm
+
+# Number of spaces for indentation.
+tab_size: 4
+
+# How to reorder the argument groups.
+separate_ctrl_name_with_space: false
+separate_fn_name_with_space: false
+
+# Indent case labels one level from the switch statement.
+dangle_parens: false
+first_comment_is_literal: true
+
+# How to wrap lines / column limit.
+line_width: 100
+
+# Command name / argument help behavior.
+use_tabchars: false

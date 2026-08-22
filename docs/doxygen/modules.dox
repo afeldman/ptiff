@@ -1,0 +1,87 @@
+/**
+ * @page core_model The PTIFF domain model
+ *
+ * The central value- and domain-types that describe a scene and its imagery.
+ * This layer never touches bytes: it is the vocabulary of the public API.
+ *
+ * @section core_result Errors and results
+ *
+ * Every fallible public operation returns @ref ptiff::Result "Result\<T\>"
+ * instead of throwing. The error side is @ref ptiff::Error "Error", a small
+ * value type based on @ref ptiff::ErrorCode "ErrorCode". See the core utilities
+ * (`core/error.hpp`, `core/result.hpp`, `core/precondition.hpp`) for helpers such as
+ * @ref PTIFF_PRECONDITION "preconditions". The project-wide rule (also in
+ * `docs/CODING_GUIDELINES.md`): *Result\<T\> for domain errors, exceptions
+ * only for contract violations*.
+ *
+ * @section core_domain Domain types
+ *
+ * | Type | Responsibility |
+ * |------|----------------|
+ * | @ref ptiff::Scene "Scene" | Container for one or more @ref ptiff::Image "Image"s plus shared metadata. |
+ * | @ref ptiff::Image "Image" | A raster image: dimensions, pixel format, tile layout, metadata. (PIMPL, move-only.) |
+ * | @ref ptiff::Metadata "Metadata" | Format-neutral, protocol-agnostic metadata. |
+ * | @ref ptiff::ScientificLayer "ScientificLayer" | Typed scientific data layers (spectra, DEM, ...). |
+ * | @ref ptiff::Camera "Camera" | Camera model covering optics + orientation. |
+ * | @ref ptiff::CoordinateReferenceSystem "CoordinateReferenceSystem" | CRS / map projection descriptors. |
+ *
+ * The domain model talks to the storage layer only through
+ * @ref ptiff::io::Serializer "Serializer" / @ref ptiff::io::Deserializer
+ * "Deserializer" — never to a concrete file format.
+ *
+ * @see @ref io_architecture
+ */
+
+/**
+ * @page io_architecture Storage & I/O architecture
+ *
+ * How images bytes flow in and out. The design goal: *libptiff never depends
+ * on a concrete file format directly.*
+ *
+ * @section io_overview Layering
+ *
+ * @verbatim
+ *  Scene / Image / Camera (domain model)
+ *         |
+ *  Serializer / Deserializer
+ *         |
+ *  StorageModel   (format-neutral)
+ *         |
+ *  StorageBackend  <-- extension point via BackendFactory
+ *         |
+ *  ImageSource / ImageSink
+ *         |
+ *  tile::Tile / TileLayout   (unit of transfer, never whole-image buffers)
+ *         |
+ *  BinaryReader / BinaryWriter (byte-level transports)
+ * @endverbatim
+ *
+ * @section io_backends Backends
+ *
+ * Concrete formats implement @ref ptiff::io::StorageBackend "StorageBackend"
+ * and register with @ref ptiff::io::BackendFactory "BackendFactory" under a
+ * name:
+ *
+ * - @ref ptiff::io::backend::TiffBackend "TiffBackend" — TIFF/BigTIFF
+ * - @ref ptiff::io::backend::Pds4Backend "Pds4Backend" — PDS4
+ * - @ref ptiff::io::backend::IsisBackend "IsisBackend" — ISIS3 CUB
+ * - @ref ptiff::io::backend::ZarrBackend "ZarrBackend" — Zarr
+ * - @ref ptiff::io::backend::OpenExrBackend "OpenExrBackend" — OpenEXR
+ * - @ref ptiff::io::backend::MemoryBackend "MemoryBackend" — in-memory
+ *
+ * Reading remote objects uses the @ref ptiff::io::HttpRangeBinaryReader
+ * "HttpRangeBinaryReader" transport (HTTP range requests); it is a *transport*,
+ * not a backend -- the chosen format backend (e.g. TiffBackend) reads over it.
+ *
+ * Each backend advertises @ref ptiff::io::BackendCapabilities
+ * "BackendCapabilities" describing what it can actually do.
+ *
+ * @section io_threading Threading / ownership
+ *
+ * - @ref ptiff::io::BinaryReader "BinaryReader"/@ref ptiff::io::BinaryWriter
+ *   "BinaryWriter" are byte-level, thread-*compatible* transports.
+ * - One @ref ptiff::io::StorageBackend "StorageBackend" instance is bound to
+ *   one open file and is not shared concurrently in this design.
+ *
+ * @see @ref core_model
+ */

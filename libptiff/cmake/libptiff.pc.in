@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/@PKGCONFIG_LIBDIR@
+includedir=${prefix}/@PKGCONFIG_INCLUDEDIR@
+
+Name: libptiff
+Description: PTIFF planetary image standard (C++ core library)
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lptiff
+Cflags: -I${includedir}

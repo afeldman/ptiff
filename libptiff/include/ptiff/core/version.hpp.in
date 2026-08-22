@@ -1,0 +1,29 @@
+#pragma once
+
+#include <string_view>
+
+#include <ptiff/export.hpp>
+
+namespace ptiff {
+
+/// Identifies a PTIFF library build: SemVer triple plus the git commit it was built from.
+struct Version {
+    int major;
+    int minor;
+    int patch;
+    std::string_view gitHash;
+
+    friend constexpr bool operator==(const Version&, const Version&) = default;
+};
+
+/// Version resolved from the headers included at compile time by the *consumer*.
+inline constexpr Version compileTimeVersion() {
+    return Version{@PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@,
+                    "@PTIFF_GIT_HASH@"};
+}
+
+/// Version of the *linked* library. Compare against compileTimeVersion() to detect a
+/// header/binary mismatch when using libptiff as a shared library.
+PTIFF_EXPORT Version runtimeVersion();
+
+} // namespace ptiff
