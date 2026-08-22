@@ -24,7 +24,7 @@ project = "ptiff"
 copyright = "PTIFF contributors"
 author = "PTIFF contributors"
 
-release = "0.4.0"
+release = "0.4.2"
 
 # -- General configuration ---------------------------------------------------
 

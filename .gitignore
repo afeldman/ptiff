@@ -52,7 +52,18 @@ Makefile
 .conan/
 conanbuild*
 conan.lock
-# CMakeUserPresets.json
+CMakeUserPresets.json
+
+##############################################
+# Native packaging (release.yml / cpack / pkgbuild)
+##############################################
+
+staging/
+/libptiff-*.pkg
+/libptiff-*.deb
+/libptiff-*.rpm
+/libptiff-*.tar.gz
+/SHA256SUMS
 
 ##############################################
 # vcpkg

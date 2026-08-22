@@ -1,6 +1,6 @@
 [package]
 name = "ptiff"
-version = "0.4.0"
+version = "0.4.2"
 edition = "2021"
 description = "Rust bindings to libptiff via the language-agnostic C ABI (libptiff_c)"
 license = "Apache-2.0"

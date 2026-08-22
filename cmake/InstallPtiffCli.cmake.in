@@ -1,0 +1,26 @@
+# Install-time helper for the Rust `ptiff` CLI.
+#
+# Runs as part of `cmake --install` (and therefore CPack packaging) via
+# `install(SCRIPT)`. `PTIFF_CLI_BINARY` is substituted by CMake at configure
+# time (it is an absolute path in the build tree). The CLI is a standalone Cargo
+# build that is produced *after* the C/C++ libraries are installed to a staging
+# prefix, so this script only copies it if it already exists. That lets a plain
+# libs-first `cmake --install --prefix <staging>` succeed before `cargo` runs;
+# CPack re-installs after the CLI is built and picks the binary up.
+#
+# Installed into ${CMAKE_INSTALL_PREFIX}/<CMAKE_INSTALL_BINDIR> beneath the
+# DESTDIR root CPack uses for its staging.
+
+if(EXISTS "@PTIFF_CLI_BINARY@")
+  # Explicitly set the execute bit: `file(INSTALL)` does not infer it from the
+  # source, so without this the packaged `ptiff` in bin/ would be non-runnable.
+  file(INSTALL "@PTIFF_CLI_BINARY@"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@"
+    FILE_PERMISSIONS
+      OWNER_READ OWNER_WRITE OWNER_EXECUTE
+      GROUP_READ GROUP_EXECUTE
+      WORLD_READ WORLD_EXECUTE)
+else()
+  message(STATUS
+    "ptiff CLI binary not present yet; skipping CLI install (libs-only)")
+endif()
