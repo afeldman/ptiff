@@ -115,8 +115,8 @@ fn decode_elements(
     Ok(values)
 }
 
-fn read_raw_entry(
-    reader: &mut impl BinaryReader,
+fn read_raw_entry<R: BinaryReader + ?Sized>(
+    reader: &mut R,
     endian: Endian,
     is_big_tiff: bool,
 ) -> Result<RawTagEntry> {
@@ -166,8 +166,8 @@ fn field_type_of(entry: &RawTagEntry) -> FieldType {
     }
 }
 
-fn resolve_entry(
-    reader: &mut impl BinaryReader,
+fn resolve_entry<R: BinaryReader + ?Sized>(
+    reader: &mut R,
     entry: &RawTagEntry,
     endian: Endian,
     is_big_tiff: bool,
@@ -225,8 +225,8 @@ fn resolve_entry(
 ///
 /// [`crate::ErrorCode::InvalidArgument`] on a truncated IFD, an entry whose
 /// field type this backend does not understand, or a value/offset read failure.
-pub fn read_tiff_ifd(
-    reader: &mut impl BinaryReader,
+pub fn read_tiff_ifd<R: BinaryReader + ?Sized>(
+    reader: &mut R,
     ifd_offset: u64,
     endian: Endian,
     is_big_tiff: bool,

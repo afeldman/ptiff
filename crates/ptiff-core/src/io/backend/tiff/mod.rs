@@ -36,6 +36,7 @@ pub mod image_source;
 pub mod pixel_format;
 pub mod ptiff_metadata;
 pub mod tag;
+pub mod tiff_backend;
 
 pub use checked_arithmetic::{checked_add_u64, checked_mul_u64, K_MAX_TAG_COUNT};
 pub use compression::{
@@ -66,3 +67,4 @@ pub use ptiff_metadata::{
 pub use tag::{
     field_type_size, field_type_size_raw, FieldType, RawTagEntry, TagId, K_PRIVATE_TAG_BASE,
 };
+pub use tiff_backend::TiffBackend;
