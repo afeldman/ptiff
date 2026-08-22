@@ -1291,6 +1291,41 @@ die aktuelle Referenzimplementierung ist C++ `libptiff`, Zielimplementierung ab 
 Rust-Core – Details siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17“). Die Meilenstein-Beschreibungen
 selbst bleiben unverändert gültig.
 
+## 17.1 Migrations-Status (Stand: 2026-08-23)
+
+**Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird archiviert (nicht
+weiter maintained), Rust ist Single-Core.“** Bis dahin bleibt `libptiff` bewusst als
+Cross-Validation-Oracle bestehen (§18) — nicht vorzeitig löschen. Status unten durch tatsächlichen
+Build+Testlauf verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace
+--features tiff-backend`: 353/353 grün), nicht nur aus Doku übernommen.
+
+| Phase | Ziel | Status | Anmerkung |
+|-------|------|--------|-----------|
+| 0 | Analyse | ✅ | dieses Dokument |
+| 1 | Workspace + Grundgerüst | 🚧 | `ptiff-core` + `ptiff` (Rust-API, `crates/ptiff-rust`) da; der laut DoD geforderte leere `ptiff-c`-C-ABI-Header-Stub existiert noch nicht (siehe Phase 7) |
+| 2 | Datenmodell (StorageModel + Domain-Typen) | 🚧 | `Scene`/`Image`/`StorageModel`/`Serializer`/`Deserializer` fertig; `Camera`/`CoordinateReferenceSystem`/`Geometry` existieren als eigenständige Rust-Typen, sind aber **nicht** in `Scene` verdrahtet (kein `addCamera`/`addGeometry`) — DoD nicht vollständig erfüllt |
+| 3 | TIFF/BigTIFF-Kern | 🚧 | TIFF/BigTIFF-Header/IFD/Directory/Tile-Layer fertig (`TiffBackend`, IFD-Kette lesen/schreiben, Mehrbild); **PDS4/ISIS3 CUB/Zarr/OpenEXR-Backends fehlen komplett** (0/4 portiert, C++ hat alle 4) |
+| 4 | Kompression | 🚧 | PackBits/LZW/Predictor (dependency-frei) fertig; **Deflate, JPEG, Zarr-ZSTD fehlen** |
+| 5 | Tiles / parallele Verarbeitung (Rayon) | ❌ | nicht begonnen — war die **Hauptmotivation** der Migration (§2.1 Punkt 1); der Rewrite hat seinen eigenen Kernvorteil bislang nicht eingelöst |
+| 6 | Metadaten-Erweiterungen (65001–65005) | 🚧 | RFC-7002-Codec (encode/decode) fertig und getestet; Scene-Verdrahtung offen (s. Phase 2) |
+| 7 | **C-ABI (`ptiff-c`)** | 🚧 **in Bearbeitung** | der **einzige harte Blocker** für „libptiff löschen“: Go-/Python-/Ruby-/Octave-Bindings hängen ausschließlich an `libptiff_c`; ohne Rust-eigene C-ABI + Nachweis der Bindings-Kompatibilität (R4) ist ein Löschen von `libptiff` gleichbedeutend mit vier toten Sprachbindings |
+| 8 | C++-Wrapper (`ptiff-cpp`) | ❌ | nicht begonnen |
+| 9 | Python (PyO3) | ❌ | nicht begonnen |
+| 10 | Octave (MEX über C-ABI) | ❌ | nicht begonnen |
+| 11 | CLI auf `ptiff-core` | 🚧 | `ptiff-cli/` existiert weiterhin nur auf dem alten `bindings/rust` (C-ABI gegen **C++**), noch nicht auf `ptiff-core` umgestellt |
+| 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | ❌ | nicht begonnen — keine bewiesene Verhaltensgleichheit |
+| 13 | PTIFF 1.0 (C++ archivieren) | ❌ | Voraussetzung: alle Phasen 0–12 grün |
+
+**Zusätzlicher, phasenübergreifender Gap:** Die N-Band-Multispektral-Erweiterung von
+`samplesPerPixel` (C++ `libptiff` ≥ 0.4.0, motiviert durch anstehende Merkur-Spektrenbilddaten,
+s. `documents/paper/ptiff/ptiff.tex` §Begrenzungen) ist im C++-Kern implementiert und getestet,
+im Rust-Kern (Phase 3/4) **noch nicht nachgezogen** — weiterer, konkreter Parity-Gap zwischen den
+beiden Implementierungen, unabhängig von den 13 Phasen oben zu schließen.
+
+**Reihenfolge-Empfehlung:** Phase 7 vor 8–11 (alle Bindings-Phasen hängen an der C-ABI); Phase 12
+vor 13 zwingend (kein „libptiff löschen“ ohne bewiesene Parität). Phase 5 (Parallelisierung)
+kann parallel zu 7–11 laufen, sollte aber vor Phase 13 nachgeholt werden, sonst liefert 1.0 den
+eigenen Haupt-Business-Case der Migration nicht.
 
 ## Phase 0 – Analyse (done in diesem Dokument)
 - **Ziel:** Repository + Anforderungen verstanden, Architekturentscheidungen votiert.

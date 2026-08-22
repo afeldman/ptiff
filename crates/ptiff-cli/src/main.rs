@@ -627,7 +627,10 @@ mod tests {
         // version that defines the on-disk format), not just the CLI crate's.
         assert_eq!(VERSION_STR, env!("CARGO_PKG_VERSION"));
         assert_eq!(APP_VERSION.to_string(), VERSION_STR);
-        assert_eq!(APP_VERSION.major, 0);
+        let cargo_major: u64 = env!("CARGO_PKG_VERSION_MAJOR")
+            .parse()
+            .expect("major parses");
+        assert_eq!(APP_VERSION.major, cargo_major);
     }
 
     #[test]
