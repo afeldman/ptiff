@@ -18,6 +18,7 @@ use crate::{Error, Result};
 /// `Image` field survives a TIFF round-trip: `tile_info` and
 /// `ground_sample_distance_meters` are not preserved.
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Scene {
     images: Vec<Image>,
     next_id: u64,
@@ -120,5 +121,24 @@ mod tests {
         let scene = Scene::new();
         let err = scene.image_at(0).unwrap_err();
         assert_eq!(err.code(), ErrorCode::OutOfRange);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn scene_round_trips_through_serde() {
+        let mut scene = Scene::new();
+        scene.add_image(desc(64, 32)).unwrap();
+        scene.add_image(desc(128, 64)).unwrap();
+
+        let json = serde_json::to_string(&scene).expect("serialize scene");
+        let mut back: Scene = serde_json::from_str(&json).expect("deserialize scene");
+
+        assert_eq!(back.image_count(), 2);
+        assert_eq!(back.image_at(0).unwrap().width(), 64);
+        assert_eq!(back.image_at(1).unwrap().width(), 128);
+
+        // A fresh image wins the next id, proving the counter was round-tripped.
+        let next = back.add_image(desc(10, 10)).unwrap();
+        assert_eq!(next, ImageId::new(2));
     }
 }

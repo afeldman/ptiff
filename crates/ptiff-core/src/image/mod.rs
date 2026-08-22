@@ -27,6 +27,7 @@ pub use crate::pixel_type::PixelType;
 /// There is no `id()` accessor — `Image` identity is scoped to whichever
 /// [`crate::Scene`] it was added to (see `Scene::add_image`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct Image {
     descriptor: ImageDescriptor,

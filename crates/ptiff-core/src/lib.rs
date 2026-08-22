@@ -30,5 +30,8 @@ pub mod tile;
 pub use error::{Error, ErrorCode, Result};
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
 pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
-pub use io::{BinaryReader, BinaryWriter, StorageModel, TileProvider};
+pub use io::{
+    BinaryReader, BinaryWriter, Deserializer, SceneDeserializer, SceneSerializer, Serializer,
+    StorageModel, TileProvider,
+};
 pub use scene::Scene;

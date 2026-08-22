@@ -14,6 +14,7 @@ use crate::image::{CompressionKind, PixelType, TileInfo};
 /// `tile_info` and `ground_sample_distance_meters` are optional: a `None` value
 /// means "not specified". They are **not** preserved through a TIFF round-trip.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct ImageDescriptor {
     /// Image width in pixels.

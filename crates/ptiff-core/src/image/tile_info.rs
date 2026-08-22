@@ -4,6 +4,7 @@
 
 /// Optional tiling layout hint in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TileInfo {
     /// Tile width in pixels.
     pub tile_width: u32,
