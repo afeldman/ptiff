@@ -14,6 +14,7 @@
 //! This module is only compiled when the `tiff-backend` feature is enabled.
 
 pub mod checked_arithmetic;
+pub mod compression;
 pub mod directory;
 pub mod directory_writer;
 pub mod endian;
@@ -25,6 +26,10 @@ pub mod ptiff_metadata;
 pub mod tag;
 
 pub use checked_arithmetic::{checked_add_u64, checked_mul_u64, K_MAX_TAG_COUNT};
+pub use compression::{
+    apply_horizontal_differencing, decode_lzw, decode_pack_bits, encode_lzw, encode_pack_bits,
+    undo_horizontal_differencing,
+};
 pub use directory::{
     interpret_tiff_ifd, to_storage_model, TiffCompression, TiffDirectory, TiffPredictor,
     TileByteRange,
