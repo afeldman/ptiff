@@ -25,6 +25,11 @@ vars:
   GENERATOR: "Ninja"
   CXX_STD: "23"
 
+  # act-Debugsteuerung: ACT_VERBOSE=/ACT_FLAGS über die Kommandozeile setzen,
+  # z.B. `ACT_VERBOSE=1 task act` oder `ACT_FLAGS="-v --debug" task act`.
+  ACT_FLAGS: "{{.ACT_FLAGS}}"
+  ACT_LOG: "act-out.log"
+
   CONF_ARGS: >-
     -G {{.GENERATOR}} -B {{.BUILD_TREE}} -S .
     -DCMAKE_TOOLCHAIN_FILE={{.TOOLCHAIN}}
@@ -159,7 +164,18 @@ tasks:
     desc: "Linux-Paketpfad lokal durchspielen (act; Docker-Socket noetig)"
     cmds:
       - task: act:cleanup
-      - act -W .act/linux-test.yml -j linux-package workflow_dispatch
+      - act -W .act/linux-test.yml -j linux-package workflow_dispatch {{.ACT_FLAGS}} > {{.ACT_LOG}} 2>&1
+
+  act:debug:
+    desc: "Wie act, aber verbose (zeigt jeden Step inkl. Build-Kommando + Fehler)"
+    cmds:
+      - task: act:cleanup
+      - act -v --debug -W .act/linux-test.yml -j linux-package workflow_dispatch > {{.ACT_LOG}} 2>&1
+
+  act:log:
+    desc: "Letzten act-Lauf protokollieren (tail act-out.log)"
+    cmds:
+      - tail -n 80 {{.ACT_LOG}}
 
   act:cleanup:
     desc: "act-Artefakte vom letzten Test entfernen"

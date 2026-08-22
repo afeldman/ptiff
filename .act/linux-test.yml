@@ -56,15 +56,32 @@ jobs:
           -DPTIFF_BUILD_DOCS=OFF
 
       - name: Build libraries (Release)
-        run: cmake --build build-rel/build --config Release -j 1
+        run: |
+          set +e
+          cmake --build build-rel/build --config Release -j 1 > build.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error::cmake --build failed (rc=$rc) — letzte 60 Zeilen:"
+            tail -n 60 build.log
+            exit 1
+          fi
+          tail -n 5 build.log
 
       - name: Install libraries to staging prefix
-        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
+        run: |
+          set +e
+          cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging" > install.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "::error::cmake --install failed (rc=$rc)"; tail -n 40 install.log; exit 1; fi
 
       - name: Build ptiff CLI against the staged prefix
         env:
           PKG_CONFIG_PATH: ${{ github.workspace }}/staging/lib/pkgconfig
-        run: cmake --build build-rel/build --target ptiff_cli --config Release
+        run: |
+          set +e
+          cmake --build build-rel/build --target ptiff_cli --config Release > cli.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "::error::ptiff cli build failed (rc=$rc)"; tail -n 40 cli.log; exit 1; fi
 
       - name: Fix install rpath for the packaged CLI
         run: |
@@ -72,7 +89,11 @@ jobs:
           patchelf --set-rpath '$ORIGIN/../lib' "$PTIFF_BIN"
 
       - name: Re-install to staging (now with CLI)
-        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
+        run: |
+          set +e
+          cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging" > install2.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "::error::cmake --install (CLI) failed (rc=$rc)"; tail -n 40 install2.log; exit 1; fi
 
       - name: Smoke test the packaged CLI
         run: |
@@ -81,7 +102,12 @@ jobs:
 
       - name: Build Linux packages (CPack deb + rpm)
         working-directory: build-rel/build
-        run: cpack -C Release
+        run: |
+          set +e
+          cpack -C Release > cpack.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "::error::cpack failed (rc=$rc)"; tail -n 40 cpack.log; exit 1; fi
+          ls -la *.deb *.rpm
 
       - name: Inspect packages
         run: |
