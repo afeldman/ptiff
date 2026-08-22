@@ -17,9 +17,10 @@ use ptiff_core::{Deserializer, Error, Result, Scene, Serializer, StorageBackend}
 /// the file (see [`Tiff::read_image_pixels`], [`Tiff::read_tile`] and
 /// [`Tiff::tile_layout`]).
 ///
-/// The write path (`to_bytes`/`write`) currently serializes image *metadata*
-/// through the core's canonical schema; writing pixel payloads alongside that
-/// is a later increment.
+/// The write path mirrors the read tier: [`Tiff::to_bytes`]/[`Tiff::write`]
+/// serialize image *metadata* through the core's canonical schema, while
+/// [`Tiff::to_bytes_with_pixels`] additionally embeds each image's raw pixel
+/// payload (round-tripping through [`Tiff::read_image_pixels`]).
 ///
 /// # Examples
 ///
@@ -182,8 +183,9 @@ impl Tiff {
     }
 
     /// Serializes a `Scene` back to PTIFF/TIFF bytes through the core's
-    /// canonical schema. Pixel (tile) data is not written in this increment;
-    /// the emitted bytes encode the scene's image metadata (header + IFDs).
+    /// canonical schema. The emitted bytes encode the scene's image metadata
+    /// (header + IFDs); use [`Tiff::to_bytes_with_pixels`] to also embed each
+    /// image's raw pixel payload.
     ///
     /// # Errors
     ///
@@ -214,6 +216,102 @@ impl Tiff {
         std::fs::write(path, bytes)
             .map_err(|e| Error::invalid_argument(format!("Tiff::write: cannot write file: {e}")))?;
         Ok(())
+    }
+
+    /// Encodes a `Scene` — including each image's raw pixel payload — into
+    /// PTIFF/TIFF bytes.
+    ///
+    /// This is the pixel-carrying counterpart to [`Tiff::to_bytes`]: it writes
+    /// the same metadata (header + IFD chain), but additionally fills each
+    /// image's data region with the caller-supplied raster, so the returned
+    /// bytes round-trip through [`Tiff::from_bytes`] + [`Tiff::read_image_pixels`]
+    /// back to the exact same raster length and contents.
+    ///
+    /// **Raster layout.** `rasters` supplies one contiguous, row-major,
+    /// channel-interleaved raster per image, in file order (`index` `i`
+    /// ↔ `scene.image(i)`). The layout of `rasters[i]` is **exactly what
+    /// [`Tiff::read_image_pixels`] yields** when the same `Scene` is written by
+    /// this method: the grid's tiles concatenated row-by-row (tile row, then
+    /// tile column), where each tile carries its full tile size
+    /// (`tile_width * tile_height * channel_count * bytes_per_sample` bytes,
+    /// edge tiles padded). For the common untile case that is simply the
+    /// natural image raster, `width * height * channel_count *
+    /// bytes_per_sample` bytes in one spanning tile.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::InvalidArgument`](crate::ErrorCode::InvalidArgument) if the number of
+    /// rasters does not match `scene.image_count()`, a raster's length does not
+    /// match its image's pixel grid, or the scene cannot be represented (see
+    /// [`Tiff::to_bytes`]).
+    pub fn to_bytes_with_pixels(scene: &Scene, rasters: &[&[u8]]) -> Result<Vec<u8>> {
+        use ptiff_core::id::TileId;
+        use ptiff_core::io::StorageModel;
+        use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileRegion};
+
+        // Serialize the scene into one storage model per image (metadata only).
+        let root = SceneSerializer.serialize(scene)?;
+        let children: Vec<StorageModel> = root.children().to_vec();
+        if rasters.len() != children.len() {
+            return Err(Error::invalid_argument(format!(
+                "Tiff::to_bytes_with_pixels: expected {} raster(s) for {} image(s), got {}",
+                children.len(),
+                children.len(),
+                rasters.len()
+            )));
+        }
+
+        // Header + full IFD chain; pixel data is back-patched into the data
+        // regions through per-image sinks below.
+        let mut writer = ptiff_core::io::MemoryBinaryWriter::new();
+        TiffBackend.serialize_model_list(&children, &mut writer)?;
+
+        for (image_index, raster) in rasters.iter().enumerate() {
+            let image = scene.image_at(image_index)?;
+            let bps = image.pixel_type().bytes_per_sample() as u64;
+            let channels = u64::from(image.channel_count());
+
+            let mut sink = TiffBackend.open_image_sink_at(&mut writer, &children, image_index)?;
+            let layout = *sink.layout();
+            let tile_w = u64::from(layout.tile_size.width);
+            let tile_h = u64::from(layout.tile_size.height);
+            let tile_bytes = tile_w * tile_h * channels * bps;
+            let columns = u64::from(layout.columns(0));
+            let rows = u64::from(layout.rows(0));
+            let expected = rows * columns * tile_bytes;
+            if raster.len() as u64 != expected {
+                let msg = format!(
+                    "Tiff::to_bytes_with_pixels: image {} needs {} pixel bytes ({}x{} grid of {}x{} tiles x {} samples), got {}",
+                    image_index, expected, layout.columns(0), layout.rows(0),
+                    layout.tile_size.width, layout.tile_size.height, channels * bps, raster.len()
+                );
+                return Err(Error::invalid_argument(msg));
+            }
+
+            // Fork the raster into the layout's tiles, row-major (tile row,
+            // then tile column — matching `read_image_pixels`' order).
+            let mut offset = 0usize;
+            for row in 0..rows {
+                for column in 0..columns {
+                    let start = offset;
+                    let end = start + tile_bytes as usize;
+                    let tile = Tile::new(
+                        TileId::new(0),
+                        TileIndex::new(column as u32, row as u32, 0),
+                        TileRegion::new(
+                            (column as u32) * layout.tile_size.width,
+                            (row as u32) * layout.tile_size.height,
+                            TileExtent::new(layout.tile_size.width, layout.tile_size.height),
+                        ),
+                        &raster[start..end],
+                    );
+                    sink.write_tile(&tile)?;
+                    offset = end;
+                }
+            }
+        }
+
+        Ok(writer.take_buffer())
     }
 }
 
@@ -373,6 +471,120 @@ mod tests {
         assert!(tiff.read_image_pixels(0).is_ok());
         assert!(tiff.read_image_pixels(1).is_err());
         assert!(tiff.read_tile(1, 0, 0).is_err());
+    }
+
+    #[test]
+    fn write_image_pixels_round_trips_a_grayscale_strip() {
+        // Idiomatic write tier carries real pixels: build a scene whose single
+        // image describes an 8-bit grayscale raster, write pixels, read back.
+        let width = 40u32;
+        let height = 30u32;
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(width, height);
+        desc.channel_count = 1; // UInt8, uncompressed, untiled
+        scene.add_image(desc).expect("add image");
+
+        let raster: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i * 31 % 251) as u8)
+            .collect();
+        let bytes = Tiff::to_bytes_with_pixels(&scene, &[raster.as_slice()]).expect("write");
+
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+        assert_eq!(tiff.scene().image_count(), 1);
+        let read = tiff.read_image_pixels(0).expect("read pixels");
+        assert_eq!(read, raster, "pixel round-trip must preserve the raster");
+    }
+
+    #[test]
+    fn write_image_pixels_round_trips_multi_image_scene() {
+        // Two images of different width/height/sample-depth and channel count:
+        // the first is uncompressed 8-bit grayscale, the second uncompressed
+        // 16-bit RGB (interleaved). The raster layout matches
+        // read_image_pixels' output for every image.
+        let mut scene = Scene::new();
+        let mut gray = ImageDescriptor::new(24, 18);
+        gray.channel_count = 1;
+        scene.add_image(gray).expect("gray");
+
+        let mut rgb = ImageDescriptor::new(20, 16);
+        rgb.pixel_type = PixelType::UInt16;
+        rgb.channel_count = 3;
+        scene.add_image(rgb).expect("rgb");
+
+        let gray_raster: Vec<u8> = (0..(24 * 18) as usize).map(|i| i as u8).collect();
+        let rgb_raster: Vec<u16> = (0..(20usize * 16 * 3))
+            .map(|i| (i * 7 % 65521) as u16)
+            .collect();
+        let rgb_bytes: Vec<u8> = rgb_raster.iter().flat_map(|v| v.to_le_bytes()).collect();
+
+        let bytes =
+            Tiff::to_bytes_with_pixels(&scene, &[gray_raster.as_slice(), rgb_bytes.as_slice()])
+                .expect("write");
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+        assert_eq!(tiff.scene().image_count(), 2);
+
+        let gray_read = tiff.read_image_pixels(0).expect("gray");
+        assert_eq!(gray_read, gray_raster);
+        let rgb_read = tiff.read_image_pixels(1).expect("rgb");
+        assert_eq!(
+            rgb_read, rgb_bytes,
+            "interleaved 16-bit RGB must round-trip"
+        );
+    }
+
+    #[test]
+    fn write_image_pixels_round_trips_a_tiled_image_with_padding() {
+        // A tiled image of 38x34 pixels with 16x16 tiles: tiles at the right
+        // and bottom edges are padded out to the full 16x16 tile size. The
+        // idiomatic write tier must lay the supplied raster out as
+        // `read_image_pixels` reads it back (concatenated full-size tiles).
+        use ptiff_core::TileInfo;
+
+        let tile = 16u32;
+        let width = 38u32;
+        let height = 34u32;
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(width, height);
+        desc.channel_count = 1;
+        desc.tile_info = Some(TileInfo::new(tile, tile));
+        scene.add_image(desc).expect("add image");
+
+        // Grid is ceil(38/16) x ceil(34/16) = 3x3 tiles, each 16x16 = 256 bytes,
+        // so the raster is 3*3*256 = 2304 bytes (edge tiles padded).
+        let raster: Vec<u8> = (0..2304u32).map(|i| (i * 3 + 1) as u8).collect();
+        let bytes = Tiff::to_bytes_with_pixels(&scene, &[raster.as_slice()]).expect("write");
+
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+        let image = tiff.image(0).expect("image");
+        assert_eq!((image.width(), image.height()), (width, height));
+        // The on-disk layout reflects the 3x3 tile grid requested via
+        // `tile_info` (column/row counts come from the file's TileWidth/Length).
+        assert_eq!(
+            (
+                tiff.tile_layout(0).expect("layout").columns(0),
+                tiff.tile_layout(0).expect("layout").rows(0)
+            ),
+            (3, 3)
+        );
+
+        let read = tiff.read_image_pixels(0).expect("read pixels");
+        assert_eq!(read, raster, "tiled raster must round-trip with padding");
+    }
+
+    #[test]
+    fn write_image_pixels_validates_raster_count_and_size() {
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(8, 8);
+        desc.channel_count = 1;
+        scene.add_image(desc).expect("add image");
+
+        // No rasters supplied for one image => error.
+        let err = Tiff::to_bytes_with_pixels(&scene, &[]).expect_err("must reject empty rasters");
+        assert_eq!(err.code(), ptiff_core::ErrorCode::InvalidArgument);
+        // Too many rasters => error.
+        let err = Tiff::to_bytes_with_pixels(&scene, &[&[0u8; 64][..], &[0u8; 64][..]])
+            .expect_err("must reject too many rasters");
+        assert_eq!(err.code(), ptiff_core::ErrorCode::InvalidArgument);
     }
 
     #[test]
