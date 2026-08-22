@@ -15,6 +15,7 @@ resolver = "2"
 members = [
     "crates/ptiff-core",
     "crates/ptiff-rust",
+    "crates/ptiff-cli",
 ]
 
 # Old, C++-driven Rust crates (pre-1.0 world). Excluded from this workspace so
