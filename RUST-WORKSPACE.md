@@ -23,7 +23,7 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 ├── crates/
 │   └── ptiff-core/             der Kern (kein C-ABI, keine externen Pflicht-Deps)
 │       └── src/
-│           ├── lib.rs          Re-Exports
+│           ├── lib.rs          Re-Exports (alle öffentlichen Typen)
 │           ├── error.rs        ErrorCode / Error / Result (stabil, additiv)
 │           ├── id.rs           Id<Tag> (ImageId/CameraId/.../TileId)
 │           ├── pixel_type.rs   PixelType (UInt8..Float64, additiv)
@@ -34,10 +34,24 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           │   └── tile_info.rs         TileInfo (tileWidth/tileHeight)
 │           ├── scene.rs        Scene (add_image/image/image_at, monotonic ImageId)
 │           ├── io/             Byte-Transport & format-neutral Schicht
-│           │   ├── binary_reader.rs     BinaryReader (read/seek/position/size)
-│           │   ├── binary_writer.rs     BinaryWriter (write/seek/position/flush)
-│           │   ├── storage_model.rs     StorageModel (BTreeMap-Felder + Child-Tree)
-│           │   └── tile_provider.rs     TileProvider (layout + provide_tile)
+│           │   ├── backend_capabilities.rs  BackendCapabilities (4 Flags)
+│           │   ├── binary_reader.rs         BinaryReader (read/seek/position/size)
+│           │   ├── binary_writer.rs         BinaryWriter (write/seek/position/flush)
+│           │   ├── memory_binary_reader.rs  MemoryBinaryReader (Arc<[u8]>)
+│           │   ├── memory_binary_writer.rs  MemoryBinaryWriter (Vec<u8>)
+│           │   ├── storage_model.rs         StorageModel (BTreeMap-Felder + Child-Tree)
+│           │   ├── serializer.rs            Serializer Trait (Scene → StorageModel)
+│           │   ├── scene_serializer.rs     SceneSerializer (C++-1:1-Feld-Schema)
+│           │   ├── deserializer.rs          Deserializer Trait (StorageModel → Scene)
+│           │   ├── scene_deserializer.rs   SceneDeserializer (C++-1:1)
+│           │   ├── image_source.rs          ImageSource Trait (layout + read_tile)
+│           │   ├── image_sink.rs            ImageSink Trait (layout + write_tile)
+│           │   ├── tile_provider.rs         TileProvider (layout + provide_tile)
+│           │   ├── storage_backend.rs       StorageBackend Trait (name/capabilities/...)
+│           │   ├── storage_model.rs         (s. o.)
+│           │   └── backend/
+│           │       ├── mod.rs               Backend-Sammlung (feature-gated)
+│           │       └── memory_backend.rs    MemoryBackend (serde_json-Codec; feature)
 │           └── tile/           Tiling-Grid & Tile-Mapping
 │               ├── mod.rs               Tile (id/index/region, zero-copy &[u8])
 │               ├── tile_extent.rs       TileExtent  (width/height)
@@ -73,6 +87,17 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::Scene` | `ptiff::Scene` | add_image/image/image_at; monotonic ImageId |
 | `ptiff_core::tile::Tile<'a>` | `ptiff::io::tile::Tile` | id/index/region + zero-copy &[u8] data |
 | `ptiff_core::tile::TileLayout` | `ptiff::io::tile::TileLayout` | + columns/rows/region_for/index_for/from_descriptor |
+| `ptiff_core::io::Serializer` | `ptiff::io::Serializer` | Scene → StorageModel (Trait) |
+| `ptiff_core::io::SceneSerializer` | `ptiff::io::SceneSerializer` | C++-1:1-Feld-Schema (imageWidth/.../compression) |
+| `ptiff_core::io::Deserializer` | `ptiff::io::Deserializer` | StorageModel → Scene (Trait) |
+| `ptiff_core::io::SceneDeserializer` | `ptiff::io::SceneDeserializer` | C++-1:1; read/write-Asymmetrie (None/Lzw) |
+| `ptiff_core::io::BackendCapabilities` | `ptiff::io::BackendCapabilities` | 4 Flag-Struct (tiling/streaming/randomAccess/cloud) |
+| `ptiff_core::io::ImageSource` | `ptiff::io::ImageSource` | layout + read_tile (Trait) |
+| `ptiff_core::io::ImageSink` | `ptiff::io::ImageSink` | layout + write_tile (Trait) |
+| `ptiff_core::io::StorageBackend` | `ptiff::io::StorageBackend` | name/capabilities/open/...-Trait + NotImplemented-Defaults |
+| `ptiff_core::io::MemoryBinaryReader` | `ptiff::io::MemoryBinaryReader` | über Arc<[u8]>; seek-past-end → InvalidArgument |
+| `ptiff_core::io::MemoryBinaryWriter` | `ptiff::io::MemoryBinaryWriter` | über Vec<u8>; buffer()/take_buffer() |
+| `ptiff_core::io::backend::MemoryBackend` | `ptiff::io::backend::MemoryBackend` | serde_json-Modell-Codec (feature `memory-backend`); Rust-first |
 
 Die `TileLayout`-Abfragen (`columns`, `rows`, `region_for`, `index_for`, `from_descriptor`)
 sind semantisch **identisch zum C++-Referenzverhalten** (gleiche Rundung `/ div_ceil`, gleiche
@@ -84,16 +109,32 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **47 Tests grün**).
-- Dependencies bewusst minimal (derzeit **keine** externen Pflichtdeps im Kern).
+  muss grün sein (Stand: **77 Tests grün**).
+- Dependencies bewusst minimal: der Default-Build von `ptiff-core` ist **dependency-frei**
+  (keine externen Pflichtdeps). Externe Libs sind **feature-gated** (siehe unten).
+
+## Externe Libs (feature-gated, §4.4/§5 des Plans)
+
+Der Kern bleibt im Default dependency-frei; wo das Plan-§4/§5 eine Crate vorsieht, ist sie über
+ein optionales Cargo-Feature aktivierbar:
+
+| Feature | Crate | Liefert |
+|---------|-------|---------|
+| `serde` | `serde` (derive) | `Serialize`/`Deserialize` auf den Domain-Typen (PixelType, CompressionKind, ImageDescriptor, Image, Scene, StorageModel, ...) |
+| `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
+
+`memory-backend` impliziert `serde`. Der Default-Build bleibt dependency-frei (`cargo tree`
+zeigt keine externen Pflichtdeps). Die Pixel-Source/-Sink des `MemoryBackend` (ImageSource/
+ImageSink über das Modell + Pixel-Layout) ist bewusst noch offen (nächste Phase).
 
 ## Nächste Schritte (aus dem Plan §4.2)
 
 Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md`:
-1. Weitere stabile Grundtypen ergänzen (`Tile`, `TileProvider`, `StorageModel`, ...).
-2. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
-3. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
-4. Tests / Golden / Property & Fuzz gemäß §11.
+1. `MemoryBackend::ImageSource`/`ImageSink` (Pixel-Layout, Multi-Image-Offsets) + `BackendFactory`.
+2. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
+3. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
+4. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
+5. Tests / Golden / Property & Fuzz gemäß §11.
 
 > **Wichtig:** Der Kern enthält **keine** `#[no_mangle]`-Funktionen. Die C-ABI ist die
 > Plattform-Grenze (Architectural Response §3.1.4) und lebt in `ptiff-c`, nicht hier.
