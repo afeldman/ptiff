@@ -8,6 +8,8 @@
 //! `read_tile` call.
 
 use crate::id::TileId;
+#[cfg(feature = "tiff-codecs")]
+use crate::io::backend::tiff::compression::{decode_deflate, decode_jpeg};
 use crate::io::backend::tiff::compression::{decode_lzw, decode_pack_bits};
 use crate::io::backend::tiff::directory::{TiffCompression, TiffDirectory};
 use crate::io::backend::tiff::pixel_format::bytes_per_sample;
@@ -111,14 +113,35 @@ impl ImageSource for TiffImageSource<'_> {
                 self.buffer = decoded;
             }
             TiffCompression::Deflate => {
-                return Err(Error::not_implemented(
-                    "TiffImageSource::readTile: Deflate decoding requires the tiff-codecs feature",
-                ));
+                #[cfg(feature = "tiff-codecs")]
+                {
+                    let decoded = decode_deflate(&self.raw_buffer, expected_size)?;
+                    self.buffer = decoded;
+                }
+                #[cfg(not(feature = "tiff-codecs"))]
+                {
+                    return Err(Error::not_implemented(
+                        "TiffImageSource::readTile: Deflate decoding requires the tiff-codecs feature",
+                    ));
+                }
             }
             TiffCompression::Jpeg => {
-                return Err(Error::not_implemented(
-                    "TiffImageSource::readTile: Jpeg decoding requires the tiff-codecs feature",
-                ));
+                #[cfg(feature = "tiff-codecs")]
+                {
+                    let decoded = decode_jpeg(
+                        &self.raw_buffer,
+                        self.directory.layout.tile_size.width,
+                        self.directory.layout.tile_size.height,
+                        self.directory.samples_per_pixel,
+                    )?;
+                    self.buffer = decoded;
+                }
+                #[cfg(not(feature = "tiff-codecs"))]
+                {
+                    return Err(Error::not_implemented(
+                        "TiffImageSource::readTile: Jpeg decoding requires the tiff-codecs feature",
+                    ));
+                }
             }
         }
 

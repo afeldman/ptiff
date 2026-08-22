@@ -89,7 +89,8 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           │           ├── image_source.rs     TiffImageSource (impl ImageSource; on-demand read + Codecs)
 │           │           ├── image_sink.rs       TiffImageSink (impl ImageSink; seek-and-write + Back-Patch)
 │           │           ├── tiff_backend.rs     TiffBackend (impl StorageBackend; IFD-Kette, read+write+multi-image)
-│           │           └── compression/        dependency-freie Codecs: packbits.rs / lzw.rs / predictor.rs
+│           │           └── compression/        packbits.rs / lzw.rs / predictor.rs (dependency-frei);
+│           │                                   deflate.rs / jpeg.rs (feature `tiff-codecs`, pure-Rust)
 │           └── tile/           Tiling-Grid & Tile-Mapping
 │               ├── mod.rs               Tile (id/index/region, zero-copy &[u8])
 │               ├── tile_extent.rs       TileExtent  (width/height)
@@ -161,7 +162,7 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::io::backend::tiff::MetadataRecord` / `encode_metadata_payload` / `decode_metadata_payload` | `ptiff::io::backend::tiff::MetadataRecord`/`encodeMetadataPayload`/`decodeMetadataPayload` | RFC-7002 Private-Tag-Payload (PTIFF-Magic + Version + Records) |
 | `ptiff_core::io::backend::tiff::TiffImageSource` | `ptiff::io::backend::tiff::TiffImageSource` | impl ImageSource: on-demand read + PackBits/LZW/Predictor |
 | `ptiff_core::io::backend::tiff::TiffImageSink` | `ptiff::io::backend::tiff::TiffImageSink` | impl ImageSink: seek-and-write + compression-Back-Patch |
-| `ptiff_core::io::backend::tiff::compression::*` | `ptiff::compression::*` | dependency-freie Codecs: PackBits/LZW/Predictor (encode/decode) |
+| `ptiff_core::io::backend::tiff::compression::*` | `ptiff::compression::*` | dependency-freie Codecs: PackBits/LZW/Predictor (encode/decode); hinter `tiff-codecs`: `encode_deflate`/`decode_deflate` · `encode_jpeg`/`decode_jpeg` |
 | `ptiff_core::geometry::Vec3` | `ptiff::Vec3` | x/y/z; Storage-only POD (C++ 1:1) |
 | `ptiff_core::geometry::Quaternion` | `ptiff::Quaternion` | w/x/y/z; scalar-first, default identity |
 | `ptiff_core::geometry::Intrinsics` | `ptiff::Intrinsics` | fx/fy/cx/cy (pinhole pixel params) |
@@ -191,7 +192,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **279 Tests grün** bei `--features tiff-backend`).
+  muss grün sein (Stand: **295 Tests grün** bei `--features tiff-backend`).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -214,6 +215,7 @@ Serialisierungs-Crates unabhängig:
 | `serde` | `serde` (derive) | `Serialize`/`Deserialize` auf den Domain-Typen (PixelType, CompressionKind, ImageDescriptor, Image, Scene, StorageModel, ...) |
 | `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
 | `tiff-backend` | *(keine zusätzlichen Deps)* | TIFF/BigTIFF-Backend: Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`), Writer (`ifd_writer`/`directory`/`directory_writer`/`ptiff_metadata`), dependency-freie Codecs (`packbits`/`lzw`/`predictor`) + `TiffImageSource`/`TiffImageSink` |
+| `tiff-codecs` | `flate2` (→ miniz_oxide, pure-Rust) · `jpeg-encoder` + `jpeg-decoder` (pure-Rust) | Deflate (RFC 1950 zlib, `compression/deflate.rs`) + JPEG baseline 4:4:4 (`compression/jpeg.rs`); **impliziert `tiff-backend`** |
 
 `memory-backend` impliziert `serde`; `tiff-backend` ist dependency-frei (arbeitet direkt auf
 `BinaryReader`/`BinaryWriter`, inkl. der Codecs PackBits/LZW/Predictor). `cargo tree --edges
@@ -222,9 +224,11 @@ normal --no-default-features` zeigt nur `ptiff-core → multicalc → libm`. Der
 TIFF/BigTIFF-Schicht umfasst Format (Header/IFD/Tag-Parser), Writer (IFD/Directory/Metadata),
 dependency-freie Codecs und `TiffImageSource`/`TiffImageSink` (E2E-Write→Read-Roundtrips für
 Uncompressed/PackBits/LZW+Predictor) sowie `TiffBackend` (StorageBackend: IFD-Kette lesen,
-schreiben, Multi-Image). **Offen:** Compile-Time-Policies (Phase B — bewusst **nicht** in Rust
-abgebildet, funktional durch den Runtime-Writer abgedeckt), Deflate/JPEG-Codecs
-(features-abhängig).
+schreiben, Multi-Image). **Geschlossen:** Compile-Time-Policies (Phase B — bewusst **nicht** in
+Rust abgebildet, funktional durch den Runtime-Writer abgedeckt). Deflate-/JPEG-Codecs sind
+inklusive — hinter dem `tiff-codecs`-Feature (pure-Rust: flate2/miniz_oxide + jpeg-encoder/
+jpeg-decoder); ohne dieses Feature bleiben `TiffImageSource`/`TiffImageSink` weiterhin auf die
+dependency-freien Codecs (PackBits/LZW/Predictor) beschränkt.
 
 ## Nächste Schritte (aus dem Plan §4.2 + GEOMETRY-FOUNDATION.md)
 
@@ -245,11 +249,14 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    Overflow-/Bounds-Checks, `write_tiff_header`), ✅ Writer-Schicht (`ifd_writer`,
    `directory`+`interpret_tiff_ifd`, `directory_writer`+`plan_tiff_write[_multi]`,
    `ptiff_metadata`), ✅ dependency-freie Codecs (PackBits/LZW/Predictor), ✅
-   `TiffImageSource`/`TiffImageSink` (impl. `ImageSource`/`ImageSink`; E2E-Roundtrips) +
+   `TiffImageSource`/`TiffImageSink` (impl. `ImageSource`/`ImageSink`; E2E-Roundtrips für
+   Uncompressed/PackBits/LZW+Predictor/Deflate/Jpeg) +
    ✅ `TiffBackend` (impl. `StorageBackend`: IFD-Kette lesen/schreiben, Multi-Image,
-   BackendFactory-Registrierung "tiff"). **Geschlossen:** Compile-Time-Policies (Phase B —
-   bewusst nicht in Rust abgebildet; funktional durch den Runtime-Writer abgedeckt). **Offen:**
-   Deflate/JPEG-Codecs (features-abhängig).
+   BackendFactory-Registrierung "tiff"), ✅ Deflate/JPEG-Codecs hinter `tiff-codecs`
+   (pure-Rust: flate2/miniz_oxide + jpeg-encoder/jpeg-decoder; zlib RFC 1950, JPEG baseline
+   4:4:4; Bomben-/Size-Guards, Dimensionen-/Component-Checks). **Geschlossen:**
+   Compile-Time-Policies (Phase B — bewusst nicht in Rust abgebildet; funktional durch den
+   Runtime-Writer abgedeckt), Deflate/JPEG-Codecs.
 6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.
