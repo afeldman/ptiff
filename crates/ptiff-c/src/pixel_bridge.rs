@@ -17,7 +17,7 @@
 //! heap-owned and destroyed with their `_close` counterpart (`NULL` = no-op).
 
 use crate::error::to_c_error;
-use crate::types::{image_to_c, ptiff_image_descriptor};
+use crate::types::{apply_layout_tile_info, image_to_c, ptiff_image_descriptor};
 use ptiff::{Error, ErrorCode, Scene, Tiff};
 use std::path::PathBuf;
 
@@ -86,7 +86,8 @@ impl PtiffSource {
         }
         let image = scene.image_at(0)?;
         let layout = tiff.tile_layout(0)?;
-        let descriptor = image_to_c(image);
+        let mut descriptor = image_to_c(image);
+        apply_layout_tile_info(&layout, &mut descriptor);
         let tile_bytes = tile_byte_size(
             &layout,
             image.channel_count(),
@@ -617,6 +618,56 @@ mod tests {
             expected.extend_from_slice(&t);
         }
         assert_eq!(pixels, expected);
+    }
+
+    #[test]
+    fn source_descriptor_reports_tile_info_for_tiled_input() {
+        // The read-side C ABI must report the tiling of a written tiled image
+        // (mirroring the C++ oracle, which reads tile info from the opened
+        // image's layout). The core's SceneDeserializer deliberately leaves
+        // `tile_info` unset, so the bridge re-derives it from `tile_layout`.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tileinfo.tif");
+        let path_s = path.to_str().unwrap().to_string();
+
+        // Write a small tiled image via the sink.
+        let desc = tiled_desc(64, 48, 16, 16);
+        let sink = ptiff_sink_create(
+            std::ffi::CString::new(path_s.clone()).unwrap().as_ptr(),
+            &desc as *const ptiff_image_descriptor,
+        );
+        assert!(!sink.is_null());
+        let cols = ptiff_sink_tile_columns(sink);
+        let rows = ptiff_sink_tile_rows(sink);
+        let tile_bytes = ptiff_sink_tile_byte_size(sink);
+        let buf = vec![7u8; tile_bytes];
+        for row in 0..rows {
+            for col in 0..cols {
+                assert_eq!(
+                    ptiff_sink_write_tile(sink, col, row, buf.as_ptr(), buf.len()),
+                    0
+                );
+            }
+        }
+        ptiff_sink_close(sink);
+
+        // Read the descriptor back through the C-ABI source.
+        let source = ptiff_source_open(
+            std::ffi::CString::new(path_s).unwrap().as_ptr(),
+            std::ptr::null_mut(),
+        );
+        assert!(!source.is_null());
+        let mut out = ptiff_image_descriptor::c_default();
+        assert_eq!(
+            ptiff_source_descriptor(source, &mut out as *mut ptiff_image_descriptor),
+            0
+        );
+        assert_eq!(out.width, 64);
+        assert_eq!(out.height, 48);
+        assert_eq!(out.has_tile_info, 1);
+        assert_eq!(out.tile_info.tile_width, 16);
+        assert_eq!(out.tile_info.tile_height, 16);
+        ptiff_source_close(source);
     }
 
     #[test]

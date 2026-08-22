@@ -45,12 +45,24 @@ impl Tiff {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::InvalidArgument`](crate::ErrorCode::InvalidArgument) (or the underlying backend
-    /// error) if the file is not a valid TIFF/BigTIFF container, or a
-    /// filesystem error if the path cannot be read.
+    /// Returns [`ErrorCode::InvalidArgument`](crate::ErrorCode::InvalidArgument) if the file is not a
+    /// valid TIFF/BigTIFF container, [`ErrorCode::NotFound`](crate::ErrorCode::NotFound)
+    /// if the path does not exist, or [`ErrorCode::InvalidArgument`](crate::ErrorCode::InvalidArgument)
+    /// for other filesystem errors reading the path.
     pub fn open(path: impl AsRef<Path>) -> Result<Tiff> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| Error::invalid_argument(format!("Tiff::open: cannot read file: {e}")))?;
+        let bytes = std::fs::read(path).map_err(|e| {
+            // A missing/unreadable path is a "not found" condition, not a
+            // malformed-input error: surface it as `NotFound` so the C-ABI
+            // `ptiff_open_path` / `ptiff_source_open` report
+            // `-PTIFF_ERROR_NOT_FOUND` to foreign runtimes (matching the
+            // C++ oracle's semantics), instead of conflating it with an
+            // invalid TIFF stream.
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Error::not_found(format!("Tiff::open: file not found: {e}"))
+            } else {
+                Error::invalid_argument(format!("Tiff::open: cannot read file: {e}"))
+            }
+        })?;
         Tiff::from_bytes(&bytes)
     }
 

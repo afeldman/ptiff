@@ -8,7 +8,7 @@
 
 #![allow(non_camel_case_types)]
 
-use ptiff::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
+use ptiff::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo, TileLayout};
 
 /// Mirror of the C `ptiff_pixel_type` enum (`ptiff_image_bridge.h`). Ordering
 /// matches `ptiff::PixelType` (UInt8=0 … Float64=4), documented in the header.
@@ -177,6 +177,26 @@ pub fn image_to_c(img: &Image) -> ptiff_image_descriptor {
         out.compression = compression_to_c(c) as i32;
     }
     out
+}
+
+/// Reconstructs the tile info for a read descriptor from the backend's tile
+/// layout, mirroring the C++ `ptiff_metadata.cpp` behaviour (which reads the
+/// tiling straight out of the opened image source, not the scene's
+/// `ImageDescriptor`). The Rust core's `SceneDeserializer` deliberately leaves
+/// `tile_info` unset on deserialization (the canonical schema does not carry
+/// it), so without this the C-ABI would report `has_tile_info = 0` for every
+/// tiled file it reads back -- diverging from the C++ oracle. We only tag a
+/// layout as tiled when it actually is (`is_untiled() == false`), so a
+/// single-strip image keeps `has_tile_info = 0` (consistent with the
+/// `ptiff_sink` contract that tiled I/O requires a tile layout).
+pub fn apply_layout_tile_info(layout: &TileLayout, out: &mut ptiff_image_descriptor) {
+    if !layout.is_untiled() {
+        out.has_tile_info = 1;
+        out.tile_info = ptiff_tile_info {
+            tile_width: layout.tile_size.width,
+            tile_height: layout.tile_size.height,
+        };
+    }
 }
 
 /// Core [`PixelType`] -> C enum value.
