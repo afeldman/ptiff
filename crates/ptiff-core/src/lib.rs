@@ -11,6 +11,10 @@
 //!     ([`tile::TileLayout`], [`tile::TileIndex`], [`tile::Tile`], ...).
 //!   - [`io`]: byte transport ([`io::BinaryReader`], [`io::BinaryWriter`]),
 //!     format-neutral [`io::StorageModel`], and pixel-level [`io::TileProvider`].
+//!   - [`geometry`]: spatial domain values and frame semantics
+//!     ([`geometry::Vec3`], [`geometry::Quaternion`], [`geometry::Extrinsics`],
+//!     [`geometry::Intrinsics`], [`geometry::Frame`], [`geometry::FramePair`]),
+//!     built on the `multicalc` math kernel (GEOMETRY-FOUNDATION.md).
 //!
 //! Per the architectural plan (PTIFF-1.0-RUST-CORE-PLAN.md), this crate is the
 //! reference, single-maintained core. It deliberately exposes **no** C ABI and
@@ -20,6 +24,7 @@
 #![warn(missing_docs)]
 
 pub mod error;
+pub mod geometry;
 pub mod id;
 pub mod image;
 pub mod io;
@@ -28,6 +33,7 @@ pub mod scene;
 pub mod tile;
 
 pub use error::{Error, ErrorCode, Result};
+pub use geometry::{Extrinsics, Frame, FramePair, Intrinsics, Quaternion, Vec3};
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
 pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
 pub use io::{

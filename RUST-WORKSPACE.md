@@ -21,12 +21,19 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 ├── rust-toolchain.toml         Pin auf stable (reproduzierbare Builds)
 ├── .cargo/config.toml          konservative Dev-Defaults (debug = line-tables-only)
 ├── crates/
-│   └── ptiff-core/             der Kern (kein C-ABI, keine externen Pflicht-Deps)
+│   └── ptiff-core/             der Kern (kein C-ABI; math-Dep multicalc ist Pflicht)
 │       └── src/
 │           ├── lib.rs          Re-Exports (alle öffentlichen Typen)
 │           ├── error.rs        ErrorCode / Error / Result (stabil, additiv)
 │           ├── id.rs           Id<Tag> (ImageId/CameraId/.../TileId)
 │           ├── pixel_type.rs   PixelType (UInt8..Float64, additiv)
+│           ├── geometry/       Spatial-Geometry: Domain-Werte + Frame-Semantik (GEOMETRY-FOUNDATION.md)
+│           │   ├── mod.rs        Re-Exports
+│           │   ├── vector3.rs    Vec3 (x/y/z; Storage-only POD, C++ 1:1)
+│           │   ├── quaternion.rs Quaternion (w/x/y/z; scalar-first, default identity)
+│           │   ├── extrinsics.rs Extrinsics (rotation + translation; canonical Pose)
+│           │   ├── intrinsics.rs Intrinsics (fx/fy/cx/cy; pinhole pixel params)
+│           │   └── frames.rs    Frame / FramePair (from→to; 'static Labels)
 │           ├── image/          image-Domain-Typen
 │           │   ├── mod.rs               Image (width/height/pixelType/...; direct)
 │           │   ├── compression_kind.rs  CompressionKind (None/Lzw/Deflate/Jpeg)
@@ -106,6 +113,12 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::io::backend::MemoryImageSource` | `ptiff::io::backend::memory::MemoryImageSource` | read_tile on demand, Reusable-Buffer (C++-1:1) |
 | `ptiff_core::io::backend::MemoryImageSink` | `ptiff::io::backend::memory::MemoryImageSink` | write_tile seek-and-write; Offsets via TileLayout |
 | `ptiff_core::io::backend::MemoryBackend` | `ptiff::io::backend::MemoryBackend` | serde_json-Modell-Codec + Pixel-Tier (feature `memory-backend`); Rust-first |
+| `ptiff_core::geometry::Vec3` | `ptiff::Vec3` | x/y/z; Storage-only POD (C++ 1:1) |
+| `ptiff_core::geometry::Quaternion` | `ptiff::Quaternion` | w/x/y/z; scalar-first, default identity |
+| `ptiff_core::geometry::Intrinsics` | `ptiff::Intrinsics` | fx/fy/cx/cy (pinhole pixel params) |
+| `ptiff_core::geometry::Extrinsics` | `ptiff::Extrinsics` | rotation + translation; canonical Pose-Storage |
+| `ptiff_core::geometry::Frame` | *(Rust-first)* | `'static` Frame-Label; J2000/IAU_MOON/SPACECRAFT/CAMERA |
+| `ptiff_core::geometry::FramePair` | *(Rust-first)* | gerichtetes Frame-Paar from→to |
 
 Die `TileLayout`-Abfragen (`columns`, `rows`, `region_for`, `index_for`, `from_descriptor`)
 sind semantisch **identisch zum C++-Referenzverhalten** (gleiche Rundung `/ div_ceil`, gleiche
@@ -117,32 +130,45 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **99 Tests grün**).
-- Dependencies bewusst minimal: der Default-Build von `ptiff-core` ist **dependency-frei**
-  (keine externen Pflichtdeps). Externe Libs sind **feature-gated** (siehe unten).
+  muss grün sein (Stand: **115 Tests grün**).
+- Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
+  dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
+  Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
 
-## Externe Libs (feature-gated, §4.4/§5 des Plans)
+## Externe Libs
 
-Der Kern bleibt im Default dependency-frei; wo das Plan-§4/§5 eine Crate vorsieht, ist sie über
-ein optionales Cargo-Feature aktivierbar:
+### Mathematik-Kern (always-on, GEOMETRY-FOUNDATION.md)
+
+| Crate | Liefert | Hinweis |
+|-------|---------|---------|
+| `multicalc` (→ `libm`) | SO(3)/SE(3)-Lie-Gruppen, Quaternionen, Twist/Wrench, Linear-Algebra; `no_std`, dependency-frei | Immer aktiv; liefert den Rechen-Kern für `geometry`. |
+
+### Feature-gated (§4.4/§5 des Plans)
+
+Der Serialisierungs-Teil bleibt feature-gated — der Default-Build bleibt von
+Serialisierungs-Crates unabhängig:
 
 | Feature | Crate | Liefert |
 |---------|-------|---------|
 | `serde` | `serde` (derive) | `Serialize`/`Deserialize` auf den Domain-Typen (PixelType, CompressionKind, ImageDescriptor, Image, Scene, StorageModel, ...) |
 | `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
 
-`memory-backend` impliziert `serde`. Der Default-Build bleibt dependency-frei (`cargo tree`
-`--edges normal --no-default-features` zeigt keine externen Pflichtdeps). Der Memory-Pixel-Tier
-(`MemoryImageSource`/`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert.
+`memory-backend` impliziert `serde`. `cargo tree --edges normal --no-default-features`
+zeigt nur `ptiff-core → multicalc → libm`. Der Memory-Pixel-Tier (`MemoryImageSource`/
+`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert.
 
-## Nächste Schritte (aus dem Plan §4.2)
+## Nächste Schritte (aus dem Plan §4.2 + GEOMETRY-FOUNDATION.md)
 
-Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md`:
+Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`:
 1. ✅ `MemoryBackend`-Pixel-Tier (`MemoryImageSource`/`-Sink`, Multi-Image-Offsets) + `BackendFactory`.
-2. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
-3. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
-4. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
-5. Tests / Golden / Property & Fuzz gemäß §11.
+2. ✅ **Geometry Foundation Phase I:** `multicalc`-Kern + Storage-Werte (`Vec3`, `Quaternion`,
+   `Extrinsics`, `Intrinsics`) + `Frame`/`FramePair` (GEOMETRY-FOUNDATION.md §8 Phase I).
+3. ⏳ **Geometry Foundation Phase II:** `Pose` (SE(3)-Wrapper + Frame-Semantik), `Screw`
+   (Axis/Pitch/Motion), `Camera`+`Planet`/`CRS`/`Projection`/`LensModel` (GEOMETRY-FOUNDATION.md §8 Phase II).
+4. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
+5. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
+6. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
+7. Tests / Golden / Property & Fuzz gemäß §11.
 
 > **Wichtig:** Der Kern enthält **keine** `#[no_mangle]`-Funktionen. Die C-ABI ist die
 > Plattform-Grenze (Architectural Response §3.1.4) und lebt in `ptiff-c`, nicht hier.

@@ -37,6 +37,12 @@ memory-backend = ["dep:serde_json", "serde"]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
+# Mathematical geometry foundation (GEOMETRY-FOUNDATION.md): SO(3)/SE(3) Lie
+# groups, quaternions, Twist/Wrench, linear algebra. `multicalc` is dependency-
+# free (#![no_std], forbid(unsafe_code)), so it is an ALWAYS-ON core dependency
+# and does not break the default dependency-free build gate.
+multicalc = "0.10"
+
 [dev-dependencies]
 # Enable the `serde` and `memory-backend` features internally so their tests
 # always run.
