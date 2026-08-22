@@ -29,6 +29,12 @@ serde = ["dep:serde"]
 # StorageModel as JSON via serde_json. Also enables `serde` for the model
 # derives. Off by default.
 memory-backend = ["dep:serde_json", "serde"]
+# Optional TIFF/BigTIFF StorageBackend that parses/encodes the on-disk TIFF
+# format (header, IFD, tags) over a BinaryReader/BinaryWriter transport, plus
+# the writer policies and image source/sink. Off by default. The format layer
+# is dependency-free (works on the raw byte transport); only the writer policy
+# layer pulls in optional deps.
+tiff-backend = []
 
 [dependencies]
 # Intentionally minimal: the core is dependency-light by design (§4.2/§4.3).
@@ -44,7 +50,7 @@ serde_json = { version = "1", optional = true }
 multicalc = "0.10"
 
 [dev-dependencies]
-# Enable the `serde` and `memory-backend` features internally so their tests
-# always run.
-ptiff-core = { path = ".", features = ["serde", "memory-backend"] }
+# Enable the `serde`, `memory-backend` and `tiff-backend` features internally
+# so their tests always run.
+ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend"] }
 serde_json = "1"

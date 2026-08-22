@@ -4,7 +4,7 @@
 
 pub mod backend_capabilities;
 // The concrete storage backends live in `backend/`, each gated by a feature.
-#[cfg(feature = "memory-backend")]
+#[cfg(any(feature = "memory-backend", feature = "tiff-backend"))]
 pub mod backend;
 pub mod backend_factory;
 pub mod binary_reader;
