@@ -4,8 +4,9 @@
 //!   - [`error`]: stable, additive [`ErrorCode`], [`Error`], [`Result`].
 //!   - [`pixel_type`]: scalar sample types.
 //!   - [`id`]: strongly-typed opaque handles ([`id::TileId`], ...).
-//!   - [`image`]: image-domain types ([`image::ImageDescriptor`],
+//!   - [`image`]: image-domain types ([`image::Image`], [`image::ImageDescriptor`],
 //!     [`image::CompressionKind`], [`image::TileInfo`]).
+//!   - [`scene`]: the owning container of images ([`scene::Scene`]).
 //!   - [`tile`]: tiling grid and tile-mapping types
 //!     ([`tile::TileLayout`], [`tile::TileIndex`], [`tile::Tile`], ...).
 //!   - [`io`]: byte transport ([`io::BinaryReader`], [`io::BinaryWriter`]),
@@ -23,9 +24,11 @@ pub mod id;
 pub mod image;
 pub mod io;
 pub mod pixel_type;
+pub mod scene;
 pub mod tile;
 
 pub use error::{Error, ErrorCode, Result};
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
-pub use image::{CompressionKind, ImageDescriptor, PixelType, TileInfo};
+pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
 pub use io::{BinaryReader, BinaryWriter, StorageModel, TileProvider};
+pub use scene::Scene;
