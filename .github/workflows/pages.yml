@@ -1,0 +1,67 @@
+name: Pages
+
+# Builds and deploys the Doxygen documentation to GitHub Pages. The repository
+# must be configured with "Source: GitHub Actions" in Settings > Pages.
+#
+# The single source of truth for the docs is the hand-written `Doxyfile` in the
+# repo root (`doxygen Doxyfile` writes HTML into build/docs/html), matching the
+# `docs` CMake target. A dedicated formatter is not required by the page build.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# `DEPLOY_PATH` points at the directory Doxygen writes its HTML into.
+# (The Doxyfile PROJECT_NUMBER reflects the project version.)
+env:
+  DEPLOY_PATH: build/docs/html
+
+# Grant GITHUB_TOKEN the permissions required by actions/upload-pages-artifact
+# and actions/deploy-pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Check Doxygen version
+        run: doxygen --version
+
+      - name: Build documentation
+        run: |
+          mkdir -p build/docs
+          doxygen Doxyfile
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.DEPLOY_PATH }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
