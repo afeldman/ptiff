@@ -150,6 +150,7 @@ mod tests {
     use crate::io::backend::tiff::{interpret_tiff_ifd, read_tiff_ifd, Endian};
     use crate::io::{ImageSource as _, MemoryBinaryReader, MemoryBinaryWriter, StorageModel};
     use crate::tile::{TileExtent, TileIndex, TileRegion};
+    use tiff::decoder::Decoder;
 
     fn strip_model(width: u32, height: u32, compression: &str, predictor: &str) -> StorageModel {
         let mut m = StorageModel::new();
@@ -160,6 +161,21 @@ mod tests {
         m.set_field("compression", compression);
         m.set_field("predictor", predictor);
         m
+    }
+
+    /// Decodes a TIFF byte stream with image-rs' independent `tiff` crate,
+    /// returning the raw sample bytes in row-major order. Serves as an
+    /// independent (data-level) interop oracle for what we write.
+    fn tiff_oracle_decode(file: &[u8]) -> (u32, u32, Vec<u8>) {
+        use std::io::Cursor;
+        let mut dec = Decoder::new(Cursor::new(file)).expect("tiff crate opens stream");
+        let (w, h) = dec.dimensions().expect("tiff crate reads dimensions");
+        let img = dec.read_image().expect("tiff crate decodes image");
+        let bytes = match img {
+            tiff::decoder::DecodingResult::U8(v) => v,
+            other => panic!("tiff oracle: expected U8 samples, got {other:?}"),
+        };
+        (w, h, bytes)
     }
 
     fn tile(index: TileIndex, bytes: &[u8]) -> Tile<'_> {
@@ -271,6 +287,123 @@ mod tests {
         for (a, b) in decoded.iter().zip(payload.iter()) {
             let diff = i32::from(*a) - i32::from(*b);
             assert!(diff.abs() <= 30, "JPEG lossy sample off by {diff}");
+        }
+    }
+
+    /// Interop: uncompressed grayscale strips written by our backend are read
+    /// back correctly by image-rs' `tiff` crate (independent oracle).
+    #[test]
+    fn interop_tiff_crate_uncompressed_gray() {
+        let width = 32u32;
+        let height = 16u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let model = strip_model(width, height, "None", "None");
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples, payload);
+    }
+
+    /// Interop: uncompressed RGB strips (Photometric=RGB, sPP=3) via oracle.
+    #[test]
+    fn interop_tiff_crate_uncompressed_rgb() {
+        let width = 16u32;
+        let height = 8u32;
+        let mut model = strip_model(width, height, "None", "None");
+        model.set_field("samplesPerPixel", "3");
+        // RGB ramp so channels are distinct and order-verifiable.
+        let payload: Vec<u8> = (0..(width * height * 3) as usize)
+            .map(|i| ((i % 3) * 80 + (i / 3) % 4 * 40) as u8)
+            .collect();
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples.len(), (width * height * 3) as usize);
+        assert_eq!(samples, payload);
+    }
+
+    /// Interop: Deflate strips via oracle (tiff crate `deflate` feature).
+    #[test]
+    fn interop_tiff_crate_deflate() {
+        let width = 32u32;
+        let height = 16u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let model = strip_model(width, height, "Deflate", "None");
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples, payload);
+    }
+
+    /// Interop: LZW strips via oracle (tiff crate `lzw` feature).
+    #[test]
+    fn interop_tiff_crate_lzw() {
+        let width = 32u32;
+        let height = 16u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let model = strip_model(width, height, "LZW", "None");
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples, payload);
+    }
+
+    /// Interop: BigTIFF container (header magic 43, 8-byte offsets) written by
+    /// our backend is read back by the independent tiff crate oracle.
+    #[test]
+    fn interop_tiff_crate_bigtiff_gray() {
+        let width = 32u32;
+        let height = 16u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let mut model = strip_model(width, height, "None", "None");
+        model.set_field("container", "BigTiff");
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples, payload);
+    }
+
+    /// Interop: PackBits strips via oracle (built into tiff crate).
+    #[test]
+    fn interop_tiff_crate_packbits() {
+        let width = 32u32;
+        let height = 16u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let model = strip_model(width, height, "PackBits", "None");
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples, payload);
+    }
+
+    /// Interop: JPEG grayscale strips via oracle (tiff crate `jpeg` feature,
+    /// zune-jpeg decoder). Lossy, so assert approximate equality like our
+    /// own end-to-end JPEG test.
+    #[test]
+    fn interop_tiff_crate_jpeg_gray() {
+        let width = 32u32;
+        let height = 32u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| ((i as u32 % width) * 8) as u8)
+            .collect();
+        let model = strip_model(width, height, "Jpeg", "None");
+        let file = write_file(&model, &payload);
+        let (w, h, samples) = tiff_oracle_decode(&file);
+        assert_eq!((w, h), (width, height));
+        assert_eq!(samples.len(), payload.len());
+        for (a, b) in samples.iter().zip(payload.iter()) {
+            let diff = i32::from(*a) - i32::from(*b);
+            assert!(diff.abs() <= 40, "tiff-oracle JPEG sample off by {diff}");
         }
     }
 }

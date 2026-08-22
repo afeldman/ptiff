@@ -66,3 +66,12 @@ multicalc = "0.10"
 # so their tests always run.
 ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs"] }
 serde_json = "1"
+
+# Independent TIFF/BigTIFF reader used ONLY as a data-level interop oracle in
+# tests: we write a file with our own backend and cross-read it with image-rs'
+# `tiff` crate to verify format compatibility. Dev-dependency only, so it never
+# enters the library build (the core itself stays dependency-free).
+# `default-features = false` + explicit features stays minimal: Deflate/LZW
+# decoding for those interop cases (PackBits is built in), and JPEG decoding
+# via zune-jpeg to independently verify our JPEG strip output.
+tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw", "jpeg"] }
