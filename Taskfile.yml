@@ -25,8 +25,9 @@ vars:
   GENERATOR: "Ninja"
   CXX_STD: "23"
 
-  # act-Debugsteuerung: ACT_VERBOSE=/ACT_FLAGS über die Kommandozeile setzen,
-  # z.B. `ACT_VERBOSE=1 task act` oder `ACT_FLAGS="-v --debug" task act`.
+  # act-Debugsteuerung: ACT_FLAGS über die Kommandozeile setzen,
+  # z.B. `ACT_FLAGS="-v" task act`. act kennt kein `--debug`;
+  # verbose ist `-v`/`--verbose`, JSON-Logs sind `--json`.
   ACT_FLAGS: "{{.ACT_FLAGS}}"
   ACT_LOG: "act-out.log"
 
@@ -166,11 +167,17 @@ tasks:
       - task: act:cleanup
       - act -W .act/linux-test.yml -j linux-package workflow_dispatch {{.ACT_FLAGS}} > {{.ACT_LOG}} 2>&1
 
+  act:file:debug:
+    desc: "Wie act, aber verbose (zeigt jeden Step inkl. Build-Kommando + Fehler)"
+    cmds:
+      - task: act:cleanup
+      - act -v -W .act/linux-test.yml -j linux-package workflow_dispatch > {{.ACT_LOG}} 2>&1
+
   act:debug:
     desc: "Wie act, aber verbose (zeigt jeden Step inkl. Build-Kommando + Fehler)"
     cmds:
       - task: act:cleanup
-      - act -v --debug -W .act/linux-test.yml -j linux-package workflow_dispatch > {{.ACT_LOG}} 2>&1
+      - act -v -W .act/linux-test.yml -j linux-package workflow_dispatch
 
   act:log:
     desc: "Letzten act-Lauf protokollieren (tail act-out.log)"
