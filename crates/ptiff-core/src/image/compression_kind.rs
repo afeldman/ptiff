@@ -1,0 +1,48 @@
+//! Storage compression scheme, if any.
+//!
+//! Mirrors `ptiff::CompressionKind` (see
+//! `libptiff/include/ptiff/image/compression_kind.hpp`).
+
+use std::fmt;
+
+/// Storage compression scheme, if any.
+///
+/// Describes how an image's pixels are compressed on disk. This list is
+/// **additive** when extended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CompressionKind {
+    /// No compression (raw / lossless storage).
+    None,
+    /// TIFF-variant LZW lossless compression.
+    Lzw,
+    /// zlib-wrapped Deflate lossless compression.
+    Deflate,
+    /// Baseline JPEG lossy compression (8-bit samples only).
+    Jpeg,
+}
+
+impl fmt::Display for CompressionKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            CompressionKind::None => "none",
+            CompressionKind::Lzw => "lzw",
+            CompressionKind::Deflate => "deflate",
+            CompressionKind::Jpeg => "jpeg",
+        };
+        f.write_str(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display() {
+        assert_eq!(CompressionKind::None.to_string(), "none");
+        assert_eq!(CompressionKind::Lzw.to_string(), "lzw");
+        assert_eq!(CompressionKind::Deflate.to_string(), "deflate");
+        assert_eq!(CompressionKind::Jpeg.to_string(), "jpeg");
+    }
+}
