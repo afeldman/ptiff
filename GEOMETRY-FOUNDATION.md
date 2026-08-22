@@ -1,8 +1,15 @@
 # PTIFF Geometry Foundation — `multicalc` + Screw Theory Integration
 
-**Status:** Proposal (analysis complete, no code written yet)
+**Status:** Analysis + Phases I–II implemented on `rust` branch (proposal text below documents the plan)
 **Scope:** Current `rust` branch of the PTIFF 1.0 Rust core
 **Branch:** `rust`
+
+> **Implementation status** (updated after Phase II):
+> - ✅ **Phase I** (commit `4246dd9`): `multicalc` dep, storage values (`Vec3`, `Quaternion`,
+>   `Extrinsics`, `Intrinsics`), `Frame`/`FramePair`.
+> - ✅ **Phase II** (in progress): `Pose` (SE3+frames), `Screw`/`ScrewAxis`/`ScrewMotion`,
+>   `Camera` (K·[R|t]), `Planet`, `Ellipsoid`, `LensModel`, `Projection`,
+>   `CoordinateReferenceSystem`, `Geometry`. 159 tests green (was 99 at proposal time).
 
 > This document is an implementation-oriented architecture proposal. It does **not**
 > redesign PTIFF 1.0. It extends the *current* Rust core with a reusable mathematical
@@ -159,7 +166,7 @@ crates/ptiff-core/src/geometry/
   coordinate_reference_system.rs  # CRS
   projection.rs          # ProjectionKind + named params
   lens_model.rs          # LensModelKind + named params
-  geometry.rs            # GeometryKind + named-param store (stub, mirrors C++)
+  scene_geometry.rs      # GeometryKind + named-param store (stub, mirrors C++ Geometry)
   pose.rs                # PTIFF-specific SE(3) pose with explicit frames  (NEW, Rust-side)
   frames.rs              # FrameId / frame-pair labels                     (NEW, Rust-side)
   screw.rs               # ScrewAxis, ScrewMotion, ScrewPitch wrapper      (NEW, Rust-side)
@@ -279,7 +286,7 @@ later phase without touching the format or the domain values.
 5. `geometry/screw.rs` — `Screw` (axis/pitch/motion) wrapping `Twist`/`SE3::log`.
 6. `geometry/camera.rs` — `Camera`, `intrinsicsMatrix`, `extrinsicsMatrix`,
    `projectionMatrix` = `K·[R|t]` (verify against the existing C++ implementation).
-7. `geometry/{planet,ellipsoid,coordinate_reference_system,projection,lens_model,geometry}.rs`
+7. `geometry/{planet,ellipsoid,coordinate_reference_system,projection,lens_model,scene_geometry}.rs`
    — domain values mirroring C++.
 8. Re-export from `geometry/mod.rs` + `lib.rs`.
 
