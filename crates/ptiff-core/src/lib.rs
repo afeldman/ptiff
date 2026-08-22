@@ -31,6 +31,7 @@ pub mod io;
 pub mod pixel_type;
 pub mod scene;
 pub mod tile;
+pub mod version;
 
 pub use error::{Error, ErrorCode, Result};
 pub use geometry::{
@@ -48,3 +49,4 @@ pub use io::{
 };
 
 pub use scene::Scene;
+pub use version::{APP_VERSION, VERSION_STR};

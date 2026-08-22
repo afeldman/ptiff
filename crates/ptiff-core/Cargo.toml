@@ -61,6 +61,9 @@ jpeg-decoder = { version = "0.3", default-features = false, optional = true }
 # and does not break the default dependency-free build gate.
 multicalc = "0.10"
 
+# version
+semver = "1.0"
+
 [dev-dependencies]
 # Enable the `serde`, `memory-backend` and `tiff-backend` features internally
 # so their tests always run.
@@ -78,7 +81,7 @@ tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw
 
 # Golden-file tests (§11.3): a SHA-256 digest locks byte-exact serialized output.
 # Test-only; never enters the library build (the core stays dependency-free).
-sha2 = "0.10"
+sha2 = "0.11.0"
 
 # Property tests (§11.4): tile-arithmetic invariants (columns/rows/region/index
 # consistency, overflow-freedom) via generated inputs. Test-only; never in the
