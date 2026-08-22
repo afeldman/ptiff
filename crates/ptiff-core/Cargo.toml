@@ -25,13 +25,20 @@ description = "PTIFF 1.0 Rust core: domain types and formats (TIFF/BigTIFF)."
 # dependency-light. When enabled, adds `derive(Serialize, Deserialize)` to the
 # public model types (PixelType, CompressionKind, ImageDescriptor, Scene, ...).
 serde = ["dep:serde"]
+# Optional in-memory ("PMEM") StorageBackend that encodes the format-neutral
+# StorageModel as JSON via serde_json. Also enables `serde` for the model
+# derives. Off by default.
+memory-backend = ["dep:serde_json", "serde"]
 
 [dependencies]
 # Intentionally minimal: the core is dependency-light by design (§4.2/§4.3).
-# serde is OPTIONAL and feature-gated so the default build stays dependency-free.
+# serde/serde_json are OPTIONAL and feature-gated so the default build stays
+# dependency-free.
 serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
-# Enable the `serde` feature internally so serde round-trip tests always run.
-ptiff-core = { path = ".", features = ["serde"] }
+# Enable the `serde` and `memory-backend` features internally so their tests
+# always run.
+ptiff-core = { path = ".", features = ["serde", "memory-backend"] }
 serde_json = "1"
