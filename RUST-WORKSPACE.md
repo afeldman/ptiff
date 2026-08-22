@@ -25,12 +25,19 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │       └── src/
 │           ├── lib.rs          Re-Exports
 │           ├── error.rs        ErrorCode / Error / Result (stabil, additiv)
+│           ├── id.rs           Id<Tag> (ImageId/CameraId/.../TileId)
 │           ├── pixel_type.rs   PixelType (UInt8..Float64, additiv)
 │           ├── image/          image-Domain-Typen
 │           │   ├── compression_kind.rs  CompressionKind (None/Lzw/Deflate/Jpeg)
 │           │   ├── image_descriptor.rs  ImageDescriptor (width/height/pixelType/...)
 │           │   └── tile_info.rs         TileInfo (tileWidth/tileHeight)
+│           ├── io/             Byte-Transport & format-neutral Schicht
+│           │   ├── binary_reader.rs     BinaryReader (read/seek/position/size)
+│           │   ├── binary_writer.rs     BinaryWriter (write/seek/position/flush)
+│           │   ├── storage_model.rs     StorageModel (BTreeMap-Felder + Child-Tree)
+│           │   └── tile_provider.rs     TileProvider (layout + provide_tile)
 │           └── tile/           Tiling-Grid & Tile-Mapping
+│               ├── mod.rs               Tile (id/index/region, zero-copy &[u8])
 │               ├── tile_extent.rs       TileExtent  (width/height)
 │               ├── tile_index.rs        TileIndex   (column/row/level)
 │               ├── tile_layout.rs       TileLayout  (columns/rows/region_for/index_for)
@@ -54,6 +61,13 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::tile::TileExtent` | `ptiff::io::tile::TileExtent` | width/height |
 | `ptiff_core::tile::TileIndex` | `ptiff::io::tile::TileIndex` | column/row/level |
 | `ptiff_core::tile::TileRegion` | `ptiff::io::tile::TileRegion` | x/y/extent |
+| `ptiff_core::Id<Tag>` | `ptiff::Id<Tag>` | strongly-typed opaque handle (u64 + PhantomTag) |
+| `ptiff_core::ImageId` ... | `ptiff::ImageId` ... | ImageId/CameraId/LayerId/AnnotationId/GeometryId/TileId |
+| `ptiff_core::io::BinaryReader` | `ptiff::io::BinaryReader` | read/seek/position/size (Trait) |
+| `ptiff_core::io::BinaryWriter` | `ptiff::io::BinaryWriter` | write/seek/position/flush (Trait) |
+| `ptiff_core::io::StorageModel` | `ptiff::io::StorageModel` | BTreeMap-Felder + Child-Tree, ascending order |
+| `ptiff_core::io::TileProvider` | `ptiff::io::TileProvider` | layout + provide_tile (Trait) |
+| `ptiff_core::tile::Tile<'a>` | `ptiff::io::tile::Tile` | id/index/region + zero-copy &[u8] data |
 | `ptiff_core::tile::TileLayout` | `ptiff::io::tile::TileLayout` | + columns/rows/region_for/index_for/from_descriptor |
 
 Die `TileLayout`-Abfragen (`columns`, `rows`, `region_for`, `index_for`, `from_descriptor`)
@@ -66,7 +80,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **24 Tests grün**).
+  muss grün sein (Stand: **40 Tests grün**).
 - Dependencies bewusst minimal (derzeit **keine** externen Pflichtdeps im Kern).
 
 ## Nächste Schritte (aus dem Plan §4.2)

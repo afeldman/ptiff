@@ -110,6 +110,12 @@ impl Error {
     pub fn not_implemented(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::NotImplemented, message)
     }
+
+    /// Builds an [`ErrorCode::Unknown`] error.
+    #[must_use]
+    pub fn unknown(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Unknown, message)
+    }
 }
 
 /// Convenient construction of common errors via `thiserror`.
