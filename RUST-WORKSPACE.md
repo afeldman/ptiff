@@ -36,6 +36,7 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           │   ├── frames.rs     Frame / FramePair (from→to; 'static Labels)
 │           │   ├── pose.rs       Pose (SE(3)-Wrapper + Frame-Semantik; compose/inverse/relative/act/interpolate)
 │           │   ├── screw.rs      Screw / ScrewAxis / ScrewMotion (Axis/Pitch/Motion über Twist)
+│           │   ├── spice.rs      SpiceState (SPICE (p,q,v,ω)-Mapping → Pose+Twist/Screw; propagieren via SE(3); adjoint)
 │           │   ├── camera.rs     Camera + intrinsics/extrinsics/projection-Matrix (K·[R|t])
 │           │   ├── planet.rs     Planet (name/IAU-id/Ellipsoid/reference-frame; Extension-by-instance)
 │           │   ├── ellipsoid.rs  Ellipsoid (semi-major/semi-minor, meters)
@@ -130,6 +131,8 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::geometry::FramePair` | *(Rust-first)* | gerichtetes Frame-Paar from→to |
 | `ptiff_core::geometry::Pose` | *(Rust-first, auf multicalc)* | SE(3)-Wrapper + Frame-Semantik; compose/inverse/relative/act/interpolate/exp/log/adjoint |
 | `ptiff_core::geometry::Screw` | *(Rust-first, auf multicalc)* | Twist + Axis/Pitch/Motion (ScrewAxis/ScrewMotion) |
+| `ptiff_core::geometry::SpiceState` | *(Rust-first, auf multicalc)* | SPICE `(p,q,v,ω)` → `Pose`+`Twist`/`Screw`; `SE3::adjoint`-Transform; `propagate`/`propagate_screw` |
+| `ptiff_core::geometry::Quaternion::from_euler_angles[_deg]` | *(Rust-first)* | ZYX-intrinsisch (Rz·Ry·Rx); `to_rad`/`quaternion2rad`/`to_deg`/`to_angle_axis` |
 | `ptiff_core::geometry::Camera` | `ptiff::Camera` | model+intrinsics+extrinsics+timestamp; intrinsics/extrinsics/projection-Matrix |
 | `ptiff_core::geometry::Camera::projectionMatrix` | `ptiff::Camera::projectionMatrix` | `P = K·[R\|t]` (pinhole) — C++ 1:1 |
 | `ptiff_core::geometry::Planet` | `ptiff::Planet` | name/IAU-id/Ellipsoid/reference-frame; Extension-by-instance |
@@ -149,7 +152,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **159 Tests grün**).
+  muss grün sein (Stand: **182 Tests grün**).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -185,8 +188,12 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
 3. ✅ **Geometry Foundation Phase II:** `Pose` (SE(3)-Wrapper + Frame-Semantik), `Screw`
    (Axis/Pitch/Motion), `Camera`+`Planet`/`CRS`/`Projection`/`LensModel` + edge-case-Tests
    (GEOMETRY-FOUNDATION.md §8 Phase II).
-4. ⏳ **Geometry Foundation Phase III/IV:** Geometry in `Scene`/`StorageModel` verdrahten;
-   SPICE-Pose-Mapping; `ptiff-rust`/`ptiff-c`-Exposition (GEOMETRY-FOUNDATION.md §8 Phase IV).
+4. ✅ **Geometry Foundation Phase III/IV:** Quaternion-Euler-Helfer (`from_euler_angles[_deg]`,
+   `to_rad`/`quaternion2rad`/`to_deg`), Serde-Serialisierungs-MVP + Roundtrip-Tests (Phase III);
+   `SpiceState` SPICE-Pose-Mapping (`(p,q,v,ω)` → `Pose`+`Twist`/`Screw`, Adjoint, propagate)
+   (Phase IV). **Offen (oracle-gekoppelt):** Geometry in `Scene`/`StorageModel` verdrahten
+   (C++ `Scene` hat noch kein `addCamera`/`addGeometry`; M3 = offener RFC) + `ptiff-rust`/
+   `ptiff-c`-Exposition (GEOMETRY-FOUNDATION.md §8 Phase IV).
 5. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
 6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
