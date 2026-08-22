@@ -58,7 +58,16 @@ jobs:
             sudo apt-get update
             # clang (the preferred compiler), ninja (generator), rpm/dpkg/patchelf
             # for CPack DEB/RPM packaging and rpath rewriting.
-            sudo apt-get install -y clang ninja-build rpm dpkg patchelf
+            #
+            # Use clang-19: clang 18 + libstdc++ 13 (Ubuntu 24.04) can't expose
+            # std::expected in C++23 because __cpp_concepts stays below 202002L,
+            # which empty-checks the libstdc++ <expected> header. clang 19
+            # reports __cpp_concepts >= 202002L, so <expected> works.
+            sudo apt-get install -y clang-19 ninja-build rpm dpkg patchelf
+            # Route `clang`/`clang++` (used by CC/CXX env + conan detection) to
+            # the clang-19 toolchain.
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
+            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew install ninja || brew link ninja
           fi
