@@ -196,7 +196,9 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **331 `ptiff-core`-Tests** — 308 Unit + 10 Corrupted + 6 Golden + 7 Property — plus 8 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl. idiomatischem `ptiff`-Crate).
+  muss grün sein (Stand: **343 `ptiff-core`-Tests** — 317 Unit + 10 Corrupted + 6 Golden + 7
+  Property + 3 `tiled_write`-Integration — plus 8 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl.
+  idiomatischem `ptiff`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -291,8 +293,15 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    **Pixel/Tile-Lese-Tier fertig:** `Tiff` hält die Roh-Bytes und decodiert echte
    Pixeldaten zurück: `read_image_pixels(index)` (kontiguierter Raster),
    `read_tile(index, col, row)` und `tile_layout(index)`. Der `Tiff`-Write-Pfad
-   schreibt nur die Metadaten (IFD-Kette), noch keine Pixel-Payloads; ein
-   Pixel-Schreib-Tier hängt an den Core ("tiled write supports no compression yet").
+   schreibt nur die Metadaten (IFD-Kette); ein Pixel-Schreib-Tier ist im Core
+   **entsperrt** (`8447530`): tiled write unterstützt jetzt jede Kompression
+   (None/PackBits/LZW/Deflate/JPEG) und horizontales Differencing — der
+   `TiffImageSink` packt komprimierte Tiles hintereinander und patcht pro Tile
+   Offset/ByteCount in die `TileOffsets`/`TileByteCounts`-Arrays zurück. Das
+   Single-Image-Write wird über die öffentliche `TiffBackend`-API durch
+   `tests/tiled_write.rs` end-to-end verifiziert (LZW+Differencing und Deflate).
+   Einschränkung: Multi-Image (statischer Daten-Layout) akzeptiert weiterhin
+   kein tiled+compressed (region nicht reservierbar) — als Einzelbild schreiben.
    Camera/Geometry/CRS sind im idiomatischen Layer re-exportiert und tragen über
    `ImageDescriptor.camera`/`crs` typisiert auf jedem `Scene`-Bild (end-to-end durch die
    PTIFF-Tags 65002/65003, siehe Punkt 4).
