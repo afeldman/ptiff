@@ -7,9 +7,19 @@
 //! — all working over the dependency-free [`crate::io::BinaryReader`] /
 //! [`crate::io::BinaryWriter`] transports.
 //!
-//! Only this compile-time dependency-free portion is implemented so far; the
-//! writer policies, directory writer and image sink/source that build on top
-//! are planned as the next increment.
+//! The C++ oracle also contains a compile-time **policy** layer
+//! (`tiff_policy_*.hpp`: `PixelValue`, `ClassicContainer`/`BigTiffContainer`,
+//! `NonePolicy`/`PackBitsPolicy`/`LzwPolicy`, `StripPolicy`/`TiledPolicy`,
+//! `UInt8Policy`/`UInt16Policy`/`UInt32Policy`/`Float32Policy`, and
+//! `TiffPolicyWriter`). This layer is deliberately **not** mirrored in Rust:
+//! the policies are `constexpr` templates used only by their own isolated unit
+//! test (`tiff_policy_test.cpp`) with no production callers, and every value
+//! they encode (header sizes, bits/sample-format per pixel type, tile
+//! dimensions, compression tag values) is already covered by the equivalent
+//! runtime constructs here (`header`, `pixel_format`, `directory_writer`).
+//! Replicating those constants as a Rust type/constant layer would add
+//! maintenance burden without new capability, so Phase B of the C++ plan is
+//! closed as "functionally covered by the runtime writer".
 //!
 //! This module is only compiled when the `tiff-backend` feature is enabled.
 
