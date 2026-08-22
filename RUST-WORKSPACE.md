@@ -49,8 +49,12 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           │   ├── tile_provider.rs         TileProvider (layout + provide_tile)
 │           │   ├── storage_backend.rs       StorageBackend Trait (name/capabilities/...)
 │           │   ├── storage_model.rs         (s. o.)
+│           │   ├── backend_factory.rs       BackendFactory (Registry+Factory; Singleton)
 │           │   └── backend/
 │           │       ├── mod.rs               Backend-Sammlung (feature-gated)
+│           │       ├── memory_layout.rs     MemoryImageInfo + geometry (image_info_from_model)
+│           │       ├── memory_image_source.rs MemoryImageSource (read_tile on demand)
+│           │       ├── memory_image_sink.rs   MemoryImageSink (write_tile seek-and-write)
 │           │       └── memory_backend.rs    MemoryBackend (serde_json-Codec; feature)
 │           └── tile/           Tiling-Grid & Tile-Mapping
 │               ├── mod.rs               Tile (id/index/region, zero-copy &[u8])
@@ -97,7 +101,11 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::io::StorageBackend` | `ptiff::io::StorageBackend` | name/capabilities/open/...-Trait + NotImplemented-Defaults |
 | `ptiff_core::io::MemoryBinaryReader` | `ptiff::io::MemoryBinaryReader` | über Arc<[u8]>; seek-past-end → InvalidArgument |
 | `ptiff_core::io::MemoryBinaryWriter` | `ptiff::io::MemoryBinaryWriter` | über Vec<u8>; buffer()/take_buffer() |
-| `ptiff_core::io::backend::MemoryBackend` | `ptiff::io::backend::MemoryBackend` | serde_json-Modell-Codec (feature `memory-backend`); Rust-first |
+| `ptiff_core::io::BackendFactory` | `ptiff::io::BackendFactory` | Registry + Factory; **einziger Singleton**; thread-safe |
+| `ptiff_core::io::backend::MemoryImageInfo` | `ptiff::io::backend::memory::MemoryImageInfo` | layout + samplesPerPixel + pixelType + tileBytes/imagePixelBytes |
+| `ptiff_core::io::backend::MemoryImageSource` | `ptiff::io::backend::memory::MemoryImageSource` | read_tile on demand, Reusable-Buffer (C++-1:1) |
+| `ptiff_core::io::backend::MemoryImageSink` | `ptiff::io::backend::memory::MemoryImageSink` | write_tile seek-and-write; Offsets via TileLayout |
+| `ptiff_core::io::backend::MemoryBackend` | `ptiff::io::backend::MemoryBackend` | serde_json-Modell-Codec + Pixel-Tier (feature `memory-backend`); Rust-first |
 
 Die `TileLayout`-Abfragen (`columns`, `rows`, `region_for`, `index_for`, `from_descriptor`)
 sind semantisch **identisch zum C++-Referenzverhalten** (gleiche Rundung `/ div_ceil`, gleiche
@@ -109,7 +117,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **77 Tests grün**).
+  muss grün sein (Stand: **99 Tests grün**).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` ist **dependency-frei**
   (keine externen Pflichtdeps). Externe Libs sind **feature-gated** (siehe unten).
 
@@ -124,13 +132,13 @@ ein optionales Cargo-Feature aktivierbar:
 | `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
 
 `memory-backend` impliziert `serde`. Der Default-Build bleibt dependency-frei (`cargo tree`
-zeigt keine externen Pflichtdeps). Die Pixel-Source/-Sink des `MemoryBackend` (ImageSource/
-ImageSink über das Modell + Pixel-Layout) ist bewusst noch offen (nächste Phase).
+`--edges normal --no-default-features` zeigt keine externen Pflichtdeps). Der Memory-Pixel-Tier
+(`MemoryImageSource`/`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert.
 
 ## Nächste Schritte (aus dem Plan §4.2)
 
 Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md`:
-1. `MemoryBackend::ImageSource`/`ImageSink` (Pixel-Layout, Multi-Image-Offsets) + `BackendFactory`.
+1. ✅ `MemoryBackend`-Pixel-Tier (`MemoryImageSource`/`-Sink`, Multi-Image-Offsets) + `BackendFactory`.
 2. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
 3. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
 4. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.

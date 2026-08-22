@@ -31,8 +31,9 @@ pub use error::{Error, ErrorCode, Result};
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
 pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
 pub use io::{
-    BackendCapabilities, BinaryReader, BinaryWriter, Deserializer, ImageSink, ImageSource,
-    MemoryBinaryReader, MemoryBinaryWriter, SceneDeserializer, SceneSerializer, Serializer,
-    StorageBackend, StorageModel, TileProvider,
+    BackendCapabilities, BackendFactory, BinaryReader, BinaryWriter, Deserializer, ImageSink,
+    ImageSource, MemoryBinaryReader, MemoryBinaryWriter, SceneDeserializer, SceneSerializer,
+    Serializer, StorageBackend, StorageModel, TileProvider,
 };
+
 pub use scene::Scene;
