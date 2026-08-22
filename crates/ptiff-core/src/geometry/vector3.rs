@@ -36,6 +36,22 @@ impl Vec3 {
     pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
+
+    /// normalises the vector to unit length, returning a new vector. Returns the zero
+    /// vector if the input vector is zero-length.
+    #[inline]
+    pub fn normalised(self) -> Self {
+        let len = (self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
+        if len == 0.0 {
+            Self::ZERO
+        } else {
+            Self {
+                x: self.x / len,
+                y: self.y / len,
+                z: self.z / len,
+            }
+        }
+    }
 }
 
 impl Default for Vec3 {
