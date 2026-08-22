@@ -26,7 +26,7 @@ jobs:
       - name: Install system tools + packagers
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-19 ninja-build rpm dpkg patchelf
+          sudo apt-get install -y clang-19 ninja-build cmake rpm dpkg patchelf
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
           clang --version | head -1
@@ -42,7 +42,7 @@ jobs:
           conan profile show
 
       - name: Install dependencies (Conan, Release)
-        run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23
+        run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23 -c tools.build:jobs=1
 
       - name: Configure (Release, Ninja, clang, shared)
         run: >
@@ -56,7 +56,7 @@ jobs:
           -DPTIFF_BUILD_DOCS=OFF
 
       - name: Build libraries (Release)
-        run: cmake --build build-rel/build --config Release -j 2
+        run: cmake --build build-rel/build --config Release -j 1
 
       - name: Install libraries to staging prefix
         run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
