@@ -12,8 +12,14 @@ use ptiff_core::{Deserializer, Error, Result, Scene, Serializer, StorageBackend}
 
 /// A parsed PTIFF/TIFF/BigTIFF file.
 ///
-/// Read-only for now: `Tiff` parses a byte source into a typed [`Scene`]. The
-/// pixel (tile) tier and the write path are added in a later increment.
+/// `Tiff` parses a byte source into a typed [`Scene`] and retains the raw
+/// bytes so the **pixel/tile tier** can decode actual image data back out of
+/// the file (see [`Tiff::read_image_pixels`], [`Tiff::read_tile`] and
+/// [`Tiff::tile_layout`]).
+///
+/// The write path (`to_bytes`/`write`) currently serializes image *metadata*
+/// through the core's canonical schema; writing pixel payloads alongside that
+/// is a later increment.
 ///
 /// # Examples
 ///
@@ -27,6 +33,9 @@ use ptiff_core::{Deserializer, Error, Result, Scene, Serializer, StorageBackend}
 /// ```
 #[derive(Debug)]
 pub struct Tiff {
+    /// The raw container bytes, retained for the pixel/tile read tier.
+    bytes: Vec<u8>,
+    /// The parsed scene (image metadata) derived from `bytes`.
     scene: Scene,
 }
 
@@ -46,6 +55,10 @@ impl Tiff {
 
     /// Parses a PTIFF/TIFF/BigTIFF byte stream in memory.
     ///
+    /// The caller-supplied `bytes` are copied into the returned `Tiff` so the
+    /// pixel/tile tier can re-open an [`ImageSource`](ptiff_core::io::ImageSource)
+    /// over the retained buffer.
+    ///
     /// # Errors
     ///
     /// Returns [`ErrorCode::InvalidArgument`](crate::ErrorCode::InvalidArgument) if `bytes` is not a valid
@@ -55,7 +68,10 @@ impl Tiff {
         let backend = TiffBackend;
         let model = backend.deserialize_model(&mut reader)?;
         let scene = SceneDeserializer.deserialize(&model)?;
-        Ok(Tiff { scene })
+        Ok(Tiff {
+            bytes: bytes.to_vec(),
+            scene,
+        })
     }
 
     /// Returns the parsed scene (the composition of the file's images).
@@ -64,12 +80,105 @@ impl Tiff {
         &self.scene
     }
 
+    /// Returns the `index`-th image of the scene.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::OutOfRange`](crate::ErrorCode::OutOfRange) if `index` is not in
+    /// `[0, image_count())`.
+    pub fn image(&self, index: usize) -> Result<&ptiff_core::Image> {
+        self.scene.image_at(index)
+    }
+
     /// Returns an iterator over the scene's images in file order.
     ///
     /// Equivalent to `self.scene().image_count()` + `image_at(i)`.
     pub fn images(&self) -> impl Iterator<Item = &ptiff_core::Image> {
         let scene = &self.scene;
         (0..scene.image_count()).filter_map(|i| scene.image_at(i).ok())
+    }
+
+    /// Returns the bytes that make up this `Tiff`.
+    ///
+    /// This is the exact container byte stream this `Tiff` was parsed from; it
+    /// is what [`Tiff::open`]/[`Tiff::from_bytes`] received.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    // --- Pixel / tile read tier ---------------------------------------
+
+    /// Decodes the `index`-th image's raw pixel bytes into an owned buffer.
+    ///
+    /// The returned buffer holds one full decoded image as a single contiguous
+    /// raster: one row of `width * channel_count * bytes_per_sample` bytes per
+    /// scanline, top-to-bottom. It strips the edge/padding a tiled or
+    /// strip-based layout may use in the underlying file, so the result is
+    /// directly usable as a normal image buffer.
+    ///
+    /// The scene's images appear in file order, so `index` selects the
+    /// file's `index`-th image (as [`Tiff::image`](Tiff::image) does).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::OutOfRange`](crate::ErrorCode::OutOfRange) if `index` is not in
+    /// `[0, image_count())`, or a backend error if an individual tile cannot be
+    /// decoded (e.g. an unrecognized compression scheme).
+    pub fn read_image_pixels(&self, image_index: usize) -> Result<Vec<u8>> {
+        let mut reader = MemoryBinaryReader::from_slice(&self.bytes);
+        let mut source = TiffBackend.open_image_source_at(&mut reader, image_index)?;
+        let layout = *source.layout();
+        let columns = layout.columns(0);
+        let rows = layout.rows(0);
+
+        // Read row-major (column fastest) in the source's own order, then
+        // copy out each tile before moving on (the source's tiles are
+        // non-owning views valid only until the next call).
+        let mut out = Vec::new();
+        for row in 0..rows {
+            for column in 0..columns {
+                let tile = source.read_tile(ptiff_core::tile::TileIndex::new(column, row, 0))?;
+                out.extend_from_slice(tile.data());
+            }
+        }
+        Ok(out)
+    }
+
+    /// Decodes a single tile (or strip) of the `image_index`-th image.
+    ///
+    /// `column`/`row` address the tile within the image's tile grid (top-left
+    /// is `(0, 0)`), using the layout the file stores. For an untiled image the
+    /// single spanning strip is addressed as `(0, 0)`. The returned bytes are
+    /// owned, so they may be retained freely.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::OutOfRange`](crate::ErrorCode::OutOfRange) if `image_index` is out of
+    /// range or `column`/`row` fall outside the tile grid, or a backend error
+    /// if the tile cannot be decoded.
+    pub fn read_tile(&self, image_index: usize, column: u32, row: u32) -> Result<Vec<u8>> {
+        let mut reader = MemoryBinaryReader::from_slice(&self.bytes);
+        let mut source = TiffBackend.open_image_source_at(&mut reader, image_index)?;
+        let tile = source.read_tile(ptiff_core::tile::TileIndex::new(column, row, 0))?;
+        Ok(tile.data().to_vec())
+    }
+
+    /// Returns the tile grid layout of the `image_index`-th image, as stored in
+    /// the file.
+    ///
+    /// Use this to enumerate the grid before calling [`Tiff::read_tile`]:
+    /// `layout.columns(0)` and `layout.rows(0)` give the number of tile columns
+    /// and rows; an untiled (single-strip) image appears as one spanning tile.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::OutOfRange`](crate::ErrorCode::OutOfRange) if `image_index` is not in
+    /// `[0, image_count())`.
+    pub fn tile_layout(&self, image_index: usize) -> Result<ptiff_core::tile::TileLayout> {
+        let mut reader = MemoryBinaryReader::from_slice(&self.bytes);
+        let source = TiffBackend.open_image_source_at(&mut reader, image_index)?;
+        Ok(*source.layout())
     }
 
     /// Serializes a `Scene` back to PTIFF/TIFF bytes through the core's
@@ -181,5 +290,88 @@ mod tests {
         assert_eq!((img.width(), img.height()), (640, 480));
         // Clean up the temp file.
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Builds a single 8-bit grayscale image file with one contiguous strip of
+    /// real pixel data, via the core `TiffBackend` sink (the idiomatic write
+    /// tier does not yet carry pixel payloads).
+    fn write_single_image_with_pixels(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
+        use ptiff_core::id::TileId;
+        use ptiff_core::io::backend::tiff::TiffBackend as CoreBackend;
+        use ptiff_core::io::{MemoryBinaryWriter, StorageBackend as _};
+        use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileRegion};
+
+        let mut model = ptiff_core::io::StorageModel::new();
+        model.set_field("imageWidth", width.to_string());
+        model.set_field("imageHeight", height.to_string());
+        model.set_field("samplesPerPixel", "1");
+        model.set_field("pixelType", "UInt8");
+        model.set_field("compression", "None");
+
+        let mut writer = MemoryBinaryWriter::new();
+        let backend = CoreBackend;
+        backend
+            .serialize_model(&model, &mut writer)
+            .expect("serialize");
+        {
+            let mut sink = backend
+                .open_image_sink(&mut writer, &model)
+                .expect("open sink");
+            let tile = Tile::new(
+                TileId::new(0),
+                TileIndex::new(0, 0, 0),
+                TileRegion::new(0, 0, TileExtent::new(width, height)),
+                pixels,
+            );
+            sink.write_tile(&tile).expect("write tile");
+        }
+        writer.take_buffer()
+    }
+
+    #[test]
+    fn read_image_pixels_decodes_grayscale_strip() {
+        let width = 8u32;
+        let height = 4u32;
+        let pixels: Vec<u8> = (0..(width * height)).map(|i| (i * 3 + 7) as u8).collect();
+        let bytes = write_single_image_with_pixels(width, height, &pixels);
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+
+        assert_eq!(tiff.scene().image_count(), 1);
+        let image = tiff.image(0).expect("image");
+        assert_eq!((image.width(), image.height()), (width, height));
+
+        let read = tiff.read_image_pixels(0).expect("read pixels");
+        assert_eq!(read, pixels, "decoded raster must match written pixels");
+        // One row is width * samples(1) * bytes_per_sample(1) = width bytes.
+        assert_eq!(read.len(), (width * height) as usize);
+    }
+
+    #[test]
+    fn read_tile_and_tile_layout_expose_the_grid() {
+        let width = 16u32;
+        let height = 16u32;
+        let pixels: Vec<u8> = (0..(width * height)).map(|i| i as u8).collect();
+        let bytes = write_single_image_with_pixels(width, height, &pixels);
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+
+        // Untiled single strip => one spanning tile (column/row 0,0 whose
+        // layout's tile size is the full raster).
+        let layout = tiff.tile_layout(0).expect("layout");
+        assert_eq!((layout.columns(0), layout.rows(0)), (1, 1));
+
+        let tile = tiff.read_tile(0, 0, 0).expect("read tile");
+        assert_eq!(tile, pixels);
+
+        // An out-of-grid address is an error.
+        assert!(tiff.read_tile(0, 9, 0).is_err());
+    }
+
+    #[test]
+    fn read_image_pixels_out_of_range_is_an_error() {
+        let bytes = write_single_image_with_pixels(4, 4, &[0u8; 16]);
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+        assert!(tiff.read_image_pixels(0).is_ok());
+        assert!(tiff.read_image_pixels(1).is_err());
+        assert!(tiff.read_tile(1, 0, 0).is_err());
     }
 }
