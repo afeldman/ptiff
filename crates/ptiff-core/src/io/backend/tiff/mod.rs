@@ -21,6 +21,8 @@ pub mod endian;
 pub mod header;
 pub mod ifd;
 pub mod ifd_writer;
+pub mod image_sink;
+pub mod image_source;
 pub mod pixel_format;
 pub mod ptiff_metadata;
 pub mod tag;
@@ -41,6 +43,8 @@ pub use endian::{read_u16, read_u32, read_u64, write_u16, write_u32, write_u64, 
 pub use header::{read_tiff_header, TiffHeader};
 pub use ifd::{read_tiff_ifd, TiffIfd};
 pub use ifd_writer::{tiff_ifd_byte_size, write_tiff_ifd, TiffIfdEntryToWrite};
+pub use image_sink::TiffImageSink;
+pub use image_source::TiffImageSource;
 pub use pixel_format::{
     bits_per_sample_for, bytes_per_sample, pixel_type_field_value, pixel_type_from_field_value,
     require_uniform_bits_per_sample, resolve_pixel_type, sample_format_for,

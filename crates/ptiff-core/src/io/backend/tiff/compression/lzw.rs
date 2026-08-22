@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn encode_then_decode_round_trips() {
         // A small but not-trivial strip with repeated patterns.
-        let data: Vec<u8> = b"abcabcabcabcXYZXYZXYZ".iter().copied().collect();
+        let data: Vec<u8> = b"abcabcabcabcXYZXYZXYZ".to_vec();
         let encoded = encode_lzw(&data).unwrap();
         let decoded = decode_lzw(&encoded, data.len()).unwrap();
         assert_eq!(decoded, data);
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn decode_rejects_expected_size_bomb() {
         // A short stream cannot produce more than its contents.
-        let data: Vec<u8> = b"hello".iter().copied().collect();
+        let data: Vec<u8> = b"hello".to_vec();
         let encoded = encode_lzw(&data).unwrap();
         // Asking for many more bytes than decoded must fail the bomb guard.
         assert!(decode_lzw(&encoded, 10_000).is_err());
