@@ -75,3 +75,12 @@ serde_json = "1"
 # decoding for those interop cases (PackBits is built in), and JPEG decoding
 # via zune-jpeg to independently verify our JPEG strip output.
 tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw", "jpeg"] }
+
+# Golden-file tests (§11.3): a SHA-256 digest locks byte-exact serialized output.
+# Test-only; never enters the library build (the core stays dependency-free).
+sha2 = "0.10"
+
+# Property tests (§11.4): tile-arithmetic invariants (columns/rows/region/index
+# consistency, overflow-freedom) via generated inputs. Test-only; never in the
+# library build.
+proptest = "1"
