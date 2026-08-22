@@ -1,4 +1,7 @@
 //! Image-domain types.
+//!
+//! `Image` is defined directly in this module (mirrors `ptiff::Image`), along
+//! with the value types it composes.
 
 pub mod compression_kind;
 pub mod image_descriptor;
@@ -10,3 +13,115 @@ pub use tile_info::TileInfo;
 
 // Re-export for convenience: `ptiff::image::PixelType`.
 pub use crate::pixel_type::PixelType;
+
+// --- Image (defined directly in this module to avoid `image::image` inception) ---
+
+/// A single scientific raster image: geometry and storage metadata, not pixel
+/// data.
+///
+/// Owns the descriptive metadata of one image (dimensions, pixel type, channel
+/// count, optional ground sampling distance, tile layout and compression
+/// scheme). It does **not** hold pixel data — those live in the storage backend
+/// and are accessed via the I/O layer.
+///
+/// There is no `id()` accessor — `Image` identity is scoped to whichever
+/// [`crate::Scene`] it was added to (see `Scene::add_image`).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct Image {
+    descriptor: ImageDescriptor,
+}
+
+impl Image {
+    /// Constructs an image from its metadata descriptor.
+    #[must_use]
+    pub fn new(descriptor: ImageDescriptor) -> Self {
+        Self { descriptor }
+    }
+
+    /// Returns the image width in pixels.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.descriptor.width
+    }
+
+    /// Returns the image height in pixels.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.descriptor.height
+    }
+
+    /// Returns the sample type of each channel.
+    #[must_use]
+    pub const fn pixel_type(&self) -> PixelType {
+        self.descriptor.pixel_type
+    }
+
+    /// Returns the number of channels per pixel.
+    #[must_use]
+    pub const fn channel_count(&self) -> u32 {
+        self.descriptor.channel_count
+    }
+
+    /// Returns the optional ground-sample distance in meters, if specified.
+    #[must_use]
+    pub const fn ground_sample_distance_meters(&self) -> Option<f64> {
+        self.descriptor.ground_sample_distance_meters
+    }
+
+    /// Returns the optional tile layout in pixels, if specified.
+    #[must_use]
+    pub const fn tile_info(&self) -> Option<TileInfo> {
+        self.descriptor.tile_info
+    }
+
+    /// Returns the optional compression scheme, if specified.
+    #[must_use]
+    pub const fn compression(&self) -> Option<CompressionKind> {
+        self.descriptor.compression
+    }
+}
+
+impl From<ImageDescriptor> for Image {
+    fn from(descriptor: ImageDescriptor) -> Self {
+        Self::new(descriptor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_exposes_descriptor_metadata() {
+        let descriptor = ImageDescriptor {
+            width: 128,
+            height: 64,
+            pixel_type: PixelType::UInt8,
+            channel_count: 3,
+            ground_sample_distance_meters: Some(1.5),
+            tile_info: Some(TileInfo::new(16, 16)),
+            compression: Some(CompressionKind::Deflate),
+        };
+        let image = Image::new(descriptor);
+
+        assert_eq!(image.width(), 128);
+        assert_eq!(image.height(), 64);
+        assert_eq!(image.pixel_type(), PixelType::UInt8);
+        assert_eq!(image.channel_count(), 3);
+        assert_eq!(image.ground_sample_distance_meters(), Some(1.5));
+        assert_eq!(image.tile_info(), Some(TileInfo::new(16, 16)));
+        assert_eq!(image.compression(), Some(CompressionKind::Deflate));
+    }
+
+    #[test]
+    fn image_defaults_match_descriptor_defaults() {
+        let image = Image::new(ImageDescriptor::new(64, 32));
+        assert_eq!(image.width(), 64);
+        assert_eq!(image.height(), 32);
+        assert_eq!(image.pixel_type(), PixelType::UInt8);
+        assert_eq!(image.channel_count(), 1);
+        assert_eq!(image.tile_info(), None);
+        assert_eq!(image.compression(), None);
+    }
+}

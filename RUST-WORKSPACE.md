@@ -28,9 +28,11 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           ├── id.rs           Id<Tag> (ImageId/CameraId/.../TileId)
 │           ├── pixel_type.rs   PixelType (UInt8..Float64, additiv)
 │           ├── image/          image-Domain-Typen
+│           │   ├── mod.rs               Image (width/height/pixelType/...; direct)
 │           │   ├── compression_kind.rs  CompressionKind (None/Lzw/Deflate/Jpeg)
 │           │   ├── image_descriptor.rs  ImageDescriptor (width/height/pixelType/...)
 │           │   └── tile_info.rs         TileInfo (tileWidth/tileHeight)
+│           ├── scene.rs        Scene (add_image/image/image_at, monotonic ImageId)
 │           ├── io/             Byte-Transport & format-neutral Schicht
 │           │   ├── binary_reader.rs     BinaryReader (read/seek/position/size)
 │           │   ├── binary_writer.rs     BinaryWriter (write/seek/position/flush)
@@ -67,6 +69,8 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::io::BinaryWriter` | `ptiff::io::BinaryWriter` | write/seek/position/flush (Trait) |
 | `ptiff_core::io::StorageModel` | `ptiff::io::StorageModel` | BTreeMap-Felder + Child-Tree, ascending order |
 | `ptiff_core::io::TileProvider` | `ptiff::io::TileProvider` | layout + provide_tile (Trait) |
+| `ptiff_core::Image` | `ptiff::Image` | width/height/pixelType/channelCount/... (no pixels) |
+| `ptiff_core::Scene` | `ptiff::Scene` | add_image/image/image_at; monotonic ImageId |
 | `ptiff_core::tile::Tile<'a>` | `ptiff::io::tile::Tile` | id/index/region + zero-copy &[u8] data |
 | `ptiff_core::tile::TileLayout` | `ptiff::io::tile::TileLayout` | + columns/rows/region_for/index_for/from_descriptor |
 
@@ -80,7 +84,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **40 Tests grün**).
+  muss grün sein (Stand: **47 Tests grün**).
 - Dependencies bewusst minimal (derzeit **keine** externen Pflichtdeps im Kern).
 
 ## Nächste Schritte (aus dem Plan §4.2)
