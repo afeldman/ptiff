@@ -1297,7 +1297,7 @@ selbst bleiben unverändert gültig.
 weiter maintained), Rust ist Single-Core.“** Bis dahin bleibt `libptiff` bewusst als
 Cross-Validation-Oracle bestehen (§18) — nicht vorzeitig löschen. Status unten durch tatsächlichen
 Build+Testlauf verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace
---features tiff-backend`: 403/403 grün, inkl. ptiff-c), nicht nur aus Doku übernommen.
+--features tiff-backend`: 405/405 grün, inkl. ptiff-c), nicht nur aus Doku übernommen.
 
 | Phase | Ziel | Status | Anmerkung |
 |-------|------|--------|-----------|
@@ -1308,7 +1308,7 @@ Build+Testlauf verifiziert (`cargo build --workspace --all-features`, `cargo tes
 | 4 | Kompression | 🚧 | PackBits/LZW/Predictor (dependency-frei) fertig; **Deflate, JPEG, Zarr-ZSTD fehlen** |
 | 5 | Tiles / parallele Verarbeitung (Rayon) | ❌ | nicht begonnen — war die **Hauptmotivation** der Migration (§2.1 Punkt 1); der Rewrite hat seinen eigenen Kernvorteil bislang nicht eingelöst |
 | 6 | Metadaten-Erweiterungen (65001–65005) | 🚧 | RFC-7002-Codec (encode/decode) fertig und getestet; Scene-Verdrahtung offen (s. Phase 2) |
-| 7 | **C-ABI (`ptiff-c`)** | 🚧 **erster Slice committet** | der **einzige harte Blocker** für „libptiff löschen“. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **26 Unit-Tests grün** (Commit `d7ad504`). **Noch offen für DoD/Abnahme:** `Camera`/`Logger`/`sink_create_camera` sind Stubs (`NOT_IMPLEMENTED`, Camera/CRS noch nicht in `Scene` verdrahtet, kein Logger im Core), kein C-ABI-Fähigkeitstest gegen echtes C-Programm, kein Bindings-Kompatibilitäts-Nachweis (R4) — bis dahin ist ein Löschen von `libptiff` = vier tote Sprachbindings |
+| 7 | **C-ABI (`ptiff-c`)** | 🚧 **erster Slice committet, C-Fähigkeitstest grün** | der **einzige harte Blocker** für „libptiff löschen“. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **28 Unit-Tests grün** (Stand Commons `d7ad504`+`b213460`). **C-ABI-Fähigkeitstest gegen echtes C-Programm ✅:** `crates/ptiff-c/tests/c/ptiff_c_abiltest.c` wird mit `cc` gegen die `staticlib` (`libptiff_c.a`) kompiliert und läuft durch (Exit 0, „ALL OK“) — dabei gefundene **Core-Lücken gefixt**: (A) Tile-Info wurde beim Lesen (`ptiff_source_descriptor`/`ptiff_open_path`) verloren → neuer Helper `types::apply_layout_tile_info` re-derives aus dem Layout wie das C++-Oracle; (B) fehlende Datei mappte auf `InvalidArgument` statt `NotFound` → `Tiff::open` liefert jetzt `ErrorCode::NotFound`. **Noch offen für DoD/Abnahme:** `Camera`/`Logger`/`sink_create_camera` sind Stubs (`NOT_IMPLEMENTED`, Camera/CRS noch nicht in `Scene` verdrahtet, kein Logger im Core), kein Bindings-Kompatibilitäts-Nachweis (R4) — bis dahin ist ein Löschen von `libptiff` = vier tote Sprachbindings |
 | 8 | C++-Wrapper (`ptiff-cpp`) | ❌ | nicht begonnen |
 | 9 | Python (PyO3) | ❌ | nicht begonnen |
 | 10 | Octave (MEX über C-ABI) | ❌ | nicht begonnen |

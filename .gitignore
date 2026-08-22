@@ -43,7 +43,6 @@ compile_commands.json
 Testing/
 CTestTestfile.cmake
 cmake_install.cmake
-Makefile
 
 ##############################################
 # Conan
