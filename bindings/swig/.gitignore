@@ -1,0 +1,33 @@
+# Generated / reproducible: never commit SWIG outputs, compiled artifacts, or
+# test TIFFs. Schema: real_inc/ is the SWIG shim include dir; each language
+# subdir holds generated wrappers + a gitignored compiled artifact.
+real_inc/
+
+# Python output dir (bindings/swig/python/)
+python/_ptiff.so
+python/ptiff.py
+python/ptiff_wrap.c
+python/roundtrip*.tif
+python/__pycache__/
+
+# Go: promoted to the official ../go/ptiff dir (bindings/go/ptiff/) -- SWIG
+# is the primary Go binding layer, see the "alles in SWIG" migration notes in
+# bindings/swig/README.md. Its generated output is ignored from bindings/go's
+# own .gitignore, not here.
+
+# Ruby output dir (bindings/swig/ruby/)
+ruby/ptiff_wrap.c
+ruby/*.bundle
+ruby/*.so
+ruby/roundtrip*.tif
+
+# Stale artifacts in this dir (pre multi-language layout)
+ptiff_wrap.c
+ptiff.py
+_ptiff.so
+roundtrip.tif
+__pycache__/
+
+# The repo's root .gitignore ignores CMake-generated Makefiles. Our Makefile is
+# hand-written and must be versioned; re-include it here.
+!Makefile

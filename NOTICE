@@ -1,0 +1,13 @@
+PTIFF
+=====
+
+PTIFF — Planetary TIFF. An open TIFF-compatible scientific image standard
+for planetary imagery, stereo vision, GIS, AI and 3D reconstruction.
+
+This product includes software developed by the PTIFF contributors.
+
+The PTIFF specification and reference implementation (`libptiff`) are
+licensed under the Apache License, Version 2.0. See the LICENSE and
+LICENSE-SPEC files for the full license text.
+
+Copyright (c) 2026 PTIFF contributors.

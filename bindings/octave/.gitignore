@@ -1,0 +1,10 @@
+# Octave SWIG-built module (promoted output, see bindings/swig/README.md).
+# Generated + compiled by `make -C ../swig octave`; SWIG output is mirrored
+# into octave/lib. Only the hand-written test/ suite is versioned here.
+lib/ptiff.oct
+lib/ptiff_wrap.c
+lib/ptiff_wrap.cpp
+
+# Round-trip artifacts left in the test dir (kept at the OS temp dir by
+# test_roundtrip.m, but ignore in case the temp dir is overridden).
+test/roundtrip_octave.tif

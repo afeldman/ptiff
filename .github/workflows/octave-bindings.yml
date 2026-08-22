@@ -1,0 +1,73 @@
+name: Octave bindings
+
+# Builds the standalone C ABI library (libptiff_c), regenerates the SWIG
+# Octave module (bindings/octave/lib/ptiff.oct -- promoted output, see the
+# "alles in SWIG" migration notes in bindings/swig/README.md), then runs the
+# bindings/octave/test suite against it. Mirrors the Ruby job's shape (build
+# libptiff_c, install SWIG, set up the runtime, regenerate, test); Octave is
+# installed from the distro/brew package (ships mkoctfile).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  octave-bindings:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: pip install conan
+
+      - name: Configure Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies (Conan)
+        run: conan install . --output-folder=build --build=missing -s build_type=Debug
+
+      - name: Install SWIG (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y swig
+
+      - name: Install SWIG (macOS)
+        if: runner.os == 'macOS'
+        run: brew install swig octave
+
+      - name: Install Octave (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y octave
+
+      - name: Configure (C++ + C ABI)
+        shell: bash
+        run: >
+          cmake -B build -S .
+          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPTIFF_BUILD_C_BINDINGS=ON
+          -DPTIFF_BUILD_TESTS=OFF
+          -DBUILD_SHARED_LIBS=ON
+
+      - name: Build libptiff_c
+        run: cmake --build build --target ptiff_c
+
+      # Regenerates bindings/octave/lib/ptiff.oct against the libptiff_c just
+      # built. mkoctfile has no usable `--prefix`, so we link via the
+      # PTIFF_C_LIB_DIR override, exactly like the other bindings' make targets.
+      - name: Regenerate SWIG Octave module
+        env:
+          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
+        run: make -C bindings/swig octave
+
+      - name: Test (Octave suite)
+        working-directory: bindings/octave
+        run: octave --quiet --no-gui --eval "addpath('lib','test'); run(fullfile('test','run_tests_octave.m'));"

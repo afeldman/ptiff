@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ptiff-mcp"
+version = "0.0.1"
+description = "Experimental MCP server exposing libptiff (Planetary TIFF) to LLMs."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "mcp>=2.0",
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ptiff_mcp"]
+include = ["src/ptiff_mcp/**/*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+pythonpath = ["src", "../python/src"]
+addopts = "-ra"

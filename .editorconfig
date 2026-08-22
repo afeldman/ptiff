@@ -1,0 +1,58 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{cpp,hpp,h,cc,cxx,in}]
+indent_size = 4
+
+[*.{cmake}]
+indent_size = 4
+
+[CMakeLists.txt]
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+[*.go]
+indent_style = tab
+
+[*.{rb,ruby}]
+indent_size = 2
+
+# Octave/Scilab (SWIG bindings + benchmarks) use a 2-space indent.
+[*.m]
+indent_size = 2
+
+# Sphinx reStructuredText directives align at 3 spaces.
+[*.{rst,rst.in}]
+indent_size = 3
+
+# Ruby metadata files (gemspec/Gemfile/Rakefile) follow the 2-space Ruby style.
+[Gemfile]
+indent_size = 2
+
+[Rakefile]
+indent_size = 2
+
+[*.gemspec]
+indent_size = 2
+
+# clang-format / clang-tidy config files use a YAML-like 2-space layout.
+[.clang-format]
+indent_size = 2
+
+[.clang-tidy]
+indent_size = 2

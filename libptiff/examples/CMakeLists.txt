@@ -1,0 +1,7 @@
+add_executable(ptiff_example_read_tiff read_tiff.cpp)
+target_link_libraries(ptiff_example_read_tiff PRIVATE ptiff::ptiff)
+target_compile_features(ptiff_example_read_tiff PRIVATE cxx_std_23)
+
+add_executable(ptiff_example_write_sample write_ptiff_sample.cpp)
+target_link_libraries(ptiff_example_write_sample PRIVATE ptiff::ptiff)
+target_compile_features(ptiff_example_write_sample PRIVATE cxx_std_23)

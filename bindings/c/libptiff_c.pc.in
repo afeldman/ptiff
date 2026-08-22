@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/@PKGCONFIG_LIBDIR@
+includedir=${prefix}/@PKGCONFIG_INCLUDEDIR@
+
+Name: libptiff_c
+Description: PTIFF language-agnostic C ABI (libptiff_c)
+Version: @PROJECT_VERSION@
+Requires.private: libptiff
+Libs: -L${libdir} -lptiff_c
+Cflags: -I${includedir}

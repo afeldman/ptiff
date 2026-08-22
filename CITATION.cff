@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "PTIFF"
+abstract: >-
+    Planetare TIFF — ein offener, TIFF-kompatibler wissenschaftlicher
+    Bildstandard für Planetenbilder, Stereo-Vision, GIS, KI und
+    3D-Rekonstruktion. Referenzimplementierung `libptiff` in C++23.
+authors:
+    -
+        family-names: Feldmann
+        given-names: Anton
+        orcid: "0009-0007-8809-6260"
+identifiers:
+    -
+        type: url
+        value: "https://github.com/planats/ptiff"
+keywords:
+    - planetary imagery
+    - satellite
+    - TIFF
+    - BigTIFF
+    - scientific image
+    - open standard
+license: Apache-2.0
+date-released: "2026-08-22"
+version: "0.4.0"
