@@ -19,7 +19,19 @@ documentation.workspace = true
 rust-version.workspace = true
 description = "PTIFF 1.0 Rust core: domain types and formats (TIFF/BigTIFF)."
 
+[features]
+# Optional serde (de)serialization of the domain model for diagnostics/audit
+# (§4.4 in PTIFF-1.0-RUST-CORE-PLAN.md). Off by default: keeps the core
+# dependency-light. When enabled, adds `derive(Serialize, Deserialize)` to the
+# public model types (PixelType, CompressionKind, ImageDescriptor, Scene, ...).
+serde = ["dep:serde"]
+
 [dependencies]
 # Intentionally minimal: the core is dependency-light by design (§4.2/§4.3).
+# serde is OPTIONAL and feature-gated so the default build stays dependency-free.
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
+# Enable the `serde` feature internally so serde round-trip tests always run.
+ptiff-core = { path = ".", features = ["serde"] }
+serde_json = "1"

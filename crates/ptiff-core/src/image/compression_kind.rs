@@ -10,6 +10,7 @@ use std::fmt;
 /// Describes how an image's pixels are compressed on disk. This list is
 /// **additive** when extended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum CompressionKind {
     /// No compression (raw / lossless storage).

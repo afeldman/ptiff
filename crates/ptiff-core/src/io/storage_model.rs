@@ -22,6 +22,7 @@ use crate::{Error, Result};
 /// **Thread-safety:** thread-compatible — safe to read concurrently, not safe
 /// to mutate concurrently with any other access.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StorageModel {
     fields: BTreeMap<String, String>,
     children: Vec<StorageModel>,

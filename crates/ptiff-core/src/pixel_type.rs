@@ -12,6 +12,7 @@ use std::fmt;
 /// This list is **additive** once released: existing variants are never renamed,
 /// renumbered or removed, so downstream code may match on them across versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum PixelType {
     /// Unsigned 8-bit integer sample.
