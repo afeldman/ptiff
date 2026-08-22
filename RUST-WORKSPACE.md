@@ -197,7 +197,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
   muss grün sein (Stand: **343 `ptiff-core`-Tests** — 317 Unit + 10 Corrupted + 6 Golden + 7
-  Property + 3 `tiled_write`-Integration — plus 12 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl.
+  Property + 3 `tiled_write`-Integration — plus 13 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl.
   idiomatischem `ptiff`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
