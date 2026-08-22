@@ -72,7 +72,15 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           │       ├── memory_layout.rs     MemoryImageInfo + geometry (image_info_from_model)
 │           │       ├── memory_image_source.rs MemoryImageSource (read_tile on demand)
 │           │       ├── memory_image_sink.rs   MemoryImageSink (write_tile seek-and-write)
-│           │       └── memory_backend.rs    MemoryBackend (serde_json-Codec; feature)
+│           │       ├── memory_backend.rs    MemoryBackend (serde_json-Codec; feature `memory-backend`)
+│           │       └── tiff/                TIFF/BigTIFF-Format-Schicht (feature `tiff-backend`)
+│           │           ├── mod.rs             Re-Exports
+│           │           ├── checked_arithmetic.rs  Overflow-geprüfte Arithmetik (RFC-0001 §13)
+│           │           ├── endian.rs           Endian (II/MM) + read/write-U16/U32/U64
+│           │           ├── header.rs           TiffHeader + read/write-TiffHeader (classic/BigTIFF)
+│           │           ├── tag.rs              TagId / FieldType / RawTagEntry + K_PRIVATE_TAG_BASE
+│           │           ├── pixel_format.rs     BitsPerSample/SampleFormat ↔ PixelType
+│           │           └── ifd.rs              TiffIfd + read_tiff_ifd (inline/offset-Indirektion)
 │           └── tile/           Tiling-Grid & Tile-Mapping
 │               ├── mod.rs               Tile (id/index/region, zero-copy &[u8])
 │               ├── tile_extent.rs       TileExtent  (width/height)
@@ -123,6 +131,13 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::io::backend::MemoryImageSource` | `ptiff::io::backend::memory::MemoryImageSource` | read_tile on demand, Reusable-Buffer (C++-1:1) |
 | `ptiff_core::io::backend::MemoryImageSink` | `ptiff::io::backend::memory::MemoryImageSink` | write_tile seek-and-write; Offsets via TileLayout |
 | `ptiff_core::io::backend::MemoryBackend` | `ptiff::io::backend::MemoryBackend` | serde_json-Modell-Codec + Pixel-Tier (feature `memory-backend`); Rust-first |
+| `ptiff_core::io::backend::tiff::Endian` | `ptiff::io::backend::tiff::Endian` | II/MM Byte-Order (feature `tiff-backend`) |
+| `ptiff_core::io::backend::tiff::TiffHeader` | `ptiff::io::backend::tiff::TiffHeader` | Byte-Order + BigTIFF-Flag + first-Ifd-Offset |
+| `ptiff_core::io::backend::tiff::TagId` | `ptiff::io::backend::tiff::TagId` | Baseline-TIFF-Tags 256-530 + PTIFF-Extension 65001-65005 |
+| `ptiff_core::io::backend::tiff::FieldType` | `ptiff::io::backend::tiff::FieldType` | Byte/Short/Long/Long8 (integer-only Subset) |
+| `ptiff_core::io::backend::tiff::RawTagEntry` | `ptiff::io::backend::tiff::RawTagEntry` | unaufgelöster 12/20-Byte-Eintrag |
+| `ptiff_core::io::backend::tiff::TiffIfd` | `ptiff::io::backend::tiff::TiffIfd` | aufgelöste `tag → u64[]`-Tabelle + next-Ifd |
+| `ptiff_core::io::backend::tiff::read_tiff_ifd` | `ptiff::io::backend::tiff::readTiffIfd` | Inline-/Offset-Auflösung; Overflow-/Bounds-Checks; unbekannte Typen übersprungen |
 | `ptiff_core::geometry::Vec3` | `ptiff::Vec3` | x/y/z; Storage-only POD (C++ 1:1) |
 | `ptiff_core::geometry::Quaternion` | `ptiff::Quaternion` | w/x/y/z; scalar-first, default identity |
 | `ptiff_core::geometry::Intrinsics` | `ptiff::Intrinsics` | fx/fy/cx/cy (pinhole pixel params) |
@@ -152,7 +167,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **182 Tests grün**).
+  muss grün sein (Stand: **235 Tests grün** bei `--features tiff-backend`).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -174,10 +189,13 @@ Serialisierungs-Crates unabhängig:
 |---------|-------|---------|
 | `serde` | `serde` (derive) | `Serialize`/`Deserialize` auf den Domain-Typen (PixelType, CompressionKind, ImageDescriptor, Image, Scene, StorageModel, ...) |
 | `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
+| `tiff-backend` | *(keine zusätzlichen Deps)* | TIFF/BigTIFF-Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`) über den Byte-Transport |
 
-`memory-backend` impliziert `serde`. `cargo tree --edges normal --no-default-features`
+`memory-backend` impliziert `serde`; `tiff-backend` ist dependency-frei (arbeitet direkt auf
+`BinaryReader`/`BinaryWriter`). `cargo tree --edges normal --no-default-features`
 zeigt nur `ptiff-core → multicalc → libm`. Der Memory-Pixel-Tier (`MemoryImageSource`/
-`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert.
+`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert; die TIFF-Format-Schicht
+(Header/IFD/Tag-Parser) ist implementiert, die Writer-Policy-/Sink/Source-Schicht folgt.
 
 ## Nächste Schritte (aus dem Plan §4.2 + GEOMETRY-FOUNDATION.md)
 
@@ -194,7 +212,9 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    (Phase IV). **Offen (oracle-gekoppelt):** Geometry in `Scene`/`StorageModel` verdrahten
    (C++ `Scene` hat noch kein `addCamera`/`addGeometry`; M3 = offener RFC) + `ptiff-rust`/
    `ptiff-c`-Exposition (GEOMETRY-FOUNDATION.md §8 Phase IV).
-5. TIFF/BigTIFF-Backend (Header, IFD, Tag-Parser) — §4.2/Phase.
+5. 🔄 **TIFF/BigTIFF-Backend:** ✅ Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`
+   inkl. Overflow-/Bounds-Checks + write_tiff_header) unter Feature `tiff-backend`; **offen:**
+   Writer-Policies, Directory-Writer, `TiffImageSource`/`TiffImageSink` (Phasen B/C).
 6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.
