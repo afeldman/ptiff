@@ -196,7 +196,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **302 Tests grün** bei `--features tiff-backend`).
+  muss grün sein (Stand: **308 Tests grün** bei `--features tiff-backend`, workspace inkl. idiomatischem `ptiff`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -251,9 +251,15 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
 4. ✅ **Geometry Foundation Phase III/IV:** Quaternion-Euler-Helfer (`from_euler_angles[_deg]`,
    `to_rad`/`quaternion2rad`/`to_deg`), Serde-Serialisierungs-MVP + Roundtrip-Tests (Phase III);
    `SpiceState` SPICE-Pose-Mapping (`(p,q,v,ω)` → `Pose`+`Twist`/`Screw`, Adjoint, propagate)
-   (Phase IV). **Offen (oracle-gekoppelt):** Geometry in `Scene`/`StorageModel` verdrahten
-   (C++ `Scene` hat noch kein `addCamera`/`addGeometry`; M3 = offener RFC) + `ptiff-rust`/
-   `ptiff-c`-Exposition (GEOMETRY-FOUNDATION.md §8 Phase IV).
+   (Phase IV). **Scene/Camera-CRS-Wiring (Punkt 2, Option A):** `ImageDescriptor`+`Image`
+   tragen jetzt `camera: Option<Camera>` und `crs: Option<CoordinateReferenceSystem>`;
+   das neue `geometry/marshal`-Modul marshallt die Domain-Klassen in/aus den
+   `ptiff.camera.*`/`ptiff.crs.*`-Feldern; `SceneSerializer` emittiert sie pro Bild-Child,
+   `SceneDeserializer` liest sie zurück. Das roundtrippt end-to-end durch die privaten
+   TIFF-Tags 65002/65003 (`Tiff::to_bytes` → `Tiff::from_bytes`). **RFC-Vorbehalt:** das
+   Feld-Schema ist ein Vorschlag (M3 fachliche Ebene, open RFC — für C++ + Rust einheitlich);
+   unbekannte Keys bleiben erhalten. Bekannte Einschränkung: `Frame` hält einen `'static`-id,
+   daher wird ein unbekannter Frame-Override beim Lesen als abwesend behandelt.
 5. 🔄 **TIFF/BigTIFF-Backend:** ✅ Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`,
    Overflow-/Bounds-Checks, `write_tiff_header`), ✅ Writer-Schicht (`ifd_writer`,
    `directory`+`interpret_tiff_ifd`, `directory_writer`+`plan_tiff_write[_multi]`,
@@ -287,8 +293,9 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    `read_tile(index, col, row)` und `tile_layout(index)`. Der `Tiff`-Write-Pfad
    schreibt nur die Metadaten (IFD-Kette), noch keine Pixel-Payloads; ein
    Pixel-Schreib-Tier hängt an den Core ("tiled write supports no compression yet").
-   Camera/Geometry ist im idiomatischen Layer re-exportiert; ein `Scene`-API dafür
-   bleibt an Punkt 2 (C++-Scene hat noch kein `addCamera`/`addGeometry`).
+   Camera/Geometry/CRS sind im idiomatischen Layer re-exportiert und tragen über
+   `ImageDescriptor.camera`/`crs` typisiert auf jedem `Scene`-Bild (end-to-end durch die
+   PTIFF-Tags 65002/65003, siehe Punkt 4).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.
 

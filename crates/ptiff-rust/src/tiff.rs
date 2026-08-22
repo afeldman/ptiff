@@ -374,4 +374,63 @@ mod tests {
         assert!(tiff.read_image_pixels(1).is_err());
         assert!(tiff.read_tile(1, 0, 0).is_err());
     }
+
+    #[test]
+    fn camera_and_crs_round_trip_through_file_bytes() {
+        use ptiff_core::geometry::Ellipsoid;
+        use ptiff_core::{
+            CoordinateReferenceSystem, Extrinsics, Frame, Intrinsics, Planet, Projection,
+            ProjectionKind, Quaternion, Vec3,
+        };
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(16, 16);
+        desc.camera = Some(ptiff_core::Camera::from_model(
+            "pinhole",
+            Intrinsics::new(900.0, 901.0, 512.5, 384.25),
+            Extrinsics::new(
+                Quaternion::new(0.7, 0.1, 0.2, 0.3),
+                Vec3::new(1.0, 2.0, 3.0),
+            ),
+            "2026-08-21T12:34:56.000Z",
+        ));
+        desc.crs = Some(CoordinateReferenceSystem::new(
+            Planet::new(
+                "Moon",
+                "301",
+                Ellipsoid::new(1_737_400.0, 1_735_700.0),
+                Frame::IAU_MOON,
+            ),
+            Some(Frame::SPACECRAFT),
+            Projection::new(ProjectionKind::Stereographic),
+        ));
+        scene.add_image(desc).expect("add image");
+
+        // Scene → TIFF bytes (emits private tags 65002/65003) → back to Scene.
+        let bytes = Tiff::to_bytes(&scene).expect("serialize");
+        let read = Tiff::from_bytes(&bytes).expect("parse");
+        let image = read.image(0).expect("image");
+
+        let camera = image.camera().expect("camera round-tripped");
+        assert_eq!(camera.model_name(), "pinhole");
+        assert_eq!(
+            camera.intrinsics(),
+            Intrinsics::new(900.0, 901.0, 512.5, 384.25)
+        );
+        assert_eq!(
+            camera.extrinsics().rotation,
+            Quaternion::new(0.7, 0.1, 0.2, 0.3)
+        );
+        assert_eq!(camera.extrinsics().translation, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(camera.timestamp(), "2026-08-21T12:34:56.000Z");
+
+        let crs = image.crs().expect("crs round-tripped");
+        assert_eq!(crs.planet().name(), "Moon");
+        assert_eq!(crs.planet().iau_identifier(), "301");
+        assert_eq!(
+            crs.planet().ellipsoid(),
+            Ellipsoid::new(1_737_400.0, 1_735_700.0)
+        );
+        assert_eq!(crs.frame_override(), Some(Frame::SPACECRAFT));
+        assert_eq!(crs.projection().kind(), ProjectionKind::Stereographic);
+    }
 }
