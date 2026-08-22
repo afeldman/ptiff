@@ -1,0 +1,8 @@
+# Conservative, deterministic dev defaults for the PTIFF workspace.
+#
+# These are local-only defaults and can be overridden on the command line, in CI
+# or via environment variables. The goal is deterministic, incremental builds.
+[profile.dev]
+# Keep debug info to the minimum needed for backtraces during fast iteration.
+# Override with `--profile` in release/CI builds.
+debug = "line-tables-only"

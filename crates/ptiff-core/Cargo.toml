@@ -1,0 +1,25 @@
+# ptiff-core: the PTIFF 1.0 Rust core
+#
+# This crate holds the fundamental, stable domain types of PTIFF. It is the
+# single maintained core implementation (Architectural Response §3.1.1).
+#
+# Design constraints (PTIFF-1.0-RUST-CORE-PLAN.md §4.2/§4.3):
+#   - NO C ABI here (#[no_mangle]); that lives in the separate `ptiff-c` crate.
+#   - NO PyO3 / MEX / SWIG here.
+#   - NO HTTP transport implementation here (only a trait in a later phase).
+#   - Dependencies are deliberately minimal and stable.
+[package]
+name = "ptiff-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "PTIFF 1.0 Rust core: domain types and formats (TIFF/BigTIFF)."
+
+[dependencies]
+# Intentionally minimal: the core is dependency-light by design (§4.2/§4.3).
+
+[dev-dependencies]
