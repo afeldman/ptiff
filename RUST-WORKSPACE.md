@@ -80,7 +80,15 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 │           │           ├── header.rs           TiffHeader + read/write-TiffHeader (classic/BigTIFF)
 │           │           ├── tag.rs              TagId / FieldType / RawTagEntry + K_PRIVATE_TAG_BASE
 │           │           ├── pixel_format.rs     BitsPerSample/SampleFormat ↔ PixelType
-│           │           └── ifd.rs              TiffIfd + read_tiff_ifd (inline/offset-Indirektion)
+│           │           ├── ifd.rs              TiffIfd + read_tiff_ifd (inline/offset-Indirektion)
+│           │           ├── ifd_writer.rs       TiffIfdEntryToWrite + tiff_ifd_byte_size/write_tiff_ifd
+│           │           ├── directory.rs        TileByteRange/TiffCompression/TiffPredictor/TiffDirectory
+│           │           │                       + interpret_tiff_ifd/to_storage_model
+│           │           ├── directory_writer.rs plan_tiff_write/plan_tiff_write_multi (TiffWritePlan/TiffFileWritePlan)
+│           │           ├── ptiff_metadata.rs   RFC-7002-Payload (encode/decode/records_from_storage_model)
+│           │           ├── image_source.rs     TiffImageSource (impl ImageSource; on-demand read + Codecs)
+│           │           ├── image_sink.rs       TiffImageSink (impl ImageSink; seek-and-write + Back-Patch)
+│           │           └── compression/        dependency-freie Codecs: packbits.rs / lzw.rs / predictor.rs
 │           └── tile/           Tiling-Grid & Tile-Mapping
 │               ├── mod.rs               Tile (id/index/region, zero-copy &[u8])
 │               ├── tile_extent.rs       TileExtent  (width/height)
@@ -138,6 +146,20 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 | `ptiff_core::io::backend::tiff::RawTagEntry` | `ptiff::io::backend::tiff::RawTagEntry` | unaufgelöster 12/20-Byte-Eintrag |
 | `ptiff_core::io::backend::tiff::TiffIfd` | `ptiff::io::backend::tiff::TiffIfd` | aufgelöste `tag → u64[]`-Tabelle + next-Ifd |
 | `ptiff_core::io::backend::tiff::read_tiff_ifd` | `ptiff::io::backend::tiff::readTiffIfd` | Inline-/Offset-Auflösung; Overflow-/Bounds-Checks; unbekannte Typen übersprungen |
+| `ptiff_core::io::backend::tiff::TiffIfdEntryToWrite` | `ptiff::io::backend::tiff::TiffIfdEntryToWrite` | u32-Werte + FieldType (SHORT/LONG/LONG8) |
+| `ptiff_core::io::backend::tiff::tiff_ifd_byte_size` | `ptiff::io::backend::tiff::tiffIfdByteSize` | klassische/BigTIFF-IFD-Größe (inline/out-of-line) ohne Schreiben |
+| `ptiff_core::io::backend::tiff::write_tiff_ifd` | `ptiff::io::backend::tiff::writeTiffIfd` | sortiert + serialisiert IFD (count/records/next-Ifd/ool-Values) |
+| `ptiff_core::io::backend::tiff::TiffDirectory` | `ptiff::io::backend::tiff::TiffDirectory` | aufgelöste Geometrie + Layout + strip/tile-Byte-Ranges + compression/predictor |
+| `ptiff_core::io::backend::tiff::TiffCompression` | `ptiff::io::backend::tiff::TiffCompression` | None/Lzw/PackBits/Deflate/Jpeg (tag 259) |
+| `ptiff_core::io::backend::tiff::TiffPredictor` | `ptiff::io::backend::tiff::TiffPredictor` | None/HorizontalDifferencing (tag 317) |
+| `ptiff_core::io::backend::tiff::interpret_tiff_ifd` | `ptiff::io::backend::tiff::interpretTiffIfd` | Validierung des Supported-Subsets → TiffDirectory |
+| `ptiff_core::io::backend::tiff::to_storage_model` | `ptiff::io::backend::tiff::toStorageModel` | TiffDirectory → StorageModel (pixelType/compression/predictor/...) |
+| `ptiff_core::io::backend::tiff::plan_tiff_write` | `ptiff::io::backend::tiff::planTiffWrite` | StorageModel → TiffWritePlan (entries + dataOffset + patch-Offset) |
+| `ptiff_core::io::backend::tiff::plan_tiff_write_multi` | `ptiff::io::backend::tiff::planTiffWriteMulti` | Mehr-IFD-Chain; Offsets/Rebasing auf absolute Datei-Offsets |
+| `ptiff_core::io::backend::tiff::MetadataRecord` / `encode_metadata_payload` / `decode_metadata_payload` | `ptiff::io::backend::tiff::MetadataRecord`/`encodeMetadataPayload`/`decodeMetadataPayload` | RFC-7002 Private-Tag-Payload (PTIFF-Magic + Version + Records) |
+| `ptiff_core::io::backend::tiff::TiffImageSource` | `ptiff::io::backend::tiff::TiffImageSource` | impl ImageSource: on-demand read + PackBits/LZW/Predictor |
+| `ptiff_core::io::backend::tiff::TiffImageSink` | `ptiff::io::backend::tiff::TiffImageSink` | impl ImageSink: seek-and-write + compression-Back-Patch |
+| `ptiff_core::io::backend::tiff::compression::*` | `ptiff::compression::*` | dependency-freie Codecs: PackBits/LZW/Predictor (encode/decode) |
 | `ptiff_core::geometry::Vec3` | `ptiff::Vec3` | x/y/z; Storage-only POD (C++ 1:1) |
 | `ptiff_core::geometry::Quaternion` | `ptiff::Quaternion` | w/x/y/z; scalar-first, default identity |
 | `ptiff_core::geometry::Intrinsics` | `ptiff::Intrinsics` | fx/fy/cx/cy (pinhole pixel params) |
@@ -167,7 +189,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **235 Tests grün** bei `--features tiff-backend`).
+  muss grün sein (Stand: **272 Tests grün** bei `--features tiff-backend`).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -189,13 +211,16 @@ Serialisierungs-Crates unabhängig:
 |---------|-------|---------|
 | `serde` | `serde` (derive) | `Serialize`/`Deserialize` auf den Domain-Typen (PixelType, CompressionKind, ImageDescriptor, Image, Scene, StorageModel, ...) |
 | `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
-| `tiff-backend` | *(keine zusätzlichen Deps)* | TIFF/BigTIFF-Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`) über den Byte-Transport |
+| `tiff-backend` | *(keine zusätzlichen Deps)* | TIFF/BigTIFF-Backend: Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`), Writer (`ifd_writer`/`directory`/`directory_writer`/`ptiff_metadata`), dependency-freie Codecs (`packbits`/`lzw`/`predictor`) + `TiffImageSource`/`TiffImageSink` |
 
 `memory-backend` impliziert `serde`; `tiff-backend` ist dependency-frei (arbeitet direkt auf
-`BinaryReader`/`BinaryWriter`). `cargo tree --edges normal --no-default-features`
-zeigt nur `ptiff-core → multicalc → libm`. Der Memory-Pixel-Tier (`MemoryImageSource`/
-`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert; die TIFF-Format-Schicht
-(Header/IFD/Tag-Parser) ist implementiert, die Writer-Policy-/Sink/Source-Schicht folgt.
+`BinaryReader`/`BinaryWriter`, inkl. der Codecs PackBits/LZW/Predictor). `cargo tree --edges
+normal --no-default-features` zeigt nur `ptiff-core → multicalc → libm`. Der Memory-Pixel-Tier
+(`MemoryImageSource`/`MemoryImageSink` über das Modell + Pixel-Layout) ist implementiert; die
+TIFF/BigTIFF-Schicht umfasst Format (Header/IFD/Tag-Parser), Writer (IFD/Directory/Metadata),
+dependency-freie Codecs und `TiffImageSource`/`TiffImageSink` (E2E-Write→Read-Roundtrips für
+Uncompressed/PackBits/LZW+Predictor). **Offen:** Compile-Time-Policies (Phase B), Deflate/JPEG-
+Codecs (features-abhängig), `TiffBackend`-Verdrahtung über `StorageBackend`.
 
 ## Nächste Schritte (aus dem Plan §4.2 + GEOMETRY-FOUNDATION.md)
 
@@ -212,9 +237,14 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    (Phase IV). **Offen (oracle-gekoppelt):** Geometry in `Scene`/`StorageModel` verdrahten
    (C++ `Scene` hat noch kein `addCamera`/`addGeometry`; M3 = offener RFC) + `ptiff-rust`/
    `ptiff-c`-Exposition (GEOMETRY-FOUNDATION.md §8 Phase IV).
-5. 🔄 **TIFF/BigTIFF-Backend:** ✅ Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`
-   inkl. Overflow-/Bounds-Checks + write_tiff_header) unter Feature `tiff-backend`; **offen:**
-   Writer-Policies, Directory-Writer, `TiffImageSource`/`TiffImageSink` (Phasen B/C).
+5. 🔄 **TIFF/BigTIFF-Backend:** ✅ Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`,
+   Overflow-/Bounds-Checks, `write_tiff_header`), ✅ Writer-Schicht (`ifd_writer`,
+   `directory`+`interpret_tiff_ifd`, `directory_writer`+`plan_tiff_write[_multi]`,
+   `ptiff_metadata`), ✅ dependency-freie Codecs (PackBits/LZW/Predictor), ✅
+   `TiffImageSource`/`TiffImageSink` (impl. `ImageSource`/`ImageSink`; E2E-Roundtrips).
+   **Offen:** Compile-Time-Policies (Phase B; in Rust funktional durch den Runtime-Writer
+   abgedeckt — siehe Rückfrage), Deflate/JPEG-Codecs (features-abhängig), `TiffBackend`
+   (StorageBackend-Verdrahtung).
 6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.
