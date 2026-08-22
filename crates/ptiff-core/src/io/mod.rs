@@ -6,6 +6,7 @@ pub mod backend_capabilities;
 // The concrete storage backends live in `backend/`, each gated by a feature.
 #[cfg(feature = "memory-backend")]
 pub mod backend;
+pub mod backend_factory;
 pub mod binary_reader;
 pub mod binary_writer;
 pub mod deserializer;
@@ -21,6 +22,7 @@ pub mod storage_model;
 pub mod tile_provider;
 
 pub use backend_capabilities::BackendCapabilities;
+pub use backend_factory::BackendFactory;
 pub use binary_reader::BinaryReader;
 pub use binary_writer::BinaryWriter;
 pub use deserializer::Deserializer;
