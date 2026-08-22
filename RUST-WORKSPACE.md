@@ -280,8 +280,15 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    `Tiff`-Fassade mit `open`/`from_bytes` (→ `Scene` + `images()`-Iterator) und
    `to_bytes`/`write` (Scene → TIFF/BigTIFF via `TiffBackend` + `SceneSerializer`);
    Roundtrip für Scene-Metadaten getestet (None/LZW symmetrisch; Deflate/Jpeg im
-   `SceneDeserializer` des Cores wie im C++-Oracle noch nicht rückschreibbar). Ausbau
-   (Pixel/Tile-Tier, Camera/Geometry) folgt.
+   `SceneDeserializer` des Cores wie im C++-Oracle noch nicht rückschreibbar).
+
+   **Pixel/Tile-Lese-Tier fertig:** `Tiff` hält die Roh-Bytes und decodiert echte
+   Pixeldaten zurück: `read_image_pixels(index)` (kontiguierter Raster),
+   `read_tile(index, col, row)` und `tile_layout(index)`. Der `Tiff`-Write-Pfad
+   schreibt nur die Metadaten (IFD-Kette), noch keine Pixel-Payloads; ein
+   Pixel-Schreib-Tier hängt an den Core ("tiled write supports no compression yet").
+   Camera/Geometry ist im idiomatischen Layer re-exportiert; ein `Scene`-API dafür
+   bleibt an Punkt 2 (C++-Scene hat noch kein `addCamera`/`addGeometry`).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.
 
