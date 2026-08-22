@@ -192,7 +192,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **295 Tests grün** bei `--features tiff-backend`).
+  muss grün sein (Stand: **302 Tests grün** bei `--features tiff-backend`).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
   Externe Libs für Serialisierung sind **feature-gated** (siehe unten).
@@ -216,6 +216,11 @@ Serialisierungs-Crates unabhängig:
 | `memory-backend` | `serde_json` (+ `serde`) | `MemoryBackend`-Modell-Codec; in-memory StorageBackend |
 | `tiff-backend` | *(keine zusätzlichen Deps)* | TIFF/BigTIFF-Backend: Format-Schicht (`endian`/`header`/`tag`/`pixel_format`/`ifd`), Writer (`ifd_writer`/`directory`/`directory_writer`/`ptiff_metadata`), dependency-freie Codecs (`packbits`/`lzw`/`predictor`) + `TiffImageSource`/`TiffImageSink` |
 | `tiff-codecs` | `flate2` (→ miniz_oxide, pure-Rust) · `jpeg-encoder` + `jpeg-decoder` (pure-Rust) | Deflate (RFC 1950 zlib, `compression/deflate.rs`) + JPEG baseline 4:4:4 (`compression/jpeg.rs`); **impliziert `tiff-backend`** |
+
+Daneben ist die **image-rs-`tiff`-Crate** (v0.11, `deflate`/`lzw`/`jpeg`-Features) als
+**dev-dependency** eingebunden — ausschließlich als unabhängiges **Interop-Gegenlese-Orakel**
+in Tests, nie im Produkt-Build (die reine Produkt-Dependency-Kette bleibt `ptiff-core →
+multicalc → libm` im Default bzw. + die Codec-Crates hinter `tiff-codecs`).
 
 `memory-backend` impliziert `serde`; `tiff-backend` ist dependency-frei (arbeitet direkt auf
 `BinaryReader`/`BinaryWriter`, inkl. der Codecs PackBits/LZW/Predictor). `cargo tree --edges
@@ -256,7 +261,15 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    (pure-Rust: flate2/miniz_oxide + jpeg-encoder/jpeg-decoder; zlib RFC 1950, JPEG baseline
    4:4:4; Bomben-/Size-Guards, Dimensionen-/Component-Checks). **Geschlossen:**
    Compile-Time-Policies (Phase B — bewusst nicht in Rust abgebildet; funktional durch den
-   Runtime-Writer abgedeckt), Deflate/JPEG-Codecs.
+   Runtime-Writer abgedeckt), Deflate/JPEG-Codecs. **Interop-Gegenlese-Orakel:**
+   mehrere Tests lesen unser geschriebenes TIFF/BigTIFF mit der externen
+   image-rs-`tiff`-Crate (dev-dependency, `deflate`/`lzw`/`jpeg`-Features) gegen
+   und verifizieren die Pixel-Daten unabhängig (Uncompressed Gray/RGB, BigTIFF,
+   Deflate, LZW, PackBits, JPEG). Der Abgleich hat einen **LZW-Bitwriter-Bug**
+   aufgedeckt: unser Encoder/Decoder waren intern konsistent, aber nicht
+   standardkonform (die Breiten-Tabelle wuchs nie, weil `have_previous` nur
+   bedingt gesetzt wurde) — der Bitwriter spiegelt jetzt exakt das C++-Oracle
+   und die Streams werden von `weezl` gelesen.
 6. `ptiff-rust` als idiomatische Rust-API auf `ptiff-core` (Paketname `ptiff`).
 7. `ptiff-c` (C-ABI) — erst wenn der Kern Funktionalität trägt.
 8. Tests / Golden / Property & Fuzz gemäß §11.

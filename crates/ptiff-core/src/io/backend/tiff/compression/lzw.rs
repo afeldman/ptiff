@@ -63,8 +63,16 @@ fn write_codes_to_bits(codes: &[u32]) -> Vec<u8> {
         if code == u32::from(CLEAR_CODE) {
             table_size = FIRST_DICTIONARY_CODE;
             have_previous = false;
-        } else if code != u32::from(EOI_CODE) && have_previous && table_size < MAX_DICTIONARY_CODE {
-            table_size += 1;
+        } else if code != u32::from(EOI_CODE) {
+            // Exactly mirrors the C++ oracle's bit-writer: the table grows only
+            // once we already hold a previous normal code (mirrors the decoder's
+            // `have_old_entry` gating), but `have_previous` is set unconditionally
+            // for any non-clear/non-EOI code. Without the unconditional set the
+            // table never grows, producing a stream the standard LZW decoder
+            // (e.g. weezl/image-tiff) rejects.
+            if have_previous && table_size < MAX_DICTIONARY_CODE {
+                table_size += 1;
+            }
             have_previous = true;
         }
     }
