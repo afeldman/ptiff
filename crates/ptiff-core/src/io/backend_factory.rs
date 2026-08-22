@@ -52,6 +52,12 @@ impl BackendFactory {
             Box::new(|| Box::new(crate::io::backend::MemoryBackend)),
         )
         .expect("built-in backend names must not collide");
+        #[cfg(feature = "tiff-backend")]
+        self.register(
+            "tiff",
+            Box::new(|| Box::new(crate::io::backend::TiffBackend)),
+        )
+        .expect("built-in backend names must not collide");
     }
 
     /// Registers a `builder` under `name`.
@@ -235,5 +241,16 @@ mod tests {
             Err(e) => panic!("memory backend should self-register: {e}"),
         };
         assert_eq!(backend.name(), "memory");
+    }
+
+    #[cfg(feature = "tiff-backend")]
+    #[test]
+    fn singleton_self_registers_tiff_backend() {
+        let factory = BackendFactory::instance();
+        let backend = match factory.create("tiff") {
+            Ok(b) => b,
+            Err(e) => panic!("tiff backend should self-register: {e}"),
+        };
+        assert_eq!(backend.name(), "tiff");
     }
 }

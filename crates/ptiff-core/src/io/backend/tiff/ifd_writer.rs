@@ -163,8 +163,8 @@ fn write_elements(out: &mut [u8], entry: &TiffIfdEntryToWrite) {
 /// # Errors
 ///
 /// Returns an error if any underlying write or seek fails.
-pub fn write_tiff_ifd(
-    writer: &mut impl BinaryWriter,
+pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
+    writer: &mut W,
     mut entries: Vec<TiffIfdEntryToWrite>,
     is_big_tiff: bool,
     next_ifd_offset: u64,

@@ -50,7 +50,7 @@ fn read_byte_order(mark: &[u8]) -> Result<Endian> {
 /// Returns [`crate::ErrorCode::InvalidArgument`] if the byte-order mark or magic
 /// number is not recognized, the input is shorter than a header, or (BigTIFF
 /// only) the offset-byte-size field is not 8.
-pub fn read_tiff_header(reader: &mut impl BinaryReader) -> Result<TiffHeader> {
+pub fn read_tiff_header<R: BinaryReader + ?Sized>(reader: &mut R) -> Result<TiffHeader> {
     let mut raw = [0u8; 16];
     let first_read = reader.read(&mut raw[..8])?;
     if first_read != 8 {
@@ -99,7 +99,7 @@ pub fn read_tiff_header(reader: &mut impl BinaryReader) -> Result<TiffHeader> {
     })
 }
 
-fn write_and_check(writer: &mut impl BinaryWriter, header: &[u8]) -> Result<()> {
+fn write_and_check<W: BinaryWriter + ?Sized>(writer: &mut W, header: &[u8]) -> Result<()> {
     let n = writer.write(header)?;
     if n != header.len() {
         return Err(Error::invalid_argument("write_tiff_header: short write"));
@@ -114,8 +114,8 @@ fn write_and_check(writer: &mut impl BinaryWriter, header: &[u8]) -> Result<()> 
 /// classic.
 ///
 /// Mirrors `ptiff::io::backend::tiff::writeTiffHeader`.
-pub fn write_tiff_header(
-    writer: &mut impl BinaryWriter,
+pub fn write_tiff_header<W: BinaryWriter + ?Sized>(
+    writer: &mut W,
     first_ifd_offset: u64,
     is_big_tiff: bool,
 ) -> Result<()> {
