@@ -16,8 +16,9 @@
  *   - pixel bridge write->read round-trip (sink -> file -> source)
  *   - ptiff_open_path metadata on the written file
  *   - ptiff_backend_names / ptiff_free_string
- *   - logger surface (recognised stubs; callable, no panic)
- *   - ptiff_open_path_camera + ptiff_sink_create_camera (recognised stubs)
+ *   - logger surface (forwards to the core logger: set/level/log round-trip)
+ *   - camera surface (ptiff_open_path_camera read + ptiff_sink_create_camera write
+ *     round-trip through a real file)
  *
  * Build (see Makefile):
  *   cc -I bindings/c crates/ptiff-c/tests/c/ptiff_c_abiltest.c \
@@ -236,26 +237,78 @@ static void test_backend_names(void) {
     ptiff_free_string(NULL); /* no-op */
 }
 
-static void test_stubs(void) {
-    /* Recognised stubs: callable, linkable, no panic. */
+static void test_logger_and_camera(void) {
+    /* Logger forwards to the core dependency-free logger: level is tracked and
+     * reported (no longer a no-op stub). */
+    ptiff_logger_set_level(PTIFF_LOG_DEBUG);
+    CHECK(ptiff_logger_level() == PTIFF_LOG_DEBUG, "logger reports DEBUG");
+    ptiff_logger_log(PTIFF_LOG_INFO, "hello from C"); /* callable, no panic */
     ptiff_logger_set_level(PTIFF_LOG_OFF);
-    ptiff_logger_log(PTIFF_LOG_INFO, "hello from C");
     CHECK(ptiff_logger_level() == PTIFF_LOG_OFF, "logger reports OFF");
+    ptiff_logger_set_level(PTIFF_LOG_INFO); /* reset for the rest of the test */
 
-    int err = 0;
-    (void)err;
+    /* Camera write path is implemented: sink_create_camera with a null camera
+     * is rejected (INVALID_ARGUMENT -> NULL), matching ptiff_sink_create. */
+    ptiff_image_descriptor d = {0};
+    d.width = 34;
+    d.height = 34;
+    d.pixel_type = PTIFF_PIXEL_UINT8;
+    d.channel_count = 1;
+    d.has_tile_info = 1;
+    d.tile_info.tile_width = 16;
+    d.tile_info.tile_height = 16;
+    ptiff_sink* s = ptiff_sink_create_camera(OUT_PATH, &d, NULL);
+    CHECK(s == NULL, "sink_create_camera with null camera -> NULL");
 
-    /* Camera entries are recognised stubs in this slice; they must be
-     * linkable and must not crash. The exact return depends on whether the
-     * underlying capability is wired; here we only assert callability. */
+    /* A complete camera round-trips through the file: write with camera, read
+     * it back with ptiff_open_path_camera and verify the structured fields. */
     ptiff_camera cam;
     memset(&cam, 0, sizeof(cam));
-    ptiff_open_path_camera(OUT_PATH, &cam);
+    cam.has_intrinsics = 1;
+    cam.focal_length_x = 900.0;
+    cam.focal_length_y = 901.0;
+    cam.principal_x = 512.5;
+    cam.principal_y = 384.25;
+    cam.intrinsics[0] = 900.0;
+    cam.intrinsics[4] = 901.0;
+    cam.intrinsics[2] = 512.5;
+    cam.intrinsics[5] = 384.25;
+    cam.intrinsics[8] = 1.0;
+    cam.has_extrinsics = 1;
+    cam.rotation_w = 0.7;
+    cam.rotation_x = 0.1;
+    cam.rotation_y = 0.2;
+    cam.rotation_z = 0.3;
+    cam.position_x = 1.0;
+    cam.position_y = 2.0;
+    cam.position_z = 3.0;
 
-    ptiff_image_descriptor d = {0};
-    ptiff_sink* s = ptiff_sink_create_camera("/tmp/ptiff_c_camera_stub.tif", &d, NULL);
-    /* Stub: not implemented for camera write path in this slice. */
-    CHECK(s == NULL, "sink_create_camera returns null (stub)");
+    s = ptiff_sink_create_camera(OUT_PATH, &d, &cam);
+    CHECK(s != NULL, "sink_create_camera with camera -> non-null");
+    if (s != NULL) {
+        uint8_t tile[16 * 16];
+        memset(tile, 5, sizeof(tile));
+        for (uint32_t r = 0; r < 3; r++) {
+            for (uint32_t c = 0; c < 3; c++) {
+                CHECK(ptiff_sink_write_tile(s, c, r, tile, sizeof(tile)) == 0,
+                      "camera sink write tile ok");
+            }
+        }
+        ptiff_sink_close(s);
+    }
+
+    ptiff_camera readback;
+    memset(&readback, 0, sizeof(readback));
+    if (ptiff_open_path_camera(OUT_PATH, &readback) == 0) {
+        CHECK(readback.has_intrinsics == 1, "readback has intrinsics");
+        CHECK(readback.has_extrinsics == 1, "readback has extrinsics");
+        CHECK(readback.focal_length_x == 900.0, "readback fx");
+        CHECK(readback.principal_y == 384.25, "readback cy");
+        CHECK(readback.rotation_w == 0.7, "readback rw");
+        CHECK(readback.position_z == 3.0, "readback pz");
+    } else {
+        CHECK(0, "open_path_camera readback succeeds");
+    }
 }
 
 int main(void) {
@@ -267,7 +320,7 @@ int main(void) {
     test_pixel_bridge();
     test_open_path();
     test_backend_names();
-    test_stubs();
+    test_logger_and_camera();
 
     if (failures) {
         fprintf(stderr, "ptiff_c_abiltest: %d FAILURE(S)\n", failures);
