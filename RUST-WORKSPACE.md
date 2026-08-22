@@ -197,7 +197,7 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
   muss grün sein (Stand: **343 `ptiff-core`-Tests** — 317 Unit + 10 Corrupted + 6 Golden + 7
-  Property + 3 `tiled_write`-Integration — plus 8 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl.
+  Property + 3 `tiled_write`-Integration — plus 12 idiomatische `ptiff` + 2 Doc-Tests; workspace inkl.
   idiomatischem `ptiff`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
@@ -292,16 +292,22 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
 
    **Pixel/Tile-Lese-Tier fertig:** `Tiff` hält die Roh-Bytes und decodiert echte
    Pixeldaten zurück: `read_image_pixels(index)` (kontiguierter Raster),
-   `read_tile(index, col, row)` und `tile_layout(index)`. Der `Tiff`-Write-Pfad
-   schreibt nur die Metadaten (IFD-Kette); ein Pixel-Schreib-Tier ist im Core
-   **entsperrt** (`8447530`): tiled write unterstützt jetzt jede Kompression
-   (None/PackBits/LZW/Deflate/JPEG) und horizontales Differencing — der
-   `TiffImageSink` packt komprimierte Tiles hintereinander und patcht pro Tile
-   Offset/ByteCount in die `TileOffsets`/`TileByteCounts`-Arrays zurück. Das
-   Single-Image-Write wird über die öffentliche `TiffBackend`-API durch
-   `tests/tiled_write.rs` end-to-end verifiziert (LZW+Differencing und Deflate).
-   Einschränkung: Multi-Image (statischer Daten-Layout) akzeptiert weiterhin
-   kein tiled+compressed (region nicht reservierbar) — als Einzelbild schreiben.
+   `read_tile(index, col, row)` und `tile_layout(index)`.
+   **Pixel-Schreib-Tier fertig:** Core-ebene tiled write unterstützt jetzt jede
+   Kompression (None/PackBits/LZW/Deflate/JPEG) und horizontales Differencing —
+   der `TiffImageSink` packt komprimierte Tiles hintereinander und patcht pro Tile
+   Offset/ByteCount in die `TileOffsets`/`TileByteCounts`-Arrays zurück
+   (`8447530`; Multi-Image akzeptiert weiterhin kein tiled+compressed, da die
+   Datenregion dort statisch reserviert ist — als Einzelbild schreiben). Im
+   idiomatischen Layer schreibt `Tiff::to_bytes_with_pixels(scene, rasters)`
+   die Scene-Metadaten **und** pro Bild dessen Raster (Layout exakt wie
+   `read_image_pixels` es liefert: Grid-Tiles aneinandergereiht, Randkacheln
+   gepaddet) mit 4 neuen Edge-Fällen getestet (Single-Strip grayscale,
+   Multi-Image inkl. 16-bit RGB, getilte 3×3-Kacheln mit Rand-Padding,
+   Raster-Anzahl/-Größen-Validierung) — Roundtrip via `from_bytes` +
+   `read_image_pixels`. Runtime-abfragbare Versions-Konstanten
+   (`ptiff_core::{APP_VERSION, VERSION_STR}`) sind Teil des Cores, damit die CLI
+   später `ptiff --version` anbieten kann.
    Camera/Geometry/CRS sind im idiomatischen Layer re-exportiert und tragen über
    `ImageDescriptor.camera`/`crs` typisiert auf jedem `Scene`-Bild (end-to-end durch die
    PTIFF-Tags 65002/65003, siehe Punkt 4).
