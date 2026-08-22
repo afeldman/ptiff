@@ -5,7 +5,9 @@
 
 use crate::io::backend::tiff::directory::{TiffCompression, TiffDirectory, TiffPredictor};
 use crate::io::backend::tiff::header::{K_BIG_TIFF_HEADER_SIZE, K_CLASSIC_TIFF_HEADER_SIZE};
-use crate::io::backend::tiff::ifd_writer::{tiff_ifd_byte_size, TiffIfdEntryToWrite};
+use crate::io::backend::tiff::ifd_writer::{
+    tiff_ifd_byte_size, value_slot_offsets_relative, TiffIfdEntryToWrite,
+};
 use crate::io::backend::tiff::pixel_format::{
     bits_per_sample_for, bytes_per_sample, pixel_type_from_field_value, sample_format_for,
 };
@@ -183,8 +185,9 @@ fn parse_tile_size(model: &StorageModel) -> Result<Option<(u32, u32)>> {
 /// # Errors
 ///
 /// Returns [`crate::ErrorCode::InvalidArgument`] for a missing/unparsable
-/// required field, unsupported value, tiled-with-compression/predictor, float
-/// samples combined with horizontal differencing, or quality out of range.
+/// required field, unsupported value, a predictor combined with
+/// uncompressed-tiled output, float samples combined with horizontal
+/// differencing, or quality out of range.
 pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
     let image_width = require_uint32_field(model, "imageWidth")?;
     let image_height = require_uint32_field(model, "imageHeight")?;
@@ -207,16 +210,6 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
     let compression = parse_compression(model)?.unwrap_or(TiffCompression::None);
     let predictor = parse_predictor(model)?.unwrap_or(TiffPredictor::None);
 
-    if tiled && compression != TiffCompression::None {
-        return Err(Error::invalid_argument(
-            "planTiffWrite: tiled write does not support compression yet",
-        ));
-    }
-    if tiled && predictor != TiffPredictor::None {
-        return Err(Error::invalid_argument(
-            "planTiffWrite: tiled write does not support a predictor yet",
-        ));
-    }
     if compression == TiffCompression::Jpeg && pixel_type != PixelType::UInt8 {
         return Err(Error::invalid_argument(
             "planTiffWrite: Jpeg compression requires UInt8 pixelType",
@@ -236,6 +229,13 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
     if predictor == TiffPredictor::HorizontalDifferencing && compression == TiffCompression::Jpeg {
         return Err(Error::invalid_argument(
             "planTiffWrite: Predictor is not defined for Jpeg compression",
+        ));
+    }
+    // A predictor only feeds an encoder; on an uncompressed tiled image the
+    // reader would try to undo differencing on raw pixels and corrupt them.
+    if tiled && predictor != TiffPredictor::None && compression == TiffCompression::None {
+        return Err(Error::invalid_argument(
+            "planTiffWrite: a predictor requires a compression scheme; uncompressed tiled write cannot carry one",
         ));
     }
 
@@ -425,7 +425,29 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
     }
 
     let mut byte_count_patch_offset = 0u64;
-    if !tiled {
+    let mut tile_offsets_value_addresses: Vec<u64> = Vec::new();
+    let mut tile_byte_counts_value_addresses: Vec<u64> = Vec::new();
+    if tiled {
+        // Tiled layouts carry per-tile offsets/counts. When compressed, the
+        // Sink back-patches each tile's actual (variable) offset and size after
+        // encode, so pre-compute each value's absolute slot address. Offsets
+        // are computed relative to the IFD's first byte and rebased to the
+        // single-image layout (IFD right after the header); a multi-image plan
+        // rebases them further in `plan_tiff_write_multi`.
+        let slots = value_slot_offsets_relative(&entries, is_big_tiff);
+        let remap = |tag: TagId| -> Vec<u64> {
+            let empty = Vec::new();
+            let v = slots.get(&tag.as_u16()).unwrap_or(&empty);
+            v.iter().map(|&rel| header_size + rel).collect()
+        };
+        tile_offsets_value_addresses = remap(TagId::TileOffsets);
+        tile_byte_counts_value_addresses = remap(TagId::TileByteCounts);
+        debug_assert_eq!(
+            tile_offsets_value_addresses.len(),
+            tile_byte_counts_value_addresses.len(),
+            "TileOffsets/TileByteCounts slot tables must align"
+        );
+    } else {
         let mut sorted_tags: Vec<u16> = entries.iter().map(|e| e.tag_id).collect();
         sorted_tags.sort_unstable();
         let byte_count_index = sorted_tags
@@ -468,6 +490,8 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
         predictor,
         endian: Endian::Little,
         strip_byte_counts_patch_offset: byte_count_patch_offset,
+        tile_offsets_value_addresses,
+        tile_byte_counts_value_addresses,
         jpeg_quality,
         ptiff_fields: std::collections::BTreeMap::new(),
     };
@@ -490,7 +514,9 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
 /// # Errors
 ///
 /// Returns [`crate::ErrorCode::InvalidArgument`] if `models` is empty, any
-/// per-image plan fails, or the container kinds disagree.
+/// per-image plan fails, an image is tiled and compressed (a limitation of the
+/// static multi-image layout; write it as a single image), or the container
+/// kinds disagree.
 pub fn plan_tiff_write_multi(models: &[StorageModel]) -> Result<TiffFileWritePlan> {
     if models.is_empty() {
         return Err(Error::invalid_argument(
@@ -510,6 +536,22 @@ pub fn plan_tiff_write_multi(models: &[StorageModel]) -> Result<TiffFileWritePla
             ));
         }
         images.push(plan);
+    }
+
+    // The multi-image plan lays each image's data region out at a statically
+    // pre-computed, uncompressed size so the next image's offset is known up
+    // front. A tiled-and-compressed image's tiles vary in size, so its region
+    // cannot be reserved this way; reject it here. (Single-image tiled write
+    // with any compression is fully supported through `plan_tiff_write` +
+    // `open_image_sink`, which streams tiles back-to-back and patches offsets.)
+    for (i, image) in images.iter().enumerate() {
+        if image.directory.layout.tile_size.width < image.directory.image_width
+            && image.directory.compression != TiffCompression::None
+        {
+            return Err(Error::invalid_argument(format!(
+                "planTiffWriteMulti: image {i} is tiled and compressed; multi-image tiled+compressed is not yet supported (write it as a single image)"
+            )));
+        }
     }
 
     let header_size = if is_big_tiff {
@@ -584,6 +626,50 @@ mod tests {
         m.set_field("samplesPerPixel", "1");
         m.set_field("pixelType", "UInt8");
         m
+    }
+
+    fn tiled_model(width: u32, height: u32, compression: &str, predictor: &str) -> StorageModel {
+        let mut m = StorageModel::new();
+        m.set_field("imageWidth", width.to_string());
+        m.set_field("imageHeight", height.to_string());
+        m.set_field("samplesPerPixel", "1");
+        m.set_field("pixelType", "UInt8");
+        m.set_field("tileWidth", "16");
+        m.set_field("tileHeight", "16");
+        m.set_field("compression", compression);
+        m.set_field("predictor", predictor);
+        m
+    }
+
+    #[test]
+    fn plans_tiled_compressed_with_patch_addresses() {
+        // Single-image tiled write with any compression is now supported: the
+        // plan keeps per-tile TileOffsets/TileByteCounts slot addresses that
+        // the Sink back-patches after encode.
+        let plan = plan_tiff_write(&tiled_model(32, 48, "LZW", "HorizontalDifferencing")).unwrap();
+        assert_eq!(plan.directory.compression, TiffCompression::Lzw);
+        assert_eq!(
+            plan.directory.predictor,
+            TiffPredictor::HorizontalDifferencing
+        );
+        // 32x48 at 16x16 => 2 cols x 3 rows = 6 tiles.
+        assert_eq!(plan.directory.tile_byte_ranges.len(), 6);
+        assert_eq!(plan.directory.tile_offsets_value_addresses.len(), 6);
+        assert_eq!(plan.directory.tile_byte_counts_value_addresses.len(), 6);
+    }
+
+    #[test]
+    fn rejects_tiled_predictor_without_compression() {
+        let err =
+            plan_tiff_write(&tiled_model(32, 32, "None", "HorizontalDifferencing")).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn multi_plan_rejects_tiled_compressed() {
+        let models = vec![strip_model(16, 16), tiled_model(32, 32, "PackBits", "None")];
+        let err = plan_tiff_write_multi(&models).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
     }
 
     #[test]

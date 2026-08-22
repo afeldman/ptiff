@@ -110,6 +110,79 @@ pub fn tiff_ifd_byte_size(entries: &[TiffIfdEntryToWrite], is_big_tiff: bool) ->
     size
 }
 
+/// Absolute byte offset, relative to the IFD's first byte (its entry-count
+/// field), of every value slot each entry writes on disk.
+///
+/// Values that fit the inline value area live inside the entry's own record;
+/// larger value arrays are written out of line, immediately after the fixed
+/// part of the IFD, in ascending-tag order (the same order `write_tiff_ifd`
+/// produces). The returned map keys on tag id, each a `Vec` whose `k`-th entry
+/// is the offset (from the IFD's count field) of that tag's `k`-th on-disk
+/// value. A caller that back-patches a value array after serializing the file
+/// (e.g. per-tile compressed offsets/sizes) adds the IFD's absolute start
+/// offset to these to reach the value's byte position.
+#[must_use]
+pub fn value_slot_offsets_relative(
+    entries: &[TiffIfdEntryToWrite],
+    is_big_tiff: bool,
+) -> std::collections::BTreeMap<u16, Vec<u64>> {
+    let entry_size = if is_big_tiff {
+        K_BIG_TIFF_ENTRY_SIZE
+    } else {
+        K_CLASSIC_ENTRY_SIZE
+    };
+    let value_area = if is_big_tiff {
+        K_BIG_TIFF_VALUE_AREA_SIZE
+    } else {
+        K_CLASSIC_VALUE_AREA_SIZE
+    };
+    let count_field = if is_big_tiff {
+        K_BIG_TIFF_COUNT_FIELD_SIZE
+    } else {
+        K_CLASSIC_COUNT_FIELD_SIZE
+    };
+    let next_ifd = if is_big_tiff {
+        K_BIG_TIFF_NEXT_IFD_SIZE
+    } else {
+        K_CLASSIC_NEXT_IFD_SIZE
+    };
+    // Classic entry holds the value area at record[8..12]; BigTIFF at record[12..20].
+    let value_offset_in_record = if is_big_tiff { 12u64 } else { 8u64 };
+
+    // Out-of-line value areas are laid out contiguously after the fixed part,
+    // in ascending entry order (write_tiff_ifd sorts entries before writing).
+    let mut sorted: Vec<&TiffIfdEntryToWrite> = entries.iter().collect();
+    sorted.sort_by_key(|e| e.tag_id);
+    let fixed_size = count_field + (sorted.len() as u64) * entry_size + next_ifd;
+
+    let mut out_of_line = Vec::with_capacity(sorted.len());
+    let mut cursor = fixed_size;
+    for entry in &sorted {
+        let value_bytes = entry_value_byte_size(entry);
+        if value_bytes > u64::from(value_area) {
+            out_of_line.push(cursor);
+            cursor += value_bytes;
+        } else {
+            out_of_line.push(u64::MAX); // marker: values are inline
+        }
+    }
+
+    let mut map: std::collections::BTreeMap<u16, Vec<u64>> = std::collections::BTreeMap::new();
+    for (i, entry) in sorted.iter().enumerate() {
+        let elem = element_size(entry.field_type);
+        let base = if out_of_line[i] == u64::MAX {
+            count_field + (i as u64) * entry_size + value_offset_in_record
+        } else {
+            out_of_line[i]
+        };
+        let slots: Vec<u64> = (0..entry.values.len() as u64)
+            .map(|k| base + k * elem)
+            .collect();
+        map.insert(entry.tag_id, slots);
+    }
+    map
+}
+
 /// Writes `value` into the first `element_size` bytes of `out`, honoring the
 /// given field type (always little-endian).
 ///
@@ -292,6 +365,45 @@ mod tests {
 
     fn short_entry(tag: u16, values: Vec<u32>) -> TiffIfdEntryToWrite {
         TiffIfdEntryToWrite::new(tag, FieldType::Short, values)
+    }
+
+    #[test]
+    fn value_slot_offsets_relative_match_written_layout() {
+        use crate::io::backend::tiff::ifd_writer::value_slot_offsets_relative;
+        // TileOffsets (324) with 3 values -> out of line (12 bytes > 4 inline),
+        // preceded by ImageWidth (inline). Sorted order: 256, 324, 325.
+        let entries = vec![
+            long_entry(325, vec![0, 0, 0]), // TileByteCounts (after 324)
+            long_entry(256, vec![64]),      // ImageWidth (inline)
+            long_entry(324, vec![0, 0, 0]), // TileOffsets
+        ];
+        // Sorted: 256 (inline), 324 (out-of-line at fixed_size), 325 (out-of-line after 324).
+        let fixed_size = 2 + 3 * 12 + 4; // count + 3 entries + next-IFD
+        let slots = value_slot_offsets_relative(&entries, false);
+        let image_width_slots = &slots[&256];
+        assert_eq!(image_width_slots.len(), 1);
+        // Inline value slot: count field (2) + first entry record (offset 0) + value offset (8).
+        assert_eq!(image_width_slots[0], 10);
+        let offsets_slots = &slots[&324];
+        // 324 is the second sorted entry; its out-of-line area starts right
+        // after the fixed part (fixed_size), which follows the 256 (inline) entry.
+        assert_eq!(offsets_slots[0], fixed_size);
+        assert_eq!(offsets_slots[1], fixed_size + 4);
+        assert_eq!(offsets_slots[2], fixed_size + 8);
+        let counts_slots = &slots[&325];
+        // 325's out-of-line area follows 324's 12 bytes.
+        assert_eq!(counts_slots[0], fixed_size + 12);
+        assert_eq!(counts_slots[2], fixed_size + 12 + 8);
+        // The helper's offsets must agree byte-for-byte with a real write.
+        let mut w = MemoryBinaryWriter::new();
+        write_tiff_ifd(&mut w, entries, false, 0).unwrap();
+        let buf = w.take_buffer();
+        for (tag, expected) in [(324u16, offsets_slots), (325, counts_slots)] {
+            for (k, addr) in expected.iter().enumerate() {
+                let raw = read_u32(&buf[*addr as usize..*addr as usize + 4], Endian::Little);
+                assert_eq!(raw, 0, "tag {tag} slot {k} should be the placeholder value");
+            }
+        }
     }
 
     #[test]

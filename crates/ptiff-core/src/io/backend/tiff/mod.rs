@@ -53,7 +53,9 @@ pub use directory_writer::{
 pub use endian::{read_u16, read_u32, read_u64, write_u16, write_u32, write_u64, Endian};
 pub use header::{read_tiff_header, TiffHeader};
 pub use ifd::{read_tiff_ifd, TiffIfd};
-pub use ifd_writer::{tiff_ifd_byte_size, write_tiff_ifd, TiffIfdEntryToWrite};
+pub use ifd_writer::{
+    tiff_ifd_byte_size, value_slot_offsets_relative, write_tiff_ifd, TiffIfdEntryToWrite,
+};
 pub use image_sink::TiffImageSink;
 pub use image_source::TiffImageSource;
 pub use pixel_format::{
