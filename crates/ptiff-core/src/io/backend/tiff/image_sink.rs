@@ -9,6 +9,8 @@
 use crate::io::backend::tiff::compression::{
     apply_horizontal_differencing, encode_lzw, encode_pack_bits,
 };
+#[cfg(feature = "tiff-codecs")]
+use crate::io::backend::tiff::compression::{encode_deflate, encode_jpeg};
 use crate::io::backend::tiff::directory::{TiffCompression, TiffDirectory};
 use crate::io::backend::tiff::pixel_format::bytes_per_sample;
 use crate::io::backend::tiff::{write_u32, Endian};
@@ -82,14 +84,34 @@ impl ImageSink for TiffImageSink<'_> {
             TiffCompression::Lzw => encode_lzw(&payload)?,
             TiffCompression::PackBits => encode_pack_bits(&payload)?,
             TiffCompression::Deflate => {
-                return Err(Error::not_implemented(
-                    "TiffImageSink::writeTile: Deflate encoding requires the tiff-codecs feature",
-                ));
+                #[cfg(feature = "tiff-codecs")]
+                {
+                    encode_deflate(&payload)?
+                }
+                #[cfg(not(feature = "tiff-codecs"))]
+                {
+                    return Err(Error::not_implemented(
+                        "TiffImageSink::writeTile: Deflate encoding requires the tiff-codecs feature",
+                    ));
+                }
             }
             TiffCompression::Jpeg => {
-                return Err(Error::not_implemented(
-                    "TiffImageSink::writeTile: Jpeg encoding requires the tiff-codecs feature",
-                ));
+                #[cfg(feature = "tiff-codecs")]
+                {
+                    encode_jpeg(
+                        &payload,
+                        self.directory.layout.tile_size.width,
+                        self.directory.layout.tile_size.height,
+                        self.directory.samples_per_pixel,
+                        self.directory.jpeg_quality,
+                    )?
+                }
+                #[cfg(not(feature = "tiff-codecs"))]
+                {
+                    return Err(Error::not_implemented(
+                        "TiffImageSink::writeTile: Jpeg encoding requires the tiff-codecs feature",
+                    ));
+                }
             }
             TiffCompression::None => unreachable!("None handled above"),
         };
@@ -218,5 +240,37 @@ mod tests {
         let file = write_file(&model, &payload);
         let decoded = read_pixel(&file);
         assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn e2e_deflate_round_trip() {
+        let width = 16u32;
+        let height = 16u32;
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let model = strip_model(width, height, "Deflate", "None");
+        let file = write_file(&model, &payload);
+        let decoded = read_pixel(&file);
+        assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn e2e_jpeg_round_trip() {
+        let width = 16u32;
+        let height = 16u32;
+        // Greyscale ramp; JPEG is lossy so assert approximate equality rather
+        // than exact -- low-frequency data survives 4:4:4 with modest error.
+        let payload: Vec<u8> = (0..(width * height) as usize)
+            .map(|i| ((i as u32 % width) * 16) as u8)
+            .collect();
+        let model = strip_model(width, height, "Jpeg", "None");
+        let file = write_file(&model, &payload);
+        let decoded = read_pixel(&file);
+        assert_eq!(decoded.len(), payload.len());
+        for (a, b) in decoded.iter().zip(payload.iter()) {
+            let diff = i32::from(*a) - i32::from(*b);
+            assert!(diff.abs() <= 30, "JPEG lossy sample off by {diff}");
+        }
     }
 }

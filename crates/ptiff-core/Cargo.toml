@@ -35,6 +35,12 @@ memory-backend = ["dep:serde_json", "serde"]
 # is dependency-free (works on the raw byte transport); only the writer policy
 # layer pulls in optional deps.
 tiff-backend = []
+# Optional TIFF compression codecs that pull in third-party (pure-Rust)
+# libraries: Deflate (zlib, RFC 1950) via `flate2`/miniz_oxide and JPEG
+# (baseline, 4:4:4) via `jpeg-encoder`/`jpeg-decoder`. Off by default so the
+# `tiff-backend` feature alone keeps the build dependency-free. Implies
+# `tiff-backend` (the codecs are only used by the TIFF source/sink).
+tiff-codecs = ["dep:flate2", "dep:jpeg-encoder", "dep:jpeg-decoder", "tiff-backend"]
 
 [dependencies]
 # Intentionally minimal: the core is dependency-light by design (§4.2/§4.3).
@@ -42,6 +48,12 @@ tiff-backend = []
 # dependency-free.
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
+# Optional TIFF codecs (pure-Rust): Deflate = RFC 1950 zlib wrapper via
+# flate2's miniz_oxide backend (no system libz); JPEG baseline 4:4:4 encoding
+# (jpeg-encoder) + decoding (jpeg-decoder). Feature-gated behind `tiff-codecs`.
+flate2 = { version = "1", optional = true }
+jpeg-encoder = { version = "0.7", optional = true }
+jpeg-decoder = { version = "0.3", default-features = false, optional = true }
 
 # Mathematical geometry foundation (GEOMETRY-FOUNDATION.md): SO(3)/SE(3) Lie
 # groups, quaternions, Twist/Wrench, linear algebra. `multicalc` is dependency-
@@ -52,5 +64,5 @@ multicalc = "0.10"
 [dev-dependencies]
 # Enable the `serde`, `memory-backend` and `tiff-backend` features internally
 # so their tests always run.
-ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend"] }
+ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs"] }
 serde_json = "1"
