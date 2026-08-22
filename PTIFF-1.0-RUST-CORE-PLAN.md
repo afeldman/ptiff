@@ -1291,28 +1291,28 @@ die aktuelle Referenzimplementierung ist C++ `libptiff`, Zielimplementierung ab 
 Rust-Core – Details siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17“). Die Meilenstein-Beschreibungen
 selbst bleiben unverändert gültig.
 
-## 17.1 Migrations-Status (Stand: 2026-08-23)
+## 17.1 Migrations-Status (Stand: 2026-08-22)
 
 **Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird archiviert (nicht
 weiter maintained), Rust ist Single-Core.“** Bis dahin bleibt `libptiff` bewusst als
 Cross-Validation-Oracle bestehen (§18) — nicht vorzeitig löschen. Status unten durch tatsächlichen
 Build+Testlauf verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace
---features tiff-backend`: 353/353 grün), nicht nur aus Doku übernommen.
+--features tiff-backend`: 403/403 grün, inkl. ptiff-c), nicht nur aus Doku übernommen.
 
 | Phase | Ziel | Status | Anmerkung |
 |-------|------|--------|-----------|
 | 0 | Analyse | ✅ | dieses Dokument |
-| 1 | Workspace + Grundgerüst | 🚧 | `ptiff-core` + `ptiff` (Rust-API, `crates/ptiff-rust`) da; der laut DoD geforderte leere `ptiff-c`-C-ABI-Header-Stub existiert noch nicht (siehe Phase 7) |
+| 1 | Workspace + Grundgerüst | 🚧 | `ptiff-core` + `ptiff` (Rust-API, `crates/ptiff-rust`) + `ptiff-c` (C-ABI, Version/Error/Pixel-Type-/Compression-Enums/Image/Backend) da — Workspace kompiliert und testet; Grundgerüst i. W. fertig |
 | 2 | Datenmodell (StorageModel + Domain-Typen) | 🚧 | `Scene`/`Image`/`StorageModel`/`Serializer`/`Deserializer` fertig; `Camera`/`CoordinateReferenceSystem`/`Geometry` existieren als eigenständige Rust-Typen, sind aber **nicht** in `Scene` verdrahtet (kein `addCamera`/`addGeometry`) — DoD nicht vollständig erfüllt |
 | 3 | TIFF/BigTIFF-Kern | 🚧 | TIFF/BigTIFF-Header/IFD/Directory/Tile-Layer fertig (`TiffBackend`, IFD-Kette lesen/schreiben, Mehrbild); **PDS4/ISIS3 CUB/Zarr/OpenEXR-Backends fehlen komplett** (0/4 portiert, C++ hat alle 4) |
 | 4 | Kompression | 🚧 | PackBits/LZW/Predictor (dependency-frei) fertig; **Deflate, JPEG, Zarr-ZSTD fehlen** |
 | 5 | Tiles / parallele Verarbeitung (Rayon) | ❌ | nicht begonnen — war die **Hauptmotivation** der Migration (§2.1 Punkt 1); der Rewrite hat seinen eigenen Kernvorteil bislang nicht eingelöst |
 | 6 | Metadaten-Erweiterungen (65001–65005) | 🚧 | RFC-7002-Codec (encode/decode) fertig und getestet; Scene-Verdrahtung offen (s. Phase 2) |
-| 7 | **C-ABI (`ptiff-c`)** | 🚧 **in Bearbeitung** | der **einzige harte Blocker** für „libptiff löschen“: Go-/Python-/Ruby-/Octave-Bindings hängen ausschließlich an `libptiff_c`; ohne Rust-eigene C-ABI + Nachweis der Bindings-Kompatibilität (R4) ist ein Löschen von `libptiff` gleichbedeutend mit vier toten Sprachbindings |
+| 7 | **C-ABI (`ptiff-c`)** | 🚧 **erster Slice committet** | der **einzige harte Blocker** für „libptiff löschen“. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **26 Unit-Tests grün** (Commit `d7ad504`). **Noch offen für DoD/Abnahme:** `Camera`/`Logger`/`sink_create_camera` sind Stubs (`NOT_IMPLEMENTED`, Camera/CRS noch nicht in `Scene` verdrahtet, kein Logger im Core), kein C-ABI-Fähigkeitstest gegen echtes C-Programm, kein Bindings-Kompatibilitäts-Nachweis (R4) — bis dahin ist ein Löschen von `libptiff` = vier tote Sprachbindings |
 | 8 | C++-Wrapper (`ptiff-cpp`) | ❌ | nicht begonnen |
 | 9 | Python (PyO3) | ❌ | nicht begonnen |
 | 10 | Octave (MEX über C-ABI) | ❌ | nicht begonnen |
-| 11 | CLI auf `ptiff-core` | 🚧 | `ptiff-cli/` existiert weiterhin nur auf dem alten `bindings/rust` (C-ABI gegen **C++**), noch nicht auf `ptiff-core` umgestellt |
+| 11 | CLI auf `ptiff-core` | ✅ | `ptiff-cli/` läuft über das idiomatische `ptiff`-Crate direkt auf `ptiff-core` (`Tiff::open`/`read_image_pixels`/`tile_layout`/`to_bytes_with_pixels`); Reports Version über `ptiff::{APP_VERSION, VERSION_STR}`. Keine C-ABI/C++-Abhängigkeit mehr. 9 Unit + 8 Integrationstests grün |
 | 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | ❌ | nicht begonnen — keine bewiesene Verhaltensgleichheit |
 | 13 | PTIFF 1.0 (C++ archivieren) | ❌ | Voraussetzung: alle Phasen 0–12 grün |
 
