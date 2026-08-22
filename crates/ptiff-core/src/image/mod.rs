@@ -8,7 +8,7 @@ pub mod image_descriptor;
 pub mod tile_info;
 
 pub use compression_kind::CompressionKind;
-pub use image_descriptor::ImageDescriptor;
+pub use image_descriptor::{ImageDescriptor, ImageDescriptorBuilder};
 pub use tile_info::TileInfo;
 
 // Re-export for convenience: `ptiff::image::PixelType`.

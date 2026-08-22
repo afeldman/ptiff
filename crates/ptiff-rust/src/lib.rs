@@ -45,9 +45,10 @@ pub use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileLayout, TileRegion};
 /// geometry, image, scene, pixel, tile and IO model types.
 pub use ptiff_core::{
     BackendCapabilities, BackendFactory, BinaryReader, BinaryWriter, Camera, CompressionKind,
-    Error, ErrorCode, Extrinsics, Frame, FramePair, Geometry, GeometryKind, Image, ImageDescriptor,
-    Intrinsics, LensModel, PixelType, Pose, Projection, Quaternion, Result, Scene, StorageModel,
-    TileInfo, Vec3,
+    CoordinateReferenceSystem, Ellipsoid, Error, ErrorCode, Extrinsics, Frame, FramePair, Geometry,
+    GeometryKind, Image, ImageDescriptor, ImageDescriptorBuilder, Intrinsics, LensModel, PixelType,
+    Planet, Pose, Projection, ProjectionKind, Quaternion, Result, Scene, StorageModel, TileInfo,
+    Vec3,
 };
 
 /// Runtime-queryable crate version (e.g. for a `ptiff --version` CLI flag).
