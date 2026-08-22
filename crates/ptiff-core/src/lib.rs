@@ -28,6 +28,7 @@ pub mod geometry;
 pub mod id;
 pub mod image;
 pub mod io;
+pub mod logging;
 pub mod pixel_type;
 pub mod scene;
 pub mod tile;
@@ -49,6 +50,7 @@ pub use io::{
     ImageSource, MemoryBinaryReader, MemoryBinaryWriter, SceneDeserializer, SceneSerializer,
     Serializer, StorageBackend, StorageModel, TileProvider,
 };
+pub use logging::LogLevel;
 
 pub use scene::Scene;
 pub use version::{APP_VERSION, VERSION_STR};

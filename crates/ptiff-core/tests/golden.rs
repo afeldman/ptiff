@@ -120,7 +120,7 @@ const GOLDEN_PACKBITS_16X16: &str =
 const GOLDEN_LZW_16X16: &str = "317642bb0d80d1a364dd0e8c6a30b857520b0ec29275a82460e8bf24f73ed5f8";
 const GOLDEN_PTIFF_TAGS: &str = "db06570734702f56aca38affc5395e15d3835e482d8852e750fc06211c16577c";
 const GOLDEN_CAMERA_CRS_TAGS: &str =
-    "efbd0121761d7cdcbea029397f11aed6c5fd9782aa3b159f0c954b6e427e52e1";
+    "26fd5667f866452860ae32e8a559254419766959ee760ad320d016e0861cd5f6";
 
 #[test]
 fn golden_uncompressed_16x16() {
@@ -171,17 +171,17 @@ fn golden_camera_and_crs_tags() {
     model.set_field("pixelType", "UInt8");
     model.set_field("ptiff.camera.model", "pinhole");
     model.set_field("ptiff.camera.timestamp", "12345.0");
-    model.set_field("ptiff.camera.focal_px", "100.0");
-    model.set_field("ptiff.camera.focal_py", "100.0");
+    model.set_field("ptiff.camera.focal_length_x", "100.0");
+    model.set_field("ptiff.camera.focal_length_y", "100.0");
     model.set_field("ptiff.camera.principal_x", "8.0");
     model.set_field("ptiff.camera.principal_y", "8.0");
-    model.set_field("ptiff.camera.rot_w", "1.0");
-    model.set_field("ptiff.camera.rot_x", "0.0");
-    model.set_field("ptiff.camera.rot_y", "0.0");
-    model.set_field("ptiff.camera.rot_z", "0.0");
-    model.set_field("ptiff.camera.pos_x", "0.0");
-    model.set_field("ptiff.camera.pos_y", "0.0");
-    model.set_field("ptiff.camera.pos_z", "0.0");
+    model.set_field("ptiff.camera.rotation_w", "1.0");
+    model.set_field("ptiff.camera.rotation_x", "0.0");
+    model.set_field("ptiff.camera.rotation_y", "0.0");
+    model.set_field("ptiff.camera.rotation_z", "0.0");
+    model.set_field("ptiff.camera.position_x", "0.0");
+    model.set_field("ptiff.camera.position_y", "0.0");
+    model.set_field("ptiff.camera.position_z", "0.0");
     model.set_field("ptiff.crs.planet_name", "Moon");
     model.set_field("ptiff.crs.planet_iau_id", "301");
     model.set_field("ptiff.crs.planet_semi_major_m", "1737400.0");

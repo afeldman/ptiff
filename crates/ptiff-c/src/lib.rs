@@ -31,12 +31,13 @@
 //! - image handle (`ptiff_image_bridge.h`)
 //! - pixel `ptiff_source_*` read + `ptiff_sink_*` write (`ptiff_pixel_bridge.h`)
 //! - `ptiff_open_path` descriptor (`ptiff_metadata.h`)
+//! - logger (`ptiff_logger.h` — forwards to the dependency-free `ptiff-core` logger)
+//! - camera (`ptiff_camera.h` `ptiff_open_path_camera` read + `ptiff_sink_create_camera`
+//!   write, on top of the core's structured camera domain)
 //!
-//! Recognised stubs (symbol surface complete, returning
-//! `PTIFF_ERROR_NOT_IMPLEMENTED` or ineffectual where the core has no feature):
-//! logger (`ptiff_logger.h` — no Rust logger yet), camera
-//! (`ptiff_camera.h` + `ptiff_sink_create_camera`), and the flat `ptiff.*`
-//! field view (`ptiff_open_path_fields`).
+//! Recognised stub (symbol surface complete, returning
+//! `PTIFF_ERROR_NOT_IMPLEMENTED` where the core has no feature):
+//! the flat `ptiff.*` field view (`ptiff_open_path_fields`).
 
 // `ptiff-c` is the ABI boundary: it deliberately wraps core resources in
 // pointer-typed opaque handles, so it cannot `forbid(unsafe_code)` the way the

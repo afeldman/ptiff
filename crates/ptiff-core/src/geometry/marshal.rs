@@ -63,17 +63,17 @@ pub fn camera_fields(camera: &Camera) -> Vec<(String, String)> {
     if !camera.timestamp().is_empty() {
         push("timestamp", camera.timestamp().to_string());
     }
-    push("focal_px", i.focal_length_pixels_x.to_string());
-    push("focal_py", i.focal_length_pixels_y.to_string());
+    push("focal_length_x", i.focal_length_pixels_x.to_string());
+    push("focal_length_y", i.focal_length_pixels_y.to_string());
     push("principal_x", i.principal_point_x.to_string());
     push("principal_y", i.principal_point_y.to_string());
-    push("rot_w", e.rotation.w.to_string());
-    push("rot_x", e.rotation.x.to_string());
-    push("rot_y", e.rotation.y.to_string());
-    push("rot_z", e.rotation.z.to_string());
-    push("pos_x", e.translation.x.to_string());
-    push("pos_y", e.translation.y.to_string());
-    push("pos_z", e.translation.z.to_string());
+    push("rotation_w", e.rotation.w.to_string());
+    push("rotation_x", e.rotation.x.to_string());
+    push("rotation_y", e.rotation.y.to_string());
+    push("rotation_z", e.rotation.z.to_string());
+    push("position_x", e.translation.x.to_string());
+    push("position_y", e.translation.y.to_string());
+    push("position_z", e.translation.z.to_string());
     out
 }
 
@@ -107,21 +107,21 @@ pub fn camera_from_model(node: &StorageModel) -> Result<Option<Camera>> {
     let timestamp = field("timestamp").unwrap_or("").to_string();
 
     let intrinsics = crate::geometry::Intrinsics::new(
-        f64_field("focal_px")?,
-        f64_field("focal_py")?,
+        f64_field("focal_length_x")?,
+        f64_field("focal_length_y")?,
         f64_field("principal_x")?,
         f64_field("principal_y")?,
     );
     let rotation = crate::geometry::Quaternion::new(
-        f64_field("rot_w")?,
-        f64_field("rot_x")?,
-        f64_field("rot_y")?,
-        f64_field("rot_z")?,
+        f64_field("rotation_w")?,
+        f64_field("rotation_x")?,
+        f64_field("rotation_y")?,
+        f64_field("rotation_z")?,
     );
     let translation = crate::geometry::Vec3::new(
-        f64_field("pos_x")?,
-        f64_field("pos_y")?,
-        f64_field("pos_z")?,
+        f64_field("position_x")?,
+        f64_field("position_y")?,
+        f64_field("position_z")?,
     );
     let extrinsics = crate::geometry::Extrinsics::new(rotation, translation);
 
@@ -326,7 +326,7 @@ mod tests {
         let model = model_with(vec![
             ("ptiff.camera.model".to_string(), "pinhole".to_string()),
             (
-                "ptiff.camera.focal_px".to_string(),
+                "ptiff.camera.focal_length_x".to_string(),
                 "not-a-number".to_string(),
             ),
         ]);

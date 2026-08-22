@@ -19,6 +19,7 @@
 use crate::error::to_c_error;
 use crate::types::{apply_layout_tile_info, image_to_c, ptiff_image_descriptor};
 use ptiff::{Error, ErrorCode, Scene, Tiff};
+use std::os::raw::c_char;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -263,9 +264,14 @@ pub struct PtiffSink {
 }
 
 impl PtiffSink {
-    /// Builds the sink from a C descriptor; returns a core error for inputs the
-    /// header forbids (non-tiled or unsupported sample layout).
-    fn create(path: &str, desc: &ptiff_image_descriptor) -> Result<PtiffSink, ptiff::Error> {
+    /// Builds the sink from a C descriptor (optionally carrying a structured
+    /// camera); returns a core error for inputs the header forbids (non-tiled
+    /// or unsupported sample layout).
+    fn create(
+        path: &str,
+        desc: &ptiff_image_descriptor,
+        camera: Option<&crate::camera::ptiff_camera>,
+    ) -> Result<PtiffSink, ptiff::Error> {
         if desc.has_tile_info == 0
             || desc.tile_info.tile_width == 0
             || desc.tile_info.tile_height == 0
@@ -278,7 +284,10 @@ impl PtiffSink {
         let th = desc.tile_info.tile_height;
 
         let mut scene = Scene::new();
-        let image = crate::types::descriptor_from_c(desc);
+        let mut image = crate::types::descriptor_from_c(desc);
+        if let Some(cam) = camera {
+            image.camera = Some(crate::camera::camera_from_c(cam));
+        }
         let channels = image.channel_count;
         let bps = image.pixel_type.bytes_per_sample();
         let tile_bytes = (tw as usize) * (th as usize) * (channels as usize) * bps;
@@ -317,7 +326,7 @@ impl PtiffSink {
 /// `path` and `desc` must be valid non-null pointers for the duration of the call.
 #[no_mangle]
 pub extern "C" fn ptiff_sink_create(
-    path: *const std::os::raw::c_char,
+    path: *const c_char,
     desc: *const ptiff_image_descriptor,
 ) -> *mut PtiffSink {
     let result = (|| -> Result<*mut PtiffSink, ptiff::Error> {
@@ -330,7 +339,7 @@ pub extern "C" fn ptiff_sink_create(
         }
         // Safety: desc validated non-null above; documents a valid descriptor.
         let c_desc = unsafe { &*desc };
-        let sink = PtiffSink::create(&path, c_desc)?;
+        let sink = PtiffSink::create(&path, c_desc, None)?;
         Ok(Box::into_raw(Box::new(sink)))
     })();
     match result {
@@ -340,24 +349,40 @@ pub extern "C" fn ptiff_sink_create(
 }
 
 /// Same as [`ptiff_sink_create`], but additionally persists the structured
-/// camera calibration. The camera extension domain is not yet wired into the
-/// Rust core's C-ABI slice, so this is a recognised-but-unimplemented
-/// entry point that always fails with `PTIFF_ERROR_NOT_IMPLEMENTED`.
+/// camera calibration attached to the written image.
+///
+/// Returns a heap-owned sink on success, `NULL` on failure (null/unsupported
+/// arguments, matching `ptiff_sink_create`).
 ///
 /// # Safety
 ///
-/// `path`, `desc` and `camera` must be valid potentially-null pointers; the
-/// function never dereferences beyond what it validates.
+/// `path`, `desc` and `camera` must be valid non-null pointers for the duration
+/// of the call (the header documents all three as required).
 #[no_mangle]
 pub extern "C" fn ptiff_sink_create_camera(
-    path: *const std::os::raw::c_char,
+    path: *const c_char,
     desc: *const ptiff_image_descriptor,
-    _camera: *const crate::camera::ptiff_camera,
+    camera: *const crate::camera::ptiff_camera,
 ) -> *mut PtiffSink {
-    // Deliberately ignore a null path/desc/camera: this entry point is not yet
-    // implemented, so we always fail the same way regardless of arguments.
-    let _ = (path, desc);
-    std::ptr::null_mut()
+    let result = (|| -> Result<*mut PtiffSink, ptiff::Error> {
+        let path = c_str(path)
+            .ok_or_else(|| Error::invalid_argument("ptiff_sink_create_camera: null path"))?;
+        if desc.is_null() || camera.is_null() {
+            return Err(Error::invalid_argument(
+                "ptiff_sink_create_camera: null descriptor/camera",
+            ));
+        }
+        // Safety: both non-null pointers are validated; they document valid
+        // descriptor + camera structs.
+        let c_desc = unsafe { &*desc };
+        let c_cam = unsafe { &*camera };
+        let sink = PtiffSink::create(&path, c_desc, Some(c_cam))?;
+        Ok(Box::into_raw(Box::new(sink)))
+    })();
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 /// Tile grid columns of the sink's image. `NULL` sink -> 0.
@@ -718,5 +743,150 @@ mod tests {
             &d as *const ptiff_image_descriptor,
         );
         assert!(sink.is_null());
+    }
+
+    #[test]
+    fn camera_sink_write_read_round_trips_the_structured_camera() {
+        // Write a tiled image with a structured camera via ptiff_sink_create_camera,
+        // then read it back through ptiff_open_path_camera: the matrices + flags +
+        // timestamp survive the round trip (the core serializes camera via tag 65002).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("camera.tif");
+        let path_s = path.to_str().unwrap().to_string();
+
+        let desc = tiled_desc(34, 34, 16, 16);
+        // Build a fully-populated C camera.
+        let cam = crate::camera::ptiff_camera {
+            has_intrinsics: 1,
+            focal_length_x: 900.0,
+            focal_length_y: 901.0,
+            principal_x: 512.5,
+            principal_y: 384.25,
+            intrinsics: [900.0, 0.0, 512.5, 0.0, 901.0, 384.25, 0.0, 0.0, 1.0],
+            has_extrinsics: 1,
+            rotation_w: 0.7,
+            rotation_x: 0.1,
+            rotation_y: 0.2,
+            rotation_z: 0.3,
+            position_x: 1.0,
+            position_y: 2.0,
+            position_z: 3.0,
+            extrinsics: [0.0; 12],
+            projection: [0.0; 12],
+            timestamp: [0u8; 64],
+        };
+
+        let sink = ptiff_sink_create_camera(
+            std::ffi::CString::new(path_s.clone()).unwrap().as_ptr(),
+            &desc as *const ptiff_image_descriptor,
+            &cam as *const crate::camera::ptiff_camera,
+        );
+        assert!(!sink.is_null());
+        let cols = ptiff_sink_tile_columns(sink);
+        let rows = ptiff_sink_tile_rows(sink);
+        let tile_bytes = ptiff_sink_tile_byte_size(sink);
+        let buf = vec![9u8; tile_bytes];
+        for row in 0..rows {
+            for col in 0..cols {
+                assert_eq!(
+                    ptiff_sink_write_tile(sink, col, row, buf.as_ptr(), buf.len()),
+                    0
+                );
+            }
+        }
+        ptiff_sink_close(sink);
+
+        // Read the camera back through the C-ABI read entry point.
+        let mut out = crate::camera::ptiff_camera {
+            has_intrinsics: 0,
+            focal_length_x: 0.0,
+            focal_length_y: 0.0,
+            principal_x: 0.0,
+            principal_y: 0.0,
+            intrinsics: [0.0; 9],
+            has_extrinsics: 0,
+            rotation_w: 0.0,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            rotation_z: 0.0,
+            position_x: 0.0,
+            position_y: 0.0,
+            position_z: 0.0,
+            extrinsics: [0.0; 12],
+            projection: [0.0; 12],
+            timestamp: [0u8; 64],
+        };
+        let rc = crate::camera::ptiff_open_path_camera(
+            std::ffi::CString::new(path_s).unwrap().as_ptr(),
+            &mut out as *mut crate::camera::ptiff_camera,
+        );
+        assert_eq!(rc, 0);
+        assert_eq!(out.has_intrinsics, 1);
+        assert_eq!(out.focal_length_x, 900.0);
+        assert_eq!(out.focal_length_y, 901.0);
+        assert_eq!(out.principal_x, 512.5);
+        assert_eq!(out.principal_y, 384.25);
+        assert_eq!(out.has_extrinsics, 1);
+        assert_eq!(out.rotation_w, 0.7);
+        assert_eq!(out.rotation_z, 0.3);
+        assert_eq!(out.position_x, 1.0);
+        assert_eq!(out.position_z, 3.0);
+        // Derived matrix `intrinsics` K must equal the known pinhole K.
+        assert_eq!(out.intrinsics[0], 900.0);
+        assert_eq!(out.intrinsics[4], 901.0);
+        assert_eq!(out.intrinsics[8], 1.0);
+    }
+
+    #[test]
+    fn open_path_camera_returns_zero_struct_when_no_camera_in_file() {
+        // A file with no camera metadata reads back as an all-zero struct with
+        // has_* = 0 (matching the C++ oracle), not an error.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no_camera.tif");
+        let path_s = path.to_str().unwrap().to_string();
+
+        let desc = tiled_desc(34, 34, 16, 16);
+        let sink = ptiff_sink_create(
+            std::ffi::CString::new(path_s.clone()).unwrap().as_ptr(),
+            &desc as *const ptiff_image_descriptor,
+        );
+        assert!(!sink.is_null());
+        let cols = ptiff_sink_tile_columns(sink);
+        let rows = ptiff_sink_tile_rows(sink);
+        let tile_bytes = ptiff_sink_tile_byte_size(sink);
+        let buf = vec![0u8; tile_bytes];
+        for row in 0..rows {
+            for col in 0..cols {
+                let _ = ptiff_sink_write_tile(sink, col, row, buf.as_ptr(), buf.len());
+            }
+        }
+        ptiff_sink_close(sink);
+
+        let mut out = crate::camera::ptiff_camera {
+            has_intrinsics: 1, // pre-set to detect overwrite
+            focal_length_x: 0.0,
+            focal_length_y: 0.0,
+            principal_x: 0.0,
+            principal_y: 0.0,
+            intrinsics: [0.0; 9],
+            has_extrinsics: 1,
+            rotation_w: 0.0,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            rotation_z: 0.0,
+            position_x: 0.0,
+            position_y: 0.0,
+            position_z: 0.0,
+            extrinsics: [0.0; 12],
+            projection: [0.0; 12],
+            timestamp: [0u8; 64],
+        };
+        let rc = crate::camera::ptiff_open_path_camera(
+            std::ffi::CString::new(path_s).unwrap().as_ptr(),
+            &mut out as *mut crate::camera::ptiff_camera,
+        );
+        assert_eq!(rc, 0);
+        assert_eq!(out.has_intrinsics, 0);
+        assert_eq!(out.has_extrinsics, 0);
     }
 }

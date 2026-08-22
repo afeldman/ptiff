@@ -200,9 +200,9 @@ für spätere Golden-/Roundtrip-Tests.
 - `#![forbid(unsafe_code)]` in `ptiff-core` (kein `unsafe` im Kern).
 - `#![warn(missing_docs)]` — alle öffentlichen Items dokumentiert.
 - CI-Check lokal: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`
-  muss grün sein (Stand: **345 `ptiff-core`-Unit-Tests** — 319 Unit + 10 Corrupted + 6 Golden + 7
-  Property + 3 `tiled_write`-Integration — plus 13 idiomatische `ptiff` + 9+8 `ptiff-cli`
-  (9 Unit + 8 CLI-Behavior) + **28 `ptiff-c` (C-ABI)** + 2 Doc-Tests; **405 gesamt** im
+  muss grün sein (Stand: **348 `ptiff-core`-Unit-Tests** — 319 Unit + 10 Corrupted + 6 Golden + 7
+  Property + 3 `tiled_write` + 3 logging — plus 13 idiomatische `ptiff` + 9+8 `ptiff-cli`
+  (9 Unit + 8 CLI-Behavior) + **33 `ptiff-c` (C-ABI)** + 2 Doc-Tests; **413 gesamt** im
   Workspace inkl. idiomatischem `ptiff`-, `ptiff-cli`- und `ptiff-c`-Crate).
 - Dependencies bewusst minimal: der Default-Build von `ptiff-core` enthält lediglich die
   dependency-freie Mathematik-Basis `multicalc` (→ `libm`), **keine** Serialisierungs-Bibliothek.
@@ -333,21 +333,24 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    `ProjectionKind`, `Planet`, `Ellipsoid`) sind übers idiomatische `ptiff` erreichbar.
    17 neue CLI-Tests (9 Unit + 8 CLI-Behavior, die den echten Binary gegenüber einer
    temp TIFF-Datei spawnen).
-7. `ptiff-c` (C-ABI) — **erster Slice committet + C-Fähigkeitstest grün.** Crate
+7. `ptiff-c` (C-ABI) — **erster Slice committet + C-Fähigkeitstest + Logger/Camera grün.** Crate
    `crates/ptiff-c` (cdylib + staticlib + rlib) implementiert die handgepflegten C-Header in
    `bindings/c/` unverändert: Version-ABI, Error-/Pixel-Type-/Compression-Enums, Image-Bridge,
-   Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **28 Unit-Tests grün**.
-   **C-ABI-Fähigkeitstest gegen echtes C-Programm:** `crates/ptiff-c/tests/c/ptiff_c_abiltest.c`
-   wird mit `cc` gegen die `staticlib` (`libptiff_c.a`) kompiliert und läuft durch (Exit 0) —
-   beweist, dass der Rust-Core aus reinem C ansprechbar ist. Dabei aufgefundene **Core-Lücken
-   sind gefixt**: Tile-Info wurde beim Lesen verloren (`has_tile_info=0` für getilte Files) →
-   Helper `types::apply_layout_tile_info` re-derives aus dem `TileLayout` (wie das C++-Oracle,
-   da die kanonische Schema-Serialisierung Tile-Info nicht trägt); fehlende Datei mappte auf
-   `InvalidArgument` statt `NotFound` → `Tiff::open` liefert jetzt `ErrorCode::NotFound`.
-   **Noch offen für DoD/Abnahme:** `Camera`/`Logger`/`sink_create_camera` sind Stubs
-   (`NOT_IMPLEMENTED`), kein Bindings-Kompatibilitäts-Nachweis (Plan-Risiko R4); die
-   Build-/Run-Anleitung (`tests/c/Makefile`) ist lokal ignoriert (`.gooseignore`) und sollte
-   von einem Dev ohne diese Einschränkung committet werden.
+   Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path`, Logger und Camera —
+   **33 Unit-Tests grün**. **C-ABI-Fähigkeitstest gegen echtes C-Programm:**
+   `crates/ptiff-c/tests/c/ptiff_c_abiltest.c` wird mit `cc` gegen die `staticlib`
+   (`libptiff_c.a`) kompiliert und läuft durch (Exit 0) — beweist, dass der Rust-Core aus
+   reinem C ansprechbar ist. **Logger:** `ptiff_logger_*` forwarden auf den dependency-freien
+   Core-Logger (`ptiff_core::logging::LogLevel`; set/level/log, Level-Ordering = C-Header).
+   **Camera:** `ptiff_open_path_camera` (read) + `ptiff_sink_create_camera` (write) über das
+   strukturierte Camera-Domain; dafür die `ptiff.camera.*`-Feldnamen im Core-Marshal auf den
+   C-ABI/Oracle-Kontrakt ausgerichtet (`focal_length_x`/`rotation_*`/`position_*` statt
+   `focal_px`/`rot_*`/`pos_*`) und der Golden-Digest regeneriert.
+   **Core-Fixes aus dem C-Fähigkeitstest:** Tile-Info wird beim Lesen re-deriviert
+   (`types::apply_layout_tile_info`); fehlende Datei → `ErrorCode::NotFound`.
+   **Noch offen für DoD/Abnahme:** kein Bindings-Kompatibilitäts-Nachweis (Plan-Risiko R4),
+   flache `ptiff_open_path_fields` ist Stub. Die Build-/Run-Anleitung `tests/c/Makefile` ist
+   committet (`cfbec41`).
 8. Tests / Golden / Property & Fuzz gemäß §11. **Fertig (Kern in Rust als Referenzimpl.):
    - `tests/golden.rs` (§11.3): SHA-256-Goldendigests für die **verlustfreien** Serialsierungen
      (Unkomprimiert, PackBits, LZW) + die PTIFF-Metadaten-Tags 65001–65005 inkl. der
