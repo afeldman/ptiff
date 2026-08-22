@@ -35,13 +35,15 @@ pub mod version;
 
 pub use error::{Error, ErrorCode, Result};
 pub use geometry::{
-    Camera, CoordinateReferenceSystem, Extrinsics, ExtrinsicsMatrix, Frame, FramePair, Geometry,
-    GeometryKind, Intrinsics, IntrinsicsMatrix, LensModel, LensModelKind, Planet, Pose, Projection,
-    ProjectionKind, ProjectionMatrix, Quaternion, RotationMatrix, Screw, ScrewAxis, ScrewMotion,
-    SpiceState, Vec3,
+    Camera, CoordinateReferenceSystem, Ellipsoid, Extrinsics, ExtrinsicsMatrix, Frame, FramePair,
+    Geometry, GeometryKind, Intrinsics, IntrinsicsMatrix, LensModel, LensModelKind, Planet, Pose,
+    Projection, ProjectionKind, ProjectionMatrix, Quaternion, RotationMatrix, Screw, ScrewAxis,
+    ScrewMotion, SpiceState, Vec3,
 };
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
-pub use image::{CompressionKind, Image, ImageDescriptor, PixelType, TileInfo};
+pub use image::{
+    CompressionKind, Image, ImageDescriptor, ImageDescriptorBuilder, PixelType, TileInfo,
+};
 pub use io::{
     BackendCapabilities, BackendFactory, BinaryReader, BinaryWriter, Deserializer, ImageSink,
     ImageSource, MemoryBinaryReader, MemoryBinaryWriter, SceneDeserializer, SceneSerializer,

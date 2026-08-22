@@ -75,6 +75,94 @@ impl ImageDescriptor {
     }
 }
 
+/// A builder for [`ImageDescriptor`].
+///
+/// [`ImageDescriptor`] is `#[non_exhaustive]` (so its public fields can be read
+/// from any crate but its struct literal cannot be written outside this crate).
+/// This builder is the supported construction path: start from
+/// [`ImageDescriptorBuilder::new`] (which yields the same degenerate defaults
+/// as [`ImageDescriptor::new`]) and override the wanted fields with the
+/// fluent setter methods. It mirrors the ergonomics of the pre-1.0
+/// `ImageDescriptorBuilder` and is re-exported by the idiomatic `ptiff` crate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageDescriptorBuilder {
+    descriptor: ImageDescriptor,
+}
+
+impl ImageDescriptorBuilder {
+    /// Starts a builder with `width`/`height` and the degenerate defaults of
+    /// [`ImageDescriptor::new`] (`UInt8`, one channel, no tiling/compression,
+    /// no camera/CRS).
+    #[must_use]
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            descriptor: ImageDescriptor::new(width, height),
+        }
+    }
+
+    /// Sets the sample type of each channel.
+    #[must_use]
+    pub fn pixel_type(mut self, pixel_type: PixelType) -> Self {
+        self.descriptor.pixel_type = pixel_type;
+        self
+    }
+
+    /// Sets the number of channels per pixel.
+    #[must_use]
+    pub fn channel_count(mut self, channel_count: u32) -> Self {
+        self.descriptor.channel_count = channel_count;
+        self
+    }
+
+    /// Sets the optional ground-sample distance in meters.
+    #[must_use]
+    pub fn ground_sample_distance_meters(mut self, gsd: Option<f64>) -> Self {
+        self.descriptor.ground_sample_distance_meters = gsd;
+        self
+    }
+
+    /// Sets the optional tiling layout in pixels.
+    #[must_use]
+    pub fn tile_info(mut self, tile: Option<TileInfo>) -> Self {
+        self.descriptor.tile_info = tile;
+        self
+    }
+
+    /// Convenience: sets a square tile extent from its pixel width/height.
+    #[must_use]
+    pub fn tile(mut self, tile_width: u32, tile_height: u32) -> Self {
+        self.descriptor.tile_info = Some(TileInfo::new(tile_width, tile_height));
+        self
+    }
+
+    /// Sets the optional compression scheme.
+    #[must_use]
+    pub fn compression(mut self, compression: Option<CompressionKind>) -> Self {
+        self.descriptor.compression = compression;
+        self
+    }
+
+    /// Sets the optional camera calibration / pose (PTIFF extension, 65002).
+    #[must_use]
+    pub fn camera(mut self, camera: Option<Camera>) -> Self {
+        self.descriptor.camera = camera;
+        self
+    }
+
+    /// Sets the optional coordinate reference system (PTIFF extension, 65003).
+    #[must_use]
+    pub fn crs(mut self, crs: Option<CoordinateReferenceSystem>) -> Self {
+        self.descriptor.crs = crs;
+        self
+    }
+
+    /// Consumes the builder and returns the configured [`ImageDescriptor`].
+    #[must_use]
+    pub fn build(self) -> ImageDescriptor {
+        self.descriptor
+    }
+}
+
 impl Default for ImageDescriptor {
     fn default() -> Self {
         Self::new(0, 0)
@@ -116,5 +204,34 @@ mod tests {
         assert_eq!(d.tile_info, Some(TileInfo::new(256, 256)));
         assert_eq!(d.camera, None);
         assert_eq!(d.crs, None);
+    }
+
+    #[test]
+    fn builder_defaults_and_overrides() {
+        let d = ImageDescriptorBuilder::new(128, 64)
+            .pixel_type(PixelType::Float32)
+            .channel_count(3)
+            .ground_sample_distance_meters(Some(1.0))
+            .tile(16, 16)
+            .compression(Some(CompressionKind::Lzw))
+            .build();
+        assert_eq!(d.width, 128);
+        assert_eq!(d.height, 64);
+        assert_eq!(d.pixel_type, PixelType::Float32);
+        assert_eq!(d.channel_count, 3);
+        assert_eq!(d.ground_sample_distance_meters, Some(1.0));
+        assert_eq!(d.tile_info, Some(TileInfo::new(16, 16)));
+        assert_eq!(d.compression, Some(CompressionKind::Lzw));
+        assert_eq!(d.camera, None);
+        assert_eq!(d.crs, None);
+    }
+
+    #[test]
+    fn builder_starts_from_degenerate_defaults() {
+        let d = ImageDescriptorBuilder::new(10, 20).build();
+        assert_eq!(d.pixel_type, PixelType::UInt8);
+        assert_eq!(d.channel_count, 1);
+        assert_eq!(d.tile_info, None);
+        assert_eq!(d.compression, None);
     }
 }
