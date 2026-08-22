@@ -1,8 +1,14 @@
 name: Release
 
-# Builds a tagged release of libptiff in Release mode, runs the full test
-# suite, packages the installed artifacts, and publishes a GitHub Release.
-# Triggered when a version tag (v0.2.0, ...) is pushed.
+# Builds tagged releases of libptiff as native OS packages and publishes them as
+# a GitHub Release, and re-triggers the Pages + docs build for the tag.
+#
+#   Linux (ubuntu-latest):  clang + Ninja -> CPack DEB + RPM
+#   macOS (macos-latest):   AppleClang + Ninja -> pkgbuild .pkg
+#
+# Each package carries the shared libptiff / libptiff_c libraries, their public
+# headers, the CMake/pkg-config metadata and the Rust `ptiff` CLI (built against
+# the same installed prefix).
 
 on:
   push:
@@ -11,10 +17,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  package:
+    name: Package (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux
+            generator: Ninja
+            packages: deb+rpm
+          - os: macos-latest
+            label: macOS
+            generator: Ninja
+            packages: pkg
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+
+    env:
+      # Prefer clang (the project's preferred compiler) on both platforms.
+      CC: clang
+      CXX: clang++
+      CTEST_OUTPUT_ON_FAILURE: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -27,41 +52,139 @@ jobs:
       - name: Install Conan
         run: pip install conan
 
-      - name: Configure Conan profile
-        run: conan profile detect --force
+      - name: Configure Conan (clang profile)
+        # Ensure the Conan host profile uses the same clang toolchain that
+        # compiles the C/C++ sources, so deps and the project share an ABI.
+        # (done with sed: avoids a heredoc whose body would have to be both
+        #  YAML-indented and column-0 for bash.)
+        run: |
+          conan profile detect --force
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            VER="$(clang -dumpversion)"
+            sed -i "s/^compiler=.*/compiler=clang/" ~/.conan2/profiles/default
+            sed -i "s/^compiler.version=.*/compiler.version=$VER/" ~/.conan2/profiles/default
+            sed -i "s/^compiler.libcxx=.*/compiler.libcxx=libstdc++11/" ~/.conan2/profiles/default
+            sed -i "s/^compiler.cppstd=.*/compiler.cppstd=23/" ~/.conan2/profiles/default
+          fi
+          conan profile show default
+
+      - name: Install system packaging tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build rpm dpkg patchelf
+
+      - name: Install Packager (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja || brew link ninja
 
       - name: Install dependencies (Conan, Release)
         run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23
 
-      - name: Configure (Release)
+      - name: Configure (Release, Ninja, clang, shared + C bindings + CLI)
         run: >
-          cmake -B build-rel/build -S .
+          cmake -G Ninja -B build-rel/build -S .
           -DCMAKE_TOOLCHAIN_FILE=build-rel/build/Release/generators/conan_toolchain.cmake
           -DCMAKE_BUILD_TYPE=Release
-          -DPTIFF_BUILD_TESTS=ON
+          -DBUILD_SHARED_LIBS=ON
+          -DPTIFF_BUILD_C_BINDINGS=ON
+          -DPTIFF_BUILD_CLI=ON
+          # Tests are covered by build.yml (static-lib hosts). Packaging uses
+          # shared libs where WHOLE_ARCHIVE test linking needs extra libs, so
+          # keep the package build lean and build-only.
+          -DPTIFF_BUILD_TESTS=OFF
           -DPTIFF_BUILD_DOCS=OFF
 
-      - name: Build all (Release)
+      - name: Build libraries + tests (Release)
         run: cmake --build build-rel/build --config Release -j 2
 
-      - name: Test (Release)
-        working-directory: build-rel/build
-        run: ctest --output-on-failure --build-config Release
+      - name: Install libraries to staging prefix
+        # C/C++ libs, headers and metadata only; the CLI is built next and folded
+        # in by a second install once its binary exists (see InstallPtiffCli.cmake).
+        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
 
-      - name: Install to staging dir
-        run: >
-          cmake --install build-rel/build --config Release
-          --prefix "$GITHUB_WORKSPACE/staging"
+      - name: Build ptiff CLI against the staged prefix
+        # CMake's ptiff_cli target runs `cargo build --release`, resolving
+        # libptiff_c from the staged prefix via its relocatable pkg-config file.
+        # CARGO_TARGET_DIR is set inside CMakeLists so the binary lands at
+        # build-rel/build/ptiff-cli/target/release/ptiff (the install-script path).
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/staging/lib/pkgconfig
+        run: cmake --build build-rel/build --target ptiff_cli --config Release
 
-      - name: Package staged artifacts
+      - name: Fix install rpath for the packaged CLI
+        # The CLI embeds an absolute rpath to the CI staging prefix (used to build
+        # it). For the OS packages it must be relocatable and point at the final
+        # install layout (bin/ + ../lib). Nix re-patches rpath on its own, so this
+        # only affects the CPack (deb/rpm) and pkgbuild (macOS .pkg) outputs.
+        shell: bash
         run: |
-          tar -czf libptiff-${{ github.ref_name }}-linux-x86_64.tar.gz -C staging .
-          sha256sum libptiff-*.tar.gz > SHA256SUMS
+          PTIFF_BIN="${{ github.workspace }}/build-rel/build/ptiff-cli/target/release/ptiff"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            # /usr/bin -> /usr/lib = $ORIGIN/../lib
+            patchelf --set-rpath '$ORIGIN/../lib' "$PTIFF_BIN"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            # /usr/local/bin -> /usr/local/lib = @loader_path/../lib. The recorded
+            # rpath is the relocatable pcfiledir expansion from the staged
+            # libptiff_c.pc, so capture and replace it verbatim.
+            RPATH=$(otool -l "$PTIFF_BIN" | awk '/LC_RPATH/ {getline; getline; print $2; exit}')
+            install_name_tool -rpath "$RPATH" '@loader_path/../lib' "$PTIFF_BIN"
+          fi
+
+      - name: Re-install to staging (now with CLI)
+        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
+
+      - name: Smoke test the packaged CLI
+        shell: bash
+        run: |
+          "${{ github.workspace }}/staging/bin/ptiff" version
+          "${{ github.workspace }}/staging/bin/ptiff" backends
+
+      - name: Build Linux packages (CPack deb + rpm)
+        if: runner.os == 'Linux'
+        working-directory: build-rel/build
+        run: cpack -C Release
+
+      - name: Build macOS package (pkgbuild .pkg)
+        # CPack's productbuild generator can emit a bare Distribution skeleton
+        # without embedding the component payload, so build the flat .pkg
+        # directly with pkgbuild from the complete staging tree.
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd "${{ github.workspace }}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          pkgbuild \
+            --root staging \
+            --install-location /usr/local \
+            --identifier org.ptiff.libptiff \
+            --version "$VERSION" \
+            libptiff-$VERSION-macOS.pkg
+          mkdir -p dist
+          mv libptiff-0.4.2-macOS.pkg dist/
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ github.workspace }}/dist"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            cp build-rel/build/*.deb build-rel/build/*.rpm "${{ github.workspace }}/dist/"
+          fi
+          cd "${{ github.workspace }}/dist"
+          ls -la
+          shasum -a 256 * > SHA256SUMS
+
+      - name: Upload packages (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: libptiff-${{ matrix.label }}
+          path: ${{ github.workspace }}/dist/
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            libptiff-*.tar.gz
-            SHA256SUMS
-          fail_on_unmatched_files: true
+            ${{ github.workspace }}/dist/*
+          fail_on_unmatched_files: false

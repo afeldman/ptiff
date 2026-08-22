@@ -10,6 +10,25 @@ als noch nicht veröffentlicht.
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-08-22
+
+### Paketierung & CI
+
+- GitHub Actions erzeugen native Installationspakete und veröffentlichen sie als
+  GitHub-Release:
+  - **Linux** (clang + Ninja): CPack DEB und RPM mit `libptiff`, `libptiff_c`,
+    Headern, CMake-/pkg-config-Metadaten und dem `ptiff`-CLI.
+  - **macOS** (AppleClang + Ninja): ein `.pkg`-Installer (pkgbuild) für
+    `/usr/local` mit den gleichen Bestandteilen.
+- **Nix**-Paketbeschreibung ergänzt (`flake.nix` / `default.nix`), gebaut mit
+  `clangStdenv` und Ninja.
+- Das Rust-CLI (`ptiff-cli`) wird gegen den installierten `libptiff_c`-Prefix
+  kompiliert und in die Pakete aufgenommen; der installierte `ptiff`-Binary
+  verwendet einen relozierbaren `@loader_path`/`$ORIGIN`-RPATH.
+- `CMakeLists.txt`: `LANGUAGES CXX C`, Option `PTIFF_BUILD_CLI`, CPack-Konfiguration
+  für DEB/RPM sowie ein `install(SCRIPT)`-Hook, der das CLI nach dessen Cargo-Build
+  in das Installationsverzeichnis legt.
+
 ## [0.4.0] — 2026-08-22
 
 ### Multispektrale Bilder: beliebige `samplesPerPixel`-Bandzahl

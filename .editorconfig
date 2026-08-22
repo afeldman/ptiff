@@ -56,3 +56,11 @@ indent_size = 2
 
 [.clang-tidy]
 indent_size = 2
+
+# Nix expressions (flake.nix / default.nix) conventionally use a 2-space indent.
+[*.nix]
+indent_size = 2
+
+# Generated CMake install scripts (.cmake.in templates) follow a 2-space layout.
+[*.cmake.in]
+indent_size = 2
