@@ -174,7 +174,7 @@ test: all
 	cd $(PY_TEST_DIR) && PYTHONPATH=$(abspath $(PY_DIR)) $(PYTHON) -m unittest test_version test_logger test_backend test_error test_image test_sink -v
 	cd $(GO_DIR) && $(GO) test ./...
 	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) test_roundtrip.rb
-	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) -e 'Dir.glob("test_{version,logger,backend,error,image,sink}.rb").each { |f| require_relative f }'
+	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) -e 'Dir.glob("test_{version,logger,backend,error,image,sink,native_extension}.rb").each { |f| require_relative f }'
 	$(OCTAVE) --quiet --no-gui --eval "addpath('$(abspath $(OC_DIR))'); addpath('$(abspath $(OC_TEST_DIR))'); run(fullfile('$(abspath $(OC_TEST_DIR))','run_tests_octave.m'));"
 
 clean:
