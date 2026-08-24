@@ -25,16 +25,44 @@ description = "PTIFF 1.0 Rust core: domain types and formats (TIFF/BigTIFF)."
 # dependency-light. When enabled, adds `derive(Serialize, Deserialize)` to the
 # public model types (PixelType, CompressionKind, ImageDescriptor, Scene, ...).
 serde = ["dep:serde"]
+# Dependency-free per-image pixel tier (MemoryImageInfo/MemoryImageSource/
+# MemoryImageSink) shared by MemoryBackend and any other backend that stores
+# a plain, uncompressed, tile-addressable pixel block (e.g. isis-backend).
+# Implied by `memory-backend`; enable directly to get the pixel tier without
+# pulling in serde_json.
+memory-pixel-tier = []
 # Optional in-memory ("PMEM") StorageBackend that encodes the format-neutral
 # StorageModel as JSON via serde_json. Also enables `serde` for the model
 # derives. Off by default.
-memory-backend = ["dep:serde_json", "serde"]
+memory-backend = ["dep:serde_json", "serde", "memory-pixel-tier"]
 # Optional TIFF/BigTIFF StorageBackend that parses/encodes the on-disk TIFF
 # format (header, IFD, tags) over a BinaryReader/BinaryWriter transport, plus
 # the writer policies and image source/sink. Off by default. The format layer
 # is dependency-free (works on the raw byte transport); only the writer policy
 # layer pulls in optional deps.
 tiff-backend = []
+# Optional USGS ISIS3-style StorageBackend: a PDS3-style text label (Object=
+# IsisCube/Core, Group=Dimensions/Pixels) followed by a seekable, uncompressed
+# pixel block, reusing the memory-pixel-tier for pixel I/O. Dependency-free.
+isis-backend = ["memory-pixel-tier"]
+# Optional NASA PDS4-style StorageBackend: a `Product_Observational` XML label
+# (holding one `Array_2D_Image` per image) followed by a seekable,
+# uncompressed pixel block, reusing the memory-pixel-tier for pixel I/O. Pulls
+# in `quick-xml` for XML (de)serialization (PTIFF-1.0-RUST-CORE-PLAN.md §5).
+pds4-backend = ["dep:quick-xml", "memory-pixel-tier"]
+# Optional Zarr-style chunked array StorageBackend: an 8-byte seek header, a
+# JSON array header (shape/chunks/dtype/compressor via `serde_json`), then
+# fixed-size chunk slots holding zstd/zlib-compressed (or raw) chunks (chunk
+# == tile for this phase). Pulls in `serde_json` for the JSON header, `zstd`
+# for zstd chunk compression, and the already-optional `flate2` for zlib
+# chunk compression (PTIFF-1.0-RUST-CORE-PLAN.md §5).
+zarr-backend = ["dep:serde_json", "dep:zstd", "dep:flate2"]
+# Optional OpenEXR-style storage backend: a real, standalone .exr file (single
+# whole-image tile this phase) read/written through the pure-Rust `exr` crate
+# (no unsafe code). Only Float32 and UInt32 pixel types (matching native OpenEXR
+# FLOAT/UINT channels), samplesPerPixel 1 (Y)/3 (RGB)/4 (RGBA), uncompressed.
+# Off by default so the core stays dependency-light; pulls in `exr`.
+openexr-backend = ["dep:exr"]
 # Optional TIFF compression codecs that pull in third-party (pure-Rust)
 # libraries: Deflate (zlib, RFC 1950) via `flate2`/miniz_oxide and JPEG
 # (baseline, 4:4:4) via `jpeg-encoder`/`jpeg-decoder`. Off by default so the
@@ -54,6 +82,17 @@ serde_json = { version = "1", optional = true }
 flate2 = { version = "1", optional = true }
 jpeg-encoder = { version = "0.7", optional = true }
 jpeg-decoder = { version = "0.3", default-features = false, optional = true }
+# Optional PDS4 XML label (de)serialization (blessed choice, PTIFF-1.0-RUST-CORE-PLAN.md
+# §5 Dependency Evaluation). Feature-gated behind `pds4-backend`.
+quick-xml = { version = "0.36", optional = true }
+# Optional Zarr chunk compression (zstd), the blessed choice for Zarr chunk
+# codecs (PTIFF-1.0-RUST-CORE-PLAN.md §5 Dependency Evaluation). Feature-gated
+# behind `zarr-backend`. Zlib chunk compression reuses the already-optional
+# `flate2` dependency declared above.
+zstd = { version = "0.13", optional = true }
+# Optional pure-Rust OpenEXR reader/writer (PTIFF-1.0-RUST-CORE-PLAN.md §5
+# Dependency Evaluation). No unsafe code. Feature-gated behind `openexr-backend`.
+exr = { version = "1.74", default-features = false, optional = true }
 
 # Mathematical geometry foundation (GEOMETRY-FOUNDATION.md): SO(3)/SE(3) Lie
 # groups, quaternions, Twist/Wrench, linear algebra. `multicalc` is dependency-
@@ -65,9 +104,8 @@ multicalc = "0.10"
 semver = "1.0"
 
 [dev-dependencies]
-# Enable the `serde`, `memory-backend` and `tiff-backend` features internally
-# so their tests always run.
-ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs"] }
+# Enable the serde / backend features internally so their tests always run.
+ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs", "isis-backend", "pds4-backend", "zarr-backend", "openexr-backend"] }
 serde_json = "1"
 
 # Independent TIFF/BigTIFF reader used ONLY as a data-level interop oracle in
