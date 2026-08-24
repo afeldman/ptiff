@@ -152,11 +152,18 @@ run_cli() {
   log "benchmarking ptiff CLI (end-to-end subprocess)"
   if ! command -v cargo >/dev/null; then fail "cargo not installed (needed to build CLI)"; return 1; fi
   if [ ! -f "$PKGCONF/libptiff_c.pc" ]; then fail "no libptiff_c.pc under $PKGCONF"; return 1; fi
-  local CLI_BIN="$REPO/ptiff-cli/target/debug/ptiff"
-  if [ ! -x "$CLI_BIN" ]; then
+  local CLI_BIN
+  local CLI_BIN_RELEASE="$REPO/ptiff-cli/target/release/ptiff"
+  local CLI_BIN_DEBUG="$REPO/ptiff-cli/target/debug/ptiff"
+  if [ -x "$CLI_BIN_RELEASE" ]; then
+    CLI_BIN="$CLI_BIN_RELEASE"
+  elif [ -x "$CLI_BIN_DEBUG" ]; then
+    CLI_BIN="$CLI_BIN_DEBUG"
+  else
     log "building ptiff CLI (ptiff-cli/)"
-    (cd "$REPO/ptiff-cli" && PKG_CONFIG_PATH="$PKGCONF" cargo build) \
+    (cd "$REPO/ptiff-cli" && PKG_CONFIG_PATH="$PKGCONF" cargo build --release) \
       || { fail "ptiff CLI build failed"; return 1; }
+    CLI_BIN="$CLI_BIN_RELEASE"
   fi
   PYTHONPATH="$REPO/bindings/python/src" \
     DYLD_LIBRARY_PATH="$LIBDIR" \
