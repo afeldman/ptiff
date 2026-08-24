@@ -907,6 +907,179 @@ mod tests {
         assert_eq!(crs.projection().kind(), ProjectionKind::Stereographic);
     }
 
+    #[test]
+    fn generic_extension_metadata_round_trips_through_file_bytes() {
+        // Exercises the non-typed PTIFF domains (spice 65001, layers 65004,
+        // provenance 65005) plus an unknown/future key: each carried as a
+        // generic `ptiff.<domain>.<key>` metadata record and round-tripped
+        // byte-identically through the facade.
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(16, 16);
+        desc.metadata
+            .insert("ptiff.spice.frame".to_string(), "IAU_MOON".to_string());
+        desc.metadata
+            .insert("ptiff.spice.time_system".to_string(), "TDB".to_string());
+        desc.metadata
+            .insert("ptiff.layers.dem".to_string(), "dem".to_string());
+        desc.metadata.insert(
+            "ptiff.provenance.software".to_string(),
+            "libptiff".to_string(),
+        );
+        // Unknown/future key must survive verbatim (RFC-7002 §4.3).
+        desc.metadata.insert(
+            "ptiff.provenance.future_field".to_string(),
+            "keep-me".to_string(),
+        );
+        scene.add_image(desc).expect("add image");
+
+        let bytes = Tiff::to_bytes(&scene).expect("serialize");
+        let read = Tiff::from_bytes(&bytes).expect("parse");
+        let image = read.image(0).expect("image");
+
+        let metadata = image.metadata();
+        assert_eq!(
+            metadata.get("ptiff.spice.frame").map(String::as_str),
+            Some("IAU_MOON")
+        );
+        assert_eq!(
+            metadata.get("ptiff.spice.time_system").map(String::as_str),
+            Some("TDB")
+        );
+        assert_eq!(
+            metadata.get("ptiff.layers.dem").map(String::as_str),
+            Some("dem")
+        );
+        assert_eq!(
+            metadata
+                .get("ptiff.provenance.software")
+                .map(String::as_str),
+            Some("libptiff")
+        );
+        assert_eq!(
+            metadata
+                .get("ptiff.provenance.future_field")
+                .map(String::as_str),
+            Some("keep-me")
+        );
+        // The typed camera/CRS domains are NOT surfaced through the generic
+        // metadata map when absent.
+        assert_eq!(image.camera(), None);
+        assert_eq!(image.crs(), None);
+    }
+
+    #[test]
+    fn generic_and_typed_metadata_coexist_without_collision() {
+        // A scene carrying both a typed camera (65002) and generic spice
+        // (65001) / provenance (65005) metadata must round-trip BOTH: the
+        // generic map excludes the reserved camera/CRS keys, so neither the
+        // IFD entries nor the Scene fields collide.
+        use ptiff_core::geometry::Ellipsoid;
+        use ptiff_core::{CoordinateReferenceSystem, Frame, Planet, Projection, ProjectionKind};
+
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(16, 16);
+        desc.camera = Some(ptiff_core::Camera::from_model(
+            "pinhole",
+            ptiff_core::Intrinsics::new(100.0, 100.0, 8.0, 8.0),
+            ptiff_core::Extrinsics::new(
+                ptiff_core::Quaternion::new(1.0, 0.0, 0.0, 0.0),
+                ptiff_core::Vec3::new(0.0, 0.0, 0.0),
+            ),
+            "t0",
+        ));
+        desc.crs = Some(CoordinateReferenceSystem::new(
+            Planet::new(
+                "Moon",
+                "301",
+                Ellipsoid::new(1_737_400.0, 1_737_400.0),
+                Frame::IAU_MOON,
+            ),
+            None,
+            Projection::new(ProjectionKind::Equirectangular),
+        ));
+        desc.metadata
+            .insert("ptiff.spice.frame".to_string(), "IAU_MOON".to_string());
+        desc.metadata.insert(
+            "ptiff.provenance.software".to_string(),
+            "ptiff-rust".to_string(),
+        );
+        scene.add_image(desc).expect("add image");
+
+        let bytes = Tiff::to_bytes(&scene).expect("serialize");
+        let read = Tiff::from_bytes(&bytes).expect("parse");
+        let image = read.image(0).expect("image");
+
+        // Typed domains still round-trip.
+        assert_eq!(image.camera().expect("camera").model_name(), "pinhole");
+        assert_eq!(image.crs().expect("crs").planet().name(), "Moon");
+        // Generic domains round-trip too.
+        assert_eq!(
+            image
+                .metadata()
+                .get("ptiff.spice.frame")
+                .map(String::as_str),
+            Some("IAU_MOON")
+        );
+        assert_eq!(
+            image
+                .metadata()
+                .get("ptiff.provenance.software")
+                .map(String::as_str),
+            Some("ptiff-rust")
+        );
+        // And no generic record collides with the typed camera/CRS domains.
+        assert!(image
+            .metadata()
+            .keys()
+            .all(|k| { !k.starts_with("ptiff.camera.") && !k.starts_with("ptiff.crs.") }));
+    }
+
+    #[test]
+    fn partial_metadata_domains_do_not_fail_file_read() {
+        // A foreign/future writer may leave only part of a typed metadata
+        // domain (RFC-7002 §3.3/§4.4 tolerance): an incomplete `ptiff.camera.*`
+        // / `ptiff.crs.*` payload must not fail `Tiff::from_bytes`. The typed
+        // fields stay absent and the partial raw fields survive in the generic
+        // metadata map.
+        let mut model = ptiff_core::io::StorageModel::new();
+        model.set_field("imageWidth", "16");
+        model.set_field("imageHeight", "16");
+        model.set_field("samplesPerPixel", "1");
+        model.set_field("pixelType", "UInt8");
+        model.set_field("ptiff.camera.model", "pinhole"); // partial: no intrinsics
+        model.set_field("ptiff.spice.frame", "IAU_MOON");
+
+        use ptiff_core::io::backend::tiff::TiffBackend as CoreBackend;
+        use ptiff_core::io::{MemoryBinaryWriter, StorageBackend as _};
+        let mut writer = MemoryBinaryWriter::new();
+        CoreBackend
+            .serialize_model(&model, &mut writer)
+            .expect("serialize model with partial tags");
+
+        let bytes = writer.take_buffer();
+        // Read back through the idiomatic facade: must succeed, not fail.
+        let tiff = Tiff::from_bytes(&bytes).expect("must not fail on partial metadata");
+        let image = tiff.image(0).expect("image");
+
+        // Typed camera is absent (incomplete), its raw field is preserved.
+        assert_eq!(image.camera(), None);
+        assert_eq!(
+            image
+                .metadata()
+                .get("ptiff.camera.model")
+                .map(String::as_str),
+            Some("pinhole")
+        );
+        // And a complete generic domain still round-trips.
+        assert_eq!(
+            image
+                .metadata()
+                .get("ptiff.spice.frame")
+                .map(String::as_str),
+            Some("IAU_MOON")
+        );
+    }
+
     // --- Phase 5: parallel facade (feature = "parallel") --------------
 
     /// Builds a tiled + LZW scene whose full-tile raster holds deterministic

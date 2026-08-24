@@ -97,6 +97,25 @@ impl Deserializer for SceneDeserializer {
             descriptor.camera = crate::geometry::camera_from_model(node)?;
             descriptor.crs = crate::geometry::crs_from_model(node)?;
 
+            // Generic PTIFF extension metadata (RFC-7002): every `ptiff.*`
+            // field on the node except the raw keys of a *successfully
+            // reconstructed* typed camera/CRS domain (which are owned by the
+            // typed fields above). A present-but-incomplete camera/CRS domain
+            // that was skipped during typed reconstruction (camera/crs ==
+            // None) is preserved verbatim here, so nothing is lost and the
+            // file still reads (RFC-7002 §4.3/§4.4 tolerance). This
+            // round-trips spice (65001), layers (65004), provenance (65005)
+            // and any unknown/future / partial `ptiff.*` keys.
+            node.for_each_field(|key, value| {
+                let owned_by_typed = (descriptor.camera.is_some()
+                    && key.starts_with("ptiff.camera."))
+                    || (descriptor.crs.is_some() && key.starts_with("ptiff.crs."));
+                if key.starts_with("ptiff.") && !owned_by_typed {
+                    descriptor
+                        .metadata
+                        .insert(key.to_string(), value.to_string());
+                }
+            });
             scene.add_image(descriptor)?;
         }
 
@@ -281,5 +300,166 @@ mod tests {
             .expect_err("must fail");
         assert_eq!(err.code(), ErrorCode::InvalidArgument);
         assert_eq!(err.message(), "SceneDeserializer: unrecognized compression");
+    }
+
+    #[test]
+    fn generic_metadata_domains_deserialize_into_image_metadata() {
+        // spice / layers / provenance (and an unknown key) must surface through
+        // ImageDescriptor.metadata, while the typed camera/CRS domains are
+        // excluded.
+        let mut model = StorageModel::new();
+        let mut child = StorageModel::new();
+        child.set_field("imageWidth", "16");
+        child.set_field("imageHeight", "16");
+        child.set_field("samplesPerPixel", "1");
+        child.set_field("pixelType", "UInt8");
+        child.set_field("ptiff.spice.frame", "IAU_MOON");
+        child.set_field("ptiff.spice.time_system", "TDB");
+        child.set_field("ptiff.layers.dem", "dem");
+        child.set_field("ptiff.provenance.software", "libptiff");
+        child.set_field("ptiff.provenance.future_field", "keep-me");
+        // A complete typed camera domain (reconstructed into Image.camera) must
+        // be excluded from the generic metadata map.
+        child.set_field("ptiff.camera.model", "pinhole");
+        child.set_field("ptiff.camera.focal_length_x", "100.0");
+        child.set_field("ptiff.camera.focal_length_y", "100.0");
+        child.set_field("ptiff.camera.principal_x", "8.0");
+        child.set_field("ptiff.camera.principal_y", "8.0");
+        model.add_child(child);
+
+        let scene = SceneDeserializer.deserialize(&model).unwrap();
+        let image = scene.image_at(0).unwrap();
+        let metadata = image.metadata();
+        assert_eq!(
+            metadata.get("ptiff.spice.frame").map(String::as_str),
+            Some("IAU_MOON")
+        );
+        assert_eq!(
+            metadata.get("ptiff.spice.time_system").map(String::as_str),
+            Some("TDB")
+        );
+        assert_eq!(
+            metadata.get("ptiff.layers.dem").map(String::as_str),
+            Some("dem")
+        );
+        assert_eq!(
+            metadata
+                .get("ptiff.provenance.software")
+                .map(String::as_str),
+            Some("libptiff")
+        );
+        assert_eq!(
+            metadata
+                .get("ptiff.provenance.future_field")
+                .map(String::as_str),
+            Some("keep-me")
+        );
+        // The typed camera key is reconstructed into the typed field and is
+        // deliberately absent from the generic map.
+        assert!(metadata.keys().all(|k| !k.starts_with("ptiff.camera.")));
+        assert_eq!(image.camera().expect("camera").model_name(), "pinhole");
+    }
+
+    #[test]
+    fn serializer_preserves_generic_metadata_bytes() {
+        // Scene → StorageModel → Scene: spice/layers/provenance/unknown keys
+        // survive a full serializer round-trip and re-emit the same
+        // `ptiff.*` storage fields.
+        let mut scene = Scene::new();
+        scene
+            .add_image(ImageDescriptor {
+                width: 16,
+                height: 16,
+                pixel_type: PixelType::UInt8,
+                channel_count: 1,
+                compression: Some(CompressionKind::None),
+                metadata: [
+                    ("ptiff.spice.frame", "IAU_MOON"),
+                    ("ptiff.provenance.software", "libptiff"),
+                    ("ptiff.provenance.future_field", "keep-me"),
+                ]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+                ..ImageDescriptor::default()
+            })
+            .unwrap();
+
+        let model = crate::io::SceneSerializer.serialize(&scene).unwrap();
+        let child = &model.children()[0];
+
+        // The emitted child node carries the generic `ptiff.*` fields verbatim,
+        // ready for the TIFF backend's append_ptiff_tags to encode into tags
+        // 65001/65005.
+        assert_eq!(child.field("ptiff.spice.frame").unwrap(), "IAU_MOON");
+        assert_eq!(
+            child.field("ptiff.provenance.software").unwrap(),
+            "libptiff"
+        );
+        assert_eq!(
+            child.field("ptiff.provenance.future_field").unwrap(),
+            "keep-me"
+        );
+
+        // And a full deserialize round-trips them back into Image.metadata.
+        let back = SceneDeserializer.deserialize(&model).unwrap();
+        let meta = back.image_at(0).unwrap().metadata();
+        assert_eq!(
+            meta.get("ptiff.spice.frame").map(String::as_str),
+            Some("IAU_MOON")
+        );
+        assert_eq!(
+            meta.get("ptiff.provenance.future_field")
+                .map(String::as_str),
+            Some("keep-me")
+        );
+    }
+
+    #[test]
+    fn partial_typed_domains_do_not_fail_deserialize_and_are_preserved() {
+        // RFC-7002 §3.3 / §4.4: a file carrying a present-but-incomplete
+        // camera/CRS domain (e.g. a foreign or future writer's partial field
+        // set) must NOT fail the whole file. The typed reconstruction is
+        // skipped (`camera`/`crs` == None) and the raw `ptiff.*` fields are
+        // preserved verbatim in the generic metadata map.
+        let mut model = StorageModel::new();
+        let mut child = StorageModel::new();
+        child.set_field("imageWidth", "16");
+        child.set_field("imageHeight", "16");
+        child.set_field("samplesPerPixel", "1");
+        child.set_field("pixelType", "UInt8");
+        child.set_field("ptiff.camera.model", "pinhole"); // partial: no intrinsics
+        child.set_field("ptiff.crs.planet_name", "Moon"); // partial: incomplete extended schema
+        model.add_child(child);
+
+        let scene = SceneDeserializer
+            .deserialize(&model)
+            .expect("must not fail the file");
+        let image = scene.image_at(0).unwrap();
+        assert_eq!(
+            image.camera(),
+            None,
+            "partial camera must degrade typed reconstruction"
+        );
+        assert_eq!(
+            image.crs(),
+            None,
+            "partial crs must degrade typed reconstruction"
+        );
+        // The absent-typed-domain raw keys are preserved verbatim.
+        assert_eq!(
+            image
+                .metadata()
+                .get("ptiff.camera.model")
+                .map(String::as_str),
+            Some("pinhole")
+        );
+        assert_eq!(
+            image
+                .metadata()
+                .get("ptiff.crs.planet_name")
+                .map(String::as_str),
+            Some("Moon")
+        );
     }
 }
