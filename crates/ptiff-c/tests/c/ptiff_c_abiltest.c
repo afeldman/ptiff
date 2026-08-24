@@ -64,6 +64,18 @@ static void test_version(void) {
     /* Either pointer may be NULL. */
     ptiff_runtime_version_out(NULL, NULL, NULL);
     ptiff_compile_time_version_out(NULL, NULL, NULL);
+
+#ifdef PTIFF_ABI_VERSION
+#if PTIFF_ABI_VERSION >= 1
+#define PTIFF_ABI_TEST_PASS 1
+#else
+#define PTIFF_ABI_TEST_PASS 0
+#endif
+#else
+#define PTIFF_ABI_TEST_PASS 0
+#endif
+    /* §7.5: the header must carry PTIFF_ABI_VERSION (monotonic, >= 1). */
+    CHECK(PTIFF_ABI_TEST_PASS == 1, "header defines PTIFF_ABI_VERSION >= 1");
 }
 
 static void test_error_enum(void) {

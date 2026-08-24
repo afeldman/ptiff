@@ -1,0 +1,47 @@
+# ptiff-python: idiomatic PyO3 binding over the `ptiff` (rust-core facade).
+#
+# Per PTIFF-1.0-RUST-CORE-PLAN.md §9 (Option B), the Python binding is a PyO3
+# extension module built with maturin, speaking the Rust core DIRECTLY (no
+# ctypes/SWIG round-trip through the C ABI). It links the idiomatic `ptiff`
+# crate (which in turn sits on `ptiff-core`), giving Python a first-class,
+# NumPy-integrated tile API:
+#
+#     import ptiff_pyo3 as ptiff
+#     import numpy as np
+#     with ptiff.open("scene.tif") as doc:
+#         img = doc.image(0)
+#         tile = img.read_tile(column=1, row=0)   # np.ndarray
+#
+# The module name is `ptiff_pyo3` (not `ptiff`) so it does not clash with the
+# legacy SWIG `ptiff` package (bindings/python) that remains as the fallback
+# until SWIG is deprecated (Plan §9 DoD); the PyO3 surface is laid out so the
+# final `import ptiff` can adopt it unchanged once SWIG is removed.
+#
+# This crate is deliberately NOT a workspace member (it is `exclude`d in the
+# root Cargo.toml): a plain `cargo build --workspace` must never need a Python
+# development install, while the PyO3 `extension-module` link (libpython
+# symbols resolved at import time) only applies when maturin builds the wheel.
+# The `[workspace]` table below marks it as a standalone crate with its own
+# lockfile for `maturin` builds in this directory.
+[workspace]
+
+[package]
+name = "ptiff-python"
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/PTIFF/ptiff"
+homepage = "https://github.com/PTIFF/ptiff"
+documentation = "https://docs.rs/ptiff"
+rust-version = "1.97"
+description = "PyO3 (maturin) Python binding over the PTIFF 1.0 Rust core"
+
+[lib]
+name = "ptiff_pyo3"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ptiff = { path = "../ptiff-rust" }
+ptiff-core = { path = "../ptiff-core", features = ["tiff-backend"] }
+pyo3 = { version = "0.29.2" }
+numpy = { version = "0.29.0" }

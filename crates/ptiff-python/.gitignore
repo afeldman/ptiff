@@ -1,0 +1,7 @@
+# Local Python/build artifacts that must never be committed.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+target/
+# Maturin produces wheels under target/; nothing extra to ignore here.

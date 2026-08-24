@@ -27,6 +27,11 @@ exclude = [
     "benchmarks/rust_bench",
     "benchmarks/parallel_bench",
     "bindings/rust",
+    # PyO3 Python binding: built/packaged by maturin in its own directory
+    # (crates/ptiff-python) so a plain `cargo build --workspace` never needs a
+    # Python development install (pyo3 links libpython when not building as an
+    # `extension-module`). The pytest + maturin CI workflow tests it directly.
+    "crates/ptiff-python",
 ]
 
 # Aggregated metadata for all member crates.

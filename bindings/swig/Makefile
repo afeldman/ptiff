@@ -21,7 +21,6 @@
 # Rust-built lib by default. Override with PTIFF_C_LIB_DIR to point at a
 # different directory containing libptiff_c.{dylib,so,a}.
 
-PYTHON    ?= python3
 RUBY      ?= ruby
 GO        ?= go
 SWIG      ?= swig
@@ -44,7 +43,6 @@ C_LIB_DIR := ../../target/release
 # file) -- SWIG -ruby emits only ptiff_wrap.c plus that compiled extension, no
 # separate .rb stub, so lib/ptiff/version.rb (hand-authored, gem version
 # metadata only) is the sole survivor of the old Fiddle wrapper.
-PY_DIR  := ../python/src/ptiff
 GO_DIR  := ../go/ptiff
 RB_DIR  := ../ruby/lib
 OC_DIR  := ../octave/lib
@@ -74,7 +72,6 @@ else
 	LIBDIR       := $(LIB_DIR)
 endif
 
-PYINC := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_paths()['include'])")
 RBHDR1 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyhdrdir"]')
 RBHDR2 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyarchhdrdir"]')
 RBDLEXT := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["DLEXT"]')
@@ -103,17 +100,6 @@ $(GEN_DIR):
 staticlib:
 	@test -f $(C_LIB_DIR)/libptiff_c.dylib -o -f $(C_LIB_DIR)/libptiff_c.so -o -f $(C_LIB_DIR)/libptiff_c.a || \
 		(cd ../.. && cargo build -p ptiff-c --release)
-
-# ============================================================
-# Python
-# ============================================================
-$(PY_DIR)/ptiff.py $(PY_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
-	$(SWIG) -python -outdir $(PY_DIR) -o $(PY_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
-
-$(PY_DIR)/_ptiff.so: $(PY_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) $(UNDEF_FLAG)
-
-python: $(PY_DIR)/_ptiff.so staticlib
 
 # ============================================================
 # Go
@@ -179,19 +165,16 @@ octave: $(OC_DIR)/ptiff.oct staticlib
 # ============================================================
 # Aggregate
 # ============================================================
-all: python go ruby octave
+all: go ruby octave
 
 # Python's, Ruby's and Octave's promoted tests live in bindings/{python,ruby,
 # octave}/test/, separate from the promoted package dirs (PY_DIR/RB_DIR/
 # OC_DIR) -- PYTHONPATH/RUBYLIB/OCTAVE_PATH point the test run at the
 # generated module.
-PY_TEST_DIR := ../python/test
 RB_TEST_DIR := ../ruby/test
 OC_TEST_DIR := ../octave/test
 
 test: all
-	cd $(PY_TEST_DIR) && PYTHONPATH=$(abspath $(PY_DIR)) $(PYTHON) test_roundtrip.py
-	cd $(PY_TEST_DIR) && PYTHONPATH=$(abspath $(PY_DIR)) $(PYTHON) -m unittest test_version test_logger test_backend test_error test_image test_sink -v
 	cd $(GO_DIR) && $(GO) test ./...
 	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) test_roundtrip.rb
 	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) -e 'Dir.glob("test_{version,logger,backend,error,image,sink}.rb").each { |f| require_relative f }'
@@ -199,10 +182,9 @@ test: all
 
 clean:
 	rm -rf $(GEN_DIR)
-	rm -rf $(PY_DIR)/ptiff.py $(PY_DIR)/ptiff_wrap.c $(PY_DIR)/_ptiff.so $(PY_DIR)/__pycache__ $(PY_TEST_DIR)/roundtrip_python.tif
 	rm -rf $(GO_DIR)/ptiff.go $(GO_DIR)/ptiff_wrap.c $(GO_DIR)/cgo_flags.go $(GO_DIR)/roundtrip_go.tif
 	rm -rf $(GO_MODROOT)go.sum
 	rm -rf $(RB_DIR)/ptiff_wrap.c $(RB_DIR)/ptiff.bundle $(RB_DIR)/ptiff.so $(RB_TEST_DIR)/roundtrip_ruby.tif
 	rm -rf $(OC_DIR)/ptiff_wrap.c $(OC_DIR)/ptiff_wrap.cpp $(OC_DIR)/ptiff.oct
 
-.PHONY: all python go ruby octave test clean staticlib
+.PHONY: all go ruby octave test clean staticlib

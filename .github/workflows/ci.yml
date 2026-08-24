@@ -72,6 +72,16 @@ jobs:
     needs: [rust-core, rust-cli]
     uses: ./.github/workflows/ruby-bindings.yml
 
+  bindings-python-pyo3:
+    name: Phase 2 · Python bindings (PyO3)
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/python-bindings-pyo3.yml
+
+  bindings-cpp:
+    name: Phase 2 · C++ bindings (ptiff-cpp)
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/cpp-bindings.yml
+
   # ----------------------------------------------------------------------
   # Phase 3: documentation (only when a version number is present = v* tag)
   # ----------------------------------------------------------------------
@@ -81,7 +91,9 @@ jobs:
       - bindings-go
       - bindings-octave
       - bindings-python
+      - bindings-python-pyo3
       - bindings-ruby
+      - bindings-cpp
     # Docs only run when a version tag (v*) is pushed; on plain branch pushes
     # and pull requests no version number exists, so this phase is skipped.
     if: startsWith(github.ref, 'refs/tags/v')
