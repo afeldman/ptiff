@@ -48,6 +48,13 @@ GO_MODULE := github.com/crater/ptiff-go
 
 PKGCONF := $(shell command -v pkg-config)
 
+# -undefined dynamic_lookup is a macOS/clang linker flag that allows shared
+# extensions to leave Python/Ruby symbols undefined at link time (resolved
+# at load time by the interpreter). GNU ld on Linux does not support it and
+# treats it as a forced-undefined symbol reference, causing a link error.
+# On Linux, -shared already permits undefined symbols by default.
+UNDEF_FLAG := $(if $(filter Darwin,$(shell uname)),-undefined dynamic_lookup,)
+
 # ---- Resolve libptiff_c: prefer pkg-config, else PTIFF_C_LIB_DIR ----
 ifeq ($(PTIFF_C_LIB_DIR),)
 	ifneq ($(PKGCONF),)
@@ -85,7 +92,7 @@ $(PY_DIR)/ptiff.py $(PY_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -python -outdir $(PY_DIR) -o $(PY_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(PY_DIR)/_ptiff.so: $(PY_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) -undefined dynamic_lookup
+	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) $(UNDEF_FLAG)
 
 python: $(PY_DIR)/_ptiff.so
 
@@ -122,7 +129,7 @@ $(RB_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -ruby -outdir $(RB_DIR) -o $(RB_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(RB_DIR)/ptiff.bundle: $(RB_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared -undefined dynamic_lookup \
+	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared $(UNDEF_FLAG) \
 		$(RB_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS)
 
 ruby: $(RB_DIR)/ptiff.bundle
