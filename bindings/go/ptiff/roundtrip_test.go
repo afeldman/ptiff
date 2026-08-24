@@ -102,9 +102,9 @@ func TestRoundtrip(t *testing.T) {
 		t.Fatalf("src grid = %dx%d, want 2x2", rcols, rrows)
 	}
 
-	// read tile (1,0) -- writable []byte filled in place; bytes_read via *int64
+	// read tile (1,0) -- writable []byte filled in place; bytes_read via *uint
 	buf := make([]byte, rbs)
-	var nread int64
+	var nread uint
 	if rc := Ptiff_source_read_tile(src, 1, 0, buf, &nread); rc != 0 {
 		t.Fatalf("read_tile rc=%d", rc)
 	}

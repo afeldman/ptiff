@@ -6,15 +6,14 @@ standard TIFF readers open the PRIMARY IMAGE of a PTIFF file unmodified,
 whether or not the five private tags are present, and measures the
 size/read-time overhead the tags actually add.
 
-Prerequisite: build the sample-writing example once --
-    cmake -B build/Debug -S . -DPTIFF_BUILD_EXAMPLES=ON
-    cmake --build build/Debug --target ptiff_example_write_sample
-This script then calls that binary to produce two otherwise-identical 64x64
-tiled TIFFs -- one with the five ptiff.* domain fields set, one without --
-and runs six readers against both: tiffinfo (libtiff), gdalinfo (GDAL),
-identify (ImageMagick), sips (macOS), Pillow, OpenCV.
+The fixtures are produced by the idiomatic Rust example `write_ptiff_fixture`
+(crates/ptiff-rust/examples), which replaces the deleted C++ sample writer. It
+writes two otherwise-identical 64x64 tiled TIFFs -- one with the PTIFF
+camera/CRS extension fields set (persisted as private tags 65002/65003), one
+without -- and runs six readers against both: tiffinfo (libtiff), gdalinfo
+(GDAL), identify (ImageMagick), sips (macOS), Pillow, OpenCV.
 
-Run (from the libptiff project root, e.g. src/ptiff/):
+Build/run (from the ptiff project root, e.g. src/ptiff/):
     uv run --with pillow --with opencv-python-headless python scripts/interop_check.py
 """
 
@@ -22,34 +21,41 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EXAMPLE_BIN = (
-    ROOT / "build" / "Debug" / "libptiff" / "examples" / "ptiff_example_write_sample"
-)
 OUT_DIR = ROOT / "scripts" / "results"
 N_REPEATS = 20
 
 
+def _run_fixture_example(path: Path, mode: str) -> None:
+    """Write a PTIFF fixture via the idiomatic Rust example."""
+    subprocess.run(
+        [
+            "cargo",
+            "run",
+            "-q",
+            "-p",
+            "ptiff",
+            "--example",
+            "write_ptiff_fixture",
+            "--",
+            str(path),
+            mode,
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+
+
 def _build_samples() -> tuple[Path, Path]:
-    if not EXAMPLE_BIN.exists():
-        sys.exit(
-            f"missing {EXAMPLE_BIN} -- build it first:\n"
-            "  cmake -B build/Debug -S . -DPTIFF_BUILD_EXAMPLES=ON\n"
-            "  cmake --build build/Debug --target ptiff_example_write_sample"
-        )
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with_tags = OUT_DIR / "sample_with_tags.tif"
     plain = OUT_DIR / "sample_plain.tif"
-    subprocess.run(
-        [str(EXAMPLE_BIN), str(with_tags), "with-tags"], check=True, capture_output=True
-    )
-    subprocess.run(
-        [str(EXAMPLE_BIN), str(plain), "plain"], check=True, capture_output=True
-    )
+    _run_fixture_example(with_tags, "with-tags")
+    _run_fixture_example(plain, "plain")
     return with_tags, plain
 
 

@@ -1,0 +1,36 @@
+# ptiff-cli: command-line interface for the PTIFF planetary image standard.
+#
+# The CLI is a thin, idiomatic frontend over the `ptiff` crate (ptiff-rust),
+# which in turn talks directly to `ptiff-core` (the single maintained core).
+# It adds no C ABI and no C++: every subcommand marshals typed core types
+# (Scene/Image/ImageDescriptor/TileLayout) through `Tiff::open` /
+# `read_image_pixels` / `tile_layout` / `to_bytes_with_pixels`.
+#
+# Dependencies stay minimal: only the idiomatic `ptiff` crate plus the
+# argument-parsing and JSON-serialization crates the CLI needs for its plain-
+# text / `--json` outputs. The binary reports its own version via the
+# core's runtime-queryable `ptiff::{APP_VERSION, VERSION_STR}`.
+[package]
+name = "ptiff-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Command-line interface for the PTIFF planetary image standard"
+
+[[bin]]
+name = "ptiff"
+path = "src/main.rs"
+
+[dependencies]
+# The idiomatic Rust binding to the PTIFF 1.0 core.
+ptiff = { path = "../ptiff-rust" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Test-only: write a temp TIFF to exercise the CLI's file-based subcommands.
+tempfile = "3"

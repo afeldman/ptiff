@@ -4,8 +4,9 @@
 **Version:** 0.1.0
 **Private tag:** 65002 (`PtiffCameraGeometry`)
 **Storage notation:** `ptiff.camera.*`
-**Normative basis:** `RFC-0001-Core.md`, reference implementation `bindings/rust/src/lib.rs`
-(`Camera`), `bindings/c/ptiff_camera.h`.
+**Normative basis:** `RFC-0001-Core.md`, reference implementation
+`crates/ptiff-core/src/geometry/camera.rs` (`Camera`); the C ABI `ptiff_camera`
+is in `crates/ptiff-c` (cbindgen-authorised into `target/ptiff_c.h`).
 
 ---
 

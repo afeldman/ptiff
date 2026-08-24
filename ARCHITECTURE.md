@@ -1,6 +1,14 @@
 # PTIFF Architecture
 
-This document describes `libptiff`, the reference implementation of the PTIFF standard
+> **⚠️ Historical (pre-Rust) document.** This file describes the former
+> **C++** architecture of the reference implementation (`libptiff`, since
+> removed). The reference implementation is now a **pure-Rust workspace** — see
+> [`RUST-WORKSPACE.md`](RUST-WORKSPACE.md) and
+> [`PTIFF-1.0-RUST-CORE-PLAN.md`](PTIFF-1.0-RUST-CORE-PLAN.md) for the current
+> architecture (`ptiff-core` → `ptiff-rust` → `ptiff-cli`/`ptiff-c`). This
+> legacy page is retained for historical context only.
+
+This document describes `libptiff`, the (former C++) reference implementation of the PTIFF standard
 (see `rfcs/RFC-0001-Core.md`). It reflects the state established through Sprint 3: architecture,
 build system, domain model, and storage/I/O architecture -- no TIFF/BigTIFF/PDS4/ISIS reading,
 writing, or parsing exists yet.

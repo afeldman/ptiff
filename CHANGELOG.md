@@ -8,7 +8,50 @@ und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v
 Sofern nicht anders vermerkt, gelten alle Einträge mit einem `Unreleased`-Abschnitt
 als noch nicht veröffentlicht.
 
-## [Unreleased]
+## [1.0.0] — 2026-08-24
+
+### Meilenstein: Rust-Referenzkern und C-ABI-Homogenisierung
+
+Die erste stabile Hauptversion 1.0.0 markiert den Abschluss der Rust-Migration der
+Referenzimplementierung. Der Workspace (`Cargo.toml`, `CITATION.cff`) ist auf `1.0.0`
+gestellt; die handgeschriebene `extern "C"`-Veneer (`bindings/c`, `libptiff_c`) ist
+zugunsten der cbindgen-verwalteten Rust-Crate `crates/ptiff-c` entfernt. Alle vier
+Sprachbindings (Go, Python, Ruby, Octave) laufen gegen diese Rust-ABI und melden
+konsistent `1.0.0` als `runtime == compile`-Version. **498+ Workspace-Tests grün,
+clippy + fmt clean.**
+
+### Rust-C-ABI-Migration
+
+- **`bindings/c/` gelöscht.** Die handgeschriebene `extern "C"`-Veneer
+  (`libptiff_c`) ist entfernt. Die C-ABI wird jetzt vollständig von der
+  Rust-Crate `crates/ptiff-c` erzeugt: cbindgen autorisiert den Header
+  `target/ptiff_c.h` aus den Rust-Signaturen (source of truth), `cargo build
+  -p ptiff-c --release` baut `libptiff_c` in `target/release/`.
+- **SWIG-Bindings auf die Rust-ABI umgestellt** (`bindings/swig`): `ptiff.i`
+  inkludiert den cbindgen-Header statt der 8 Einzel-Header aus `bindings/c`;
+  das Makefile liest aus `target/`/`target/release` (sed-gefilterte
+  `real_inc/ptiff_c.h`-Kopie für SWIG, direkte `-I`/`-L`/`-Wl,-rpath`-Flags in
+  `cgo_flags.go`, kein pkg-config); `bindings/swig/swig_include/`
+  (Export-Header-Shim) entfernt.
+- **Typemaps auf die Rust-ABI-Typen angepasst**: `size_t`→`uintptr_t`,
+  `int`→`int32_t` (Rust `usize`/`i32`), und `struct ptiff_*`-Zeiger in den
+  `numinputs=0`-/out-Param-Typemaps (cbindgen emittiert das `struct`-Schlüsselwort).
+- **Camera-Timestamp als `[c_char; 64]`** (`crates/ptiff-c`), damit cbindgen
+  `char[64]` emittiert — die ABI-Form, die alle vier Sprachen (Go, Python,
+  Ruby, Octave) als String zuweisen. Camera-Timestamp-Roundtrip grün in allen
+  Suiten.
+- **Go-`image.go`/`metadata.go`**: `TileByteSize`→`int64`,
+  `bytesRead` als `uint`, `SetTimestamp(string)` (via `char[64]`).
+- **Ruby-Versions-Test** auf Rust-1.0.0-Workspace-Version aktualisiert
+  (vorher C++-0.3.0).
+- **CMake-Build-Systeme bereinigt**: `libptiff/CMakeLists.txt` delegiert
+  `PTIFF_BUILD_C_BINDINGS` an `cargo build -p ptiff-c --release` statt an
+  `add_subdirectory(bindings/c)`; `bindings/go/CMakeLists.txt` verweist auf
+  `target/release` statt auf das alt `ptiff_c`-CMake-Target.
+- **Verifiziert**: `make -C bindings/swig test` (Python 14, Go 25, Ruby 14,
+  Octave 8 grün), C-ABI-Test `crates/ptiff-c/tests/c/ptiff_c_abiltest.c`
+  (ALL OK gegen `target/ptiff_c.h`), `cargo test --workspace` (>500), clippy
+  + fmt clean.
 
 ## [0.4.2] — 2026-08-22
 

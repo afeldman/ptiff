@@ -8,12 +8,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _MCP = os.path.dirname(_HERE)
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 
-_SHARED = os.path.join(_REPO, "build-shared", "build", "Release")
-_PTIFF_C = os.path.join(_SHARED, "bindings", "c")
-_PTIFF_LIB = os.path.join(_SHARED, "libptiff")
+_TARGET = os.path.join(_REPO, "target", "release")
 
-os.environ.setdefault("PTIFF_C_LIB_DIR", _PTIFF_C)
-os.environ.setdefault("PTIFF_LIB_DIR", _PTIFF_LIB)
+os.environ.setdefault("PTIFF_C_LIB_DIR", _TARGET)
+os.environ.setdefault("PTIFF_LIB_DIR", _TARGET)
 
 # Also expose the SWIG ptiff binding on sys.path for the whole session.
 import sys  # noqa: E402

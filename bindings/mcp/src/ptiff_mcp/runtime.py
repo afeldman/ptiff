@@ -32,7 +32,8 @@ _COMPRESSION_NAMES: dict[int, str] = {
     _ptiff.PTIFF_COMPRESSION_JPEG: "jpeg",
 }
 
-# Error code -> human readable text (ptiff_bridge.h constants).
+# Error code -> human readable text (ptiff_c.h constants; derived from the Rust
+# core's ErrorCode in crates/ptiff-c).
 _ERROR_TEXT: dict[int, str] = {
     _ptiff.PTIFF_ERROR_NOT_IMPLEMENTED: "not implemented",
     _ptiff.PTIFF_ERROR_INVALID_ARGUMENT: "invalid argument",

@@ -37,7 +37,7 @@ kernels"*.
 ## 2. Status
 
 Draft. The field schema below is normative and matches the reference components
-(`scripts/gen_interop_fixture.cpp`, `libptiff/tests/`).
+(`crates/ptiff-rust/examples/write_ptiff_fixture.rs`, `crates/ptiff-core/tests/`).
 
 ---
 
@@ -88,4 +88,4 @@ ptiff.spice.observation_time = 2026-08-20T00:00:00.000
 - `RFC-7002` — payload codec, tag 65001.
 - `RFC-0003` — Camera domain (explicit extrinsics, tag 65002).
 - Reference implementation: `specification/spice/pointing.md`,
-  `scripts/gen_interop_fixture.cpp`.
+  `crates/ptiff-rust/examples/write_ptiff_fixture.rs`.

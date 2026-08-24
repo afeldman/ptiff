@@ -4,7 +4,7 @@
 **Storage notation:** future `ptiff.photometry.*` (concept); today surfaced via
 `ptiff.layers.*` on the Scientific-Layers tag 65004
 **Normative basis:** `RFC-0001-Core.md` (§2, §9, §12, §17), reference implementation
-`libptiff/src/io/backend/tiff/`.
+`crates/ptiff-core/src/io/backend/tiff/`.
 
 ---
 

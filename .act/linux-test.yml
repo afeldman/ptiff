@@ -1,0 +1,73 @@
+# Local-only workflow for `act` (not used by GitHub CI). Mirrors the Linux path
+# of .github/workflows/release.yml so the packaging pipeline can be exercised
+# locally with `task act` (Linux runner simulated in Docker). Run with:
+#   task act
+name: act-linux-test
+
+on: workflow_dispatch
+
+jobs:
+  linux-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The C ABI and CLI are pure Rust; but the CMake packaging wrapper that
+      # produces the native packages needs ninja/cmake and the packagers.
+      # `release.yml` mirrors exactly this so `task act` reproduces CI.
+      - name: Install system tools + packagers
+        run: |
+          sudo apt-get update
+          # ninja+cmake (CMake generator), rpm/dpkg+patchelf (CPack DEB/RPM
+          # packaging), kernel-modules for the rust-fslock dependency.
+          sudo apt-get install -y ninja-build cmake rpm dpkg patchelf
+
+      # CMake (configure) builds the C ABI libptiff_c via cargo into
+      # <build>/cargo-target/release/. This step is optional here: the CMake
+      # configure below already builds it, but matches release.yml exactly and
+      # surfaces Cargo build errors up front.
+      - name: Build C ABI (libptiff_c, Rust)
+        run: cargo build -p ptiff-c --release
+
+      - name: Configure (CMake packaging wrapper, Release)
+        run: >
+          cmake -G Ninja -B build-rel/build -S .
+          -DCMAKE_BUILD_TYPE=Release
+          -DPTIFF_BUILD_C_ABI=ON
+          -DPTIFF_BUILD_CLI=ON
+          -DPTIFF_BUILD_DOCS=OFF
+
+      - name: Build ptiff CLI (Rust, workspace crate)
+        run: cmake --build build-rel/build --target ptiff_cli --config Release
+
+      - name: Install to staging prefix (CLI + C ABI + header + pkg-config)
+        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
+
+      - name: Smoke test the packaged CLI
+        shell: bash
+        run: |
+          ls -la "${{ github.workspace }}/staging/bin/ptiff"
+          "${{ github.workspace }}/staging/bin/ptiff" version
+          "${{ github.workspace }}/staging/bin/ptiff" --help >/dev/null
+
+      - name: Build Linux packages (CPack deb + rpm)
+        working-directory: build-rel/build
+        run: |
+          set +e
+          cpack -C Release > cpack.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "::error::cpack failed (rc=$rc)"; tail -n 40 cpack.log; exit 1; fi
+          tail -n 5 cpack.log
+          ls -la *.deb *.rpm
+
+      - name: Inspect packages (arch-qualified names)
+        run: |
+          echo "=== built packages ==="
+          ls -la build-rel/build/*.deb build-rel/build/*.rpm
+          echo "=== .deb ==="
+          dpkg -c build-rel/build/*.deb 2>/dev/null | grep -E "bin/ptiff|/lib/ptiff|libptiff|pkgconfig|include" | head -25
+          echo "=== .rpm ==="
+          rpm -qlp build-rel/build/*.rpm 2>/dev/null | grep -E "bin/ptiff|libptiff" | head -25

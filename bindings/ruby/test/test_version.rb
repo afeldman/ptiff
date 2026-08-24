@@ -15,12 +15,14 @@ require 'ptiff'
 
 class TestVersion < Minitest::Test
   def test_runtime_version_fields
-    # Keep in sync with the project version (bindings/rust/Cargo.toml, CHANGELOG.md).
-    # Do NOT hard-code a specific minor here and forget to bump it on release —
-    # the cross-check below (runtime == compile_time) is version-agnostic.
+    # Keep in sync with the Rust core's workspace version
+    # (Cargo.toml, crates/ptiff-c) -- the C ABI now reports the Rust version,
+    # currently 1.0.0. Do NOT hard-code a specific minor here and forget to
+    # bump it on release -- the cross-check below (runtime == compile_time) is
+    # version-agnostic.
     v = Ptiff::ptiff_runtime_version
-    assert_equal 0, v.major
-    assert_equal 3, v.minor
+    assert_equal 1, v.major
+    assert_equal 0, v.minor
     assert_equal 0, v.patch
   end
 

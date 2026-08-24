@@ -1,7 +1,7 @@
 /* Per-language buffer + out-parameter typemaps for the libptiff C ABI.
 
    The C ABI exposes tile buffers as counted (ptr, size) pairs and out-params
-   as pointer args (int *err_out, size_t *bytes_read). Each target language
+   as pointer args (int *err_out, uintptr_t *bytes_read). Each target language
    needs its OWN typemaps for these -- SWIG typemaps are language-specific and
    one language's typemaps do NOT apply to another (a Python Py_buffer typemap
    generated for Ruby would reference Python.h). So this file is guarded by the
@@ -12,37 +12,37 @@
 #ifdef SWIGPYTHON
 /* ---- Python: buffers map onto Py_buffer (bytes/bytearray/memoryview). ---- */
 
-/* Write side: (const uint8_t* buffer, size_t buffer_size) collapses into one
+/* Write side: (const uint8_t* buffer, uintptr_t buffer_size) collapses into one
    readable Python buffer; the input's length becomes buffer_size. */
-%typemap(arginit) (const uint8_t* buffer, size_t buffer_size) %{
+%typemap(arginit) (const uint8_t* buffer, uintptr_t buffer_size) %{
   Py_buffer $1_buf;
 %}
-%typemap(in) (const uint8_t* buffer, size_t buffer_size) %{
+%typemap(in) (const uint8_t* buffer, uintptr_t buffer_size) %{
   if (PyObject_GetBuffer($input, &$1_buf, PyBUF_SIMPLE) < 0) {
     PyErr_SetString(PyExc_TypeError, "expected a bytes-like object");
     SWIG_fail;
   }
   $1 = (uint8_t *)$1_buf.buf;
-  $2 = (size_t)$1_buf.len;
+  $2 = (uintptr_t)$1_buf.len;
 %}
-%typemap(freearg) (const uint8_t* buffer, size_t buffer_size) %{
+%typemap(freearg) (const uint8_t* buffer, uintptr_t buffer_size) %{
   PyBuffer_Release(&$1_buf);
 %}
 
-/* Read side: (uint8_t* buffer, size_t buffer_size) -> one writable Python
+/* Read side: (uint8_t* buffer, uintptr_t buffer_size) -> one writable Python
    buffer (bytearray/memoryview); it is filled in place by the C function. */
-%typemap(arginit) (uint8_t* buffer, size_t buffer_size) %{
+%typemap(arginit) (uint8_t* buffer, uintptr_t buffer_size) %{
   Py_buffer $1_buf;
 %}
-%typemap(in) (uint8_t* buffer, size_t buffer_size) %{
+%typemap(in) (uint8_t* buffer, uintptr_t buffer_size) %{
   if (PyObject_GetBuffer($input, &$1_buf, PyBUF_WRITABLE) < 0) {
     PyErr_SetString(PyExc_TypeError, "expected a writable bytes-like object (bytearray/memoryview)");
     SWIG_fail;
   }
   $1 = (uint8_t *)$1_buf.buf;
-  $2 = (size_t)$1_buf.len;
+  $2 = (uintptr_t)$1_buf.len;
 %}
-%typemap(freearg) (uint8_t* buffer, size_t buffer_size) %{
+%typemap(freearg) (uint8_t* buffer, uintptr_t buffer_size) %{
   PyBuffer_Release(&$1_buf);
 %}
 
@@ -50,13 +50,13 @@
    (type, param name) pair, so this only touches the specific C ABI functions
    that declare a parameter with these exact names -- see the grep audit in
    the "alles in SWIG" migration notes (bindings/swig/README.md). */
-%apply int *OUTPUT { int *err_out };
-%apply size_t *OUTPUT { size_t *bytes_read };
+%apply int *OUTPUT { int32_t *err_out };
+%apply uintptr_t *OUTPUT { uintptr_t *bytes_read };
 %apply double *OUTPUT { double *out };   /* ptiff_image_gsd */
-%apply int *OUTPUT { int *out };         /* ptiff_image_compression */
-%apply int *OUTPUT { int *major };       /* ptiff_{runtime,compile_time}_version_out */
-%apply int *OUTPUT { int *minor };
-%apply int *OUTPUT { int *patch };
+%apply int *OUTPUT { int32_t *out };       /* ptiff_image_compression */
+%apply int *OUTPUT { int32_t *major };       /* ptiff_{runtime,compile_time}_version_out */
+%apply int *OUTPUT { int32_t *minor };
+%apply int *OUTPUT { int32_t *patch };
 
 
 /* ---- ptiff_open_path_fields(path, ptiff_field** out, int* out_count) ----
@@ -67,7 +67,7 @@
    tuples, and frees the C array with ptiff_fields_free so the Python caller
    never sees raw pointers. The return code (0 == ok, negative == error) is
    kept as the leading return value. */
-%typemap(in, numinputs=0) ptiff_field** out (ptiff_field* tmp) %{
+%typemap(in, numinputs=0) struct ptiff_field** out (ptiff_field* tmp) %{
   tmp = NULL;
   $1 = &tmp;
 %}
@@ -75,7 +75,7 @@
   tmpcount = 0;
   $1 = &tmpcount;
 %}
-%typemap(argout) ptiff_field** out {
+%typemap(argout) struct ptiff_field** out {
   /* arg2 == ptiff_field** out  (filled by the C function),
      arg3 == int* out_count (its length). */
   ptiff_field* farr = (arg2 != NULL) ? *arg2 : NULL;
@@ -90,7 +90,18 @@
     PyTuple_SetItem(t, 1, SWIG_FromCharPtr(farr[i].value));
     PyList_SetItem(lst, i, t);
   }
+  /* The signature of SWIG_Python_AppendOutput changed in SWIG 4.3.0
+     (2024-06-15, commit #2907): pre-4.3 it is `(PyObject*, PyObject*)` (two
+     args, no `is_void` flag); 4.3.0+ adds a third `int is_void`. Distro SWIG
+     on the CI images we target (Ubuntu 24.04 -> 4.2.0, and older images ->
+     4.0.x) is still pre-4.3, while the local/macOS toolchain is 4.5.0, so
+     branch on SWIG_VERSION to stay buildable under both. We pass 0 (append,
+     never free `lst`); the caller owns it. */
+#if SWIG_VERSION >= 0x040300
   resultobj = SWIG_Python_AppendOutput(resultobj, lst, 0);
+#else
+  resultobj = SWIG_Python_AppendOutput(resultobj, lst);
+#endif
   ptiff_fields_free(farr, n);
 }
 
@@ -99,11 +110,11 @@
    camera fields (scalars + K / [R|t] / P as flat lists of floats and the
    ISO-8601 timestamp string), plus the return code. The raw C struct is read
    back directly in the wrapper -- no pointer exposure. */
-%typemap(in, numinputs=0) ptiff_camera* out (ptiff_camera cam_tmp) %{
+%typemap(in, numinputs=0) struct ptiff_camera* out (ptiff_camera cam_tmp) %{
   memset(&cam_tmp, 0, sizeof(cam_tmp));
   $1 = &cam_tmp;
 %}
-%typemap(argout) ptiff_camera* out {
+%typemap(argout) struct ptiff_camera* out {
   PyObject* d = PyDict_New();
   if (!d) SWIG_fail;
   PyDict_SetItemString(d, "has_intrinsics", PyLong_FromLong(cam_tmp2.has_intrinsics));
@@ -137,8 +148,13 @@
     for (i = 0; i < 12; ++i) PyList_SET_ITEM(p, i, PyFloat_FromDouble(cam_tmp2.projection[i]));
     PyDict_SetItemString(d, "projection", p);
   }
-  PyDict_SetItemString(d, "timestamp", PyUnicode_FromString(cam_tmp2.timestamp));
+  PyDict_SetItemString(d, "timestamp", PyUnicode_FromString((const char*)cam_tmp2.timestamp));
+  /* Same SWIG_VERSION branch (>= 4.3.0) as the fields typemap above. */
+#if SWIG_VERSION >= 0x040300
   resultobj = SWIG_Python_AppendOutput(resultobj, d, 0);
+#else
+  resultobj = SWIG_Python_AppendOutput(resultobj, d);
+#endif
 }
 
 
@@ -146,13 +162,13 @@
 /* ---- Go: (ptr, size) buffer pairs collapse onto []byte. ---- */
 /* Mirrors SWIG's own go/cdata.i pattern: the generated C wrapper extracts the
    slice's data pointer and length from the _goslice_ ($input.array/.len). */
-%typemap(gotype) (const uint8_t* buffer, size_t buffer_size) "[]byte"
-%typemap(in) (const uint8_t* buffer, size_t buffer_size) %{
+%typemap(gotype) (const uint8_t* buffer, uintptr_t buffer_size) "[]byte"
+%typemap(in) (const uint8_t* buffer, uintptr_t buffer_size) %{
   $1 = ($1_ltype)$input.array;
   $2 = ($2_ltype)$input.len;
 %}
-%typemap(gotype) (uint8_t* buffer, size_t buffer_size) "[]byte"
-%typemap(in) (uint8_t* buffer, size_t buffer_size) %{
+%typemap(gotype) (uint8_t* buffer, uintptr_t buffer_size) "[]byte"
+%typemap(in) (uint8_t* buffer, uintptr_t buffer_size) %{
   $1 = ($1_ltype)$input.array;
   $2 = ($2_ltype)$input.len;
 %}
@@ -163,34 +179,34 @@
 #elif defined(SWIGRUBY)
 /* ---- Ruby: (ptr, size) buffer pairs collapse onto a Ruby String. ---- */
 
-%typemap(in) (const uint8_t* buffer, size_t buffer_size) %{
+%typemap(in) (const uint8_t* buffer, uintptr_t buffer_size) %{
   (void)StringValue($input);
   $1 = (uint8_t*)RSTRING_PTR($input);
-  $2 = (size_t)RSTRING_LEN($input);
+  $2 = (uintptr_t)RSTRING_LEN($input);
 %}
 
-%typemap(in) (uint8_t* buffer, size_t buffer_size) %{
+%typemap(in) (uint8_t* buffer, uintptr_t buffer_size) %{
   (void)StringValue($input);
   $1 = (uint8_t*)RSTRING_PTR($input);
-  $2 = (size_t)RSTRING_LEN($input);
+  $2 = (uintptr_t)RSTRING_LEN($input);
 %}
 
 /* Ruby surfaces C out-params as extra return values via SWIG_Ruby_AppendOutput.
    Matched by (type, param name) pair -- see the grep audit in the "alles in
    SWIG" migration notes (bindings/swig/README.md). */
-%apply int *OUTPUT { int *err_out };
-%apply size_t *OUTPUT { size_t *bytes_read };
+%apply int *OUTPUT { int32_t *err_out };
+%apply uintptr_t *OUTPUT { uintptr_t *bytes_read };
 %apply double *OUTPUT { double *out };   /* ptiff_image_gsd */
-%apply int *OUTPUT { int *out };         /* ptiff_image_compression */
-%apply int *OUTPUT { int *major };       /* ptiff_{runtime,compile_time}_version_out */
-%apply int *OUTPUT { int *minor };
-%apply int *OUTPUT { int *patch };
+%apply int *OUTPUT { int32_t *out };       /* ptiff_image_compression */
+%apply int *OUTPUT { int32_t *major };       /* ptiff_{runtime,compile_time}_version_out */
+%apply int *OUTPUT { int32_t *minor };
+%apply int *OUTPUT { int32_t *patch };
 
 /* ---- ptiff_open_path_fields(path, ptiff_field** out, int* out_count) ----
    Surfaces as `Ptiff::ptiff_open_path_fields(path)` returning an Array of
    [key, value] string pairs (leading return code kept). Consumed the same
    way as the Python port: walk the C array, copy to Ruby strings, free. */
-%typemap(in, numinputs=0) ptiff_field** out (ptiff_field* tmp) %{
+%typemap(in, numinputs=0) struct ptiff_field** out (ptiff_field* tmp) %{
   tmp = NULL;
   $1 = &tmp;
 %}
@@ -198,7 +214,7 @@
   tmpcount = 0;
   $1 = &tmpcount;
 %}
-%typemap(argout) ptiff_field** out {
+%typemap(argout) struct ptiff_field** out {
   ptiff_field* farr = (arg2 != NULL) ? *arg2 : NULL;
   int n = (arg3 != NULL) ? *arg3 : 0;
   VALUE arr = rb_ary_new();
@@ -208,7 +224,16 @@
     rb_ary_push(pair, rb_str_new2(farr[i].value));
     rb_ary_push(arr, pair);
   }
+  /* SWIG_Ruby_AppendOutput gained a third `int is_void` in the same 4.3.0
+     release as the Python form (2024-10-05, #2907); pre-4.3 distro SWIG
+     (e.g. Ubuntu 24.04's 4.2.0) declares only `(VALUE, VALUE)`. Branch on
+     SWIG_VERSION exactly like the Python typemaps above. We pass 0 (append;
+     the caller owns `arr`, and fields are freed below). */
+#if SWIG_VERSION >= 0x040300
   vresult = SWIG_Ruby_AppendOutput(vresult, arr, 0);
+#else
+  vresult = SWIG_Ruby_AppendOutput(vresult, arr);
+#endif
   ptiff_fields_free(farr, n);
 }
 
@@ -217,11 +242,11 @@
    the camera fields (scalars + K / [R|t] / P as Arrays of floats and the
    ISO-8601 timestamp string), plus the return code. The populated struct is
    copied into fresh Ruby values, so no dangling pointer escapes the C frame. */
-%typemap(in, numinputs=0) ptiff_camera* out (ptiff_camera cam_tmp) %{
+%typemap(in, numinputs=0) struct ptiff_camera* out (ptiff_camera cam_tmp) %{
   memset(&cam_tmp, 0, sizeof(cam_tmp));
   $1 = &cam_tmp;
 %}
-%typemap(argout) ptiff_camera* out {
+%typemap(argout) struct ptiff_camera* out {
   VALUE h = rb_hash_new();
   rb_hash_aset(h, rb_str_new2("has_intrinsics"), INT2NUM(cam_tmp2.has_intrinsics));
   rb_hash_aset(h, rb_str_new2("has_extrinsics"), INT2NUM(cam_tmp2.has_extrinsics));
@@ -251,8 +276,13 @@
     for (int i = 0; i < 12; ++i) rb_ary_push(p, DBL2NUM(cam_tmp2.projection[i]));
     rb_hash_aset(h, rb_str_new2("projection"), p);
   }
-  rb_hash_aset(h, rb_str_new2("timestamp"), rb_str_new2(cam_tmp2.timestamp));
+  rb_hash_aset(h, rb_str_new2("timestamp"), rb_str_new2((const char*)cam_tmp2.timestamp));
+  /* Same SWIG_VERSION branch (>= 4.3.0) as the fields typemap. */
+#if SWIG_VERSION >= 0x040300
   vresult = SWIG_Ruby_AppendOutput(vresult, h, 0);
+#else
+  vresult = SWIG_Ruby_AppendOutput(vresult, h);
+#endif
 }
 
 #elif defined(SWIGOCTAVE)
@@ -260,45 +290,45 @@
    returned back as an extra output value, since Octave arrays are copied on
    assignment (no in-place byte mutation like a Python bytearray). ---- */
 
-/* Write side: (const uint8_t* buffer, size_t buffer_size) reads from a uint8
+/* Write side: (const uint8_t* buffer, uintptr_t buffer_size) reads from a uint8
    array or a string; the array's length becomes buffer_size. The uint8NDArray
    copy lives in this call's scope so its data pointer stays valid.
    NOTE: SWIG names local slot variables `base4` (arg index 4 = `buffer`). */
-%typemap(in) (const uint8_t* buffer, size_t buffer_size) (uint8NDArray tmpwbuf) %{
+%typemap(in) (const uint8_t* buffer, uintptr_t buffer_size) (uint8NDArray tmpwbuf) %{
   if ($input.is_string()) {
     std::string s = $input.string_value();
     $1 = reinterpret_cast<uint8_t*>(&s[0]);
-    $2 = static_cast<size_t>(s.size());
+    $2 = static_cast<uintptr_t>(s.size());
   } else {
     if (!$input.is_uint8_type()) {
       SWIG_exception_fail(SWIG_TypeError, "expected a uint8 array or a string");
     }
     tmpwbuf4 = $input.uint8_array_value();
     $1 = reinterpret_cast<uint8_t*>(tmpwbuf4.fortran_vec());
-    $2 = static_cast<size_t>(tmpwbuf4.numel());
+    $2 = static_cast<uintptr_t>(tmpwbuf4.numel());
   }
 %}
 
-/* Read side: (uint8_t* buffer, size_t buffer_size) accepts a uint8 array whose
+/* Read side: (uint8_t* buffer, uintptr_t buffer_size) accepts a uint8 array whose
    length is taken as buffer_size (== required tile byte size). Octave copies
    arrays on assignment, so the caller can't observe in-place mutation; the
    filled data is therefore appended to the return list as a uint8 array.
    NOTE: SWIG names local slot variables `base<argindex>` (here arg index 4 for
    the `buffer` parameter of ptiff_source_read_tile) -- hence the `...4` suffix
    used below. */
-%typemap(in) (uint8_t* buffer, size_t buffer_size)
+%typemap(in) (uint8_t* buffer, uintptr_t buffer_size)
     (std::vector<uint8_t> tmpbuf, dim_vector dvbuf,
-     uint8NDArray outbuf, size_t needbuf) %{
+     uint8NDArray outbuf, uintptr_t needbuf) %{
   if (!$input.is_uint8_type() && !$input.is_string()) {
     SWIG_exception_fail(SWIG_TypeError, "expected a uint8 array or a string");
   }
-  needbuf4 = static_cast<size_t>($input.is_string()
+  needbuf4 = static_cast<uintptr_t>($input.is_string()
       ? $input.string_value().size() : $input.uint8_array_value().numel());
   tmpbuf4.resize(needbuf4);
   $1 = tmpbuf4.data();
-  $2 = static_cast<size_t>(tmpbuf4.size());
+  $2 = static_cast<uintptr_t>(tmpbuf4.size());
 %}
-%typemap(argout) (uint8_t* buffer, size_t buffer_size) %{
+%typemap(argout) (uint8_t* buffer, uintptr_t buffer_size) %{
   dvbuf4 = dim_vector(1, static_cast<octave_idx_type>(tmpbuf4.size()));
   outbuf4.resize(dvbuf4);
   std::memcpy(outbuf4.fortran_vec(), tmpbuf4.data(), tmpbuf4.size());
@@ -306,20 +336,20 @@
 %}
 
 /* Out-params surface as extra return values via SWIG_Octave_AppendOutput. */
-%apply int *OUTPUT { int *err_out };
-%apply size_t *OUTPUT { size_t *bytes_read };
+%apply int *OUTPUT { int32_t *err_out };
+%apply uintptr_t *OUTPUT { uintptr_t *bytes_read };
 %apply double *OUTPUT { double *out };   /* ptiff_image_gsd */
-%apply int *OUTPUT { int *out };         /* ptiff_image_compression */
-%apply int *OUTPUT { int *major };       /* ptiff_{runtime,compile_time}_version_out */
-%apply int *OUTPUT { int *minor };
-%apply int *OUTPUT { int *patch };
+%apply int *OUTPUT { int32_t *out };       /* ptiff_image_compression */
+%apply int *OUTPUT { int32_t *major };       /* ptiff_{runtime,compile_time}_version_out */
+%apply int *OUTPUT { int32_t *minor };
+%apply int *OUTPUT { int32_t *patch };
 
 /* ---- ptiff_open_path_fields(path, ptiff_field** out, int* out_count) ----
    Surfaces as `ptiff_open_path_fields(path)` returning a struct array with
    `key`/`value` string fields (leading return code kept; `rc`==0 means ok).
    Runs as C++ (SWIG-Octave runtime), so the C array is walked and freed here
    and the caller never sees raw pointers. */
-%typemap(in, numinputs=0) ptiff_field** out
+%typemap(in, numinputs=0) struct ptiff_field** out
     (ptiff_field* tmp, ptiff_field* farr, octave_idx_type n,
      Cell m_keys, Cell m_vals, octave_map m_map) %{
   tmp = NULL;
@@ -329,7 +359,7 @@
   tmpcount = 0;
   $1 = &tmpcount;
 %}
-%typemap(argout) ptiff_field** out %{
+%typemap(argout) struct ptiff_field** out %{
   /* NOTE: SWIG numbers the `in`-typemap locals by arg index; `out` is arg 2,
      so the locals land as `farr2`/`n2`/`m_keys2`/... (same pattern the other
      Octave typemaps above use with `tmpwbuf4`/`outbuf4` for arg 4).
@@ -355,12 +385,12 @@
    camera fields (ints/doubles + the K / [R|t] / P row-major matrices as
    numeric vectors and the timestamp string) plus the return code. Runs as
    C++ (SWIG-Octave runtime); the populated struct is read back directly. */
-%typemap(in, numinputs=0) ptiff_camera* out
+%typemap(in, numinputs=0) struct ptiff_camera* out
     (ptiff_camera cam_tmp, octave_map c_map) %{
   memset(&cam_tmp, 0, sizeof(cam_tmp));
   $1 = &cam_tmp;
 %}
-%typemap(argout) ptiff_camera* out %{
+%typemap(argout) struct ptiff_camera* out %{
   c_map2.clear();
   c_map2.setfield("has_intrinsics", octave_value(cam_tmp2.has_intrinsics));
   c_map2.setfield("has_extrinsics", octave_value(cam_tmp2.has_extrinsics));
@@ -390,7 +420,7 @@
     for (octave_idx_type _i = 0; _i < _n; ++_i) _p(_i) = cam_tmp2.projection[_i];
     c_map2.setfield("projection", octave_value(_p));
   }
-  c_map2.setfield("timestamp", octave_value(std::string(cam_tmp2.timestamp)));
+  c_map2.setfield("timestamp", octave_value(std::string(reinterpret_cast<const char*>(cam_tmp2.timestamp))));
   _outp = SWIG_Octave_AppendOutput(_outp, octave_value(c_map2));
 %}
 

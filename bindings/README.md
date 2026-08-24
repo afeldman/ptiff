@@ -1,34 +1,38 @@
 # Language bindings for libptiff
 
-All bindings share one substrate: [`bindings/c`](./c), a **language-agnostic C
-ABI** built as `libptiff_c`. Because every foreign-language runtime can call a
-plain C ABI, that single veneer is the source of truth all bindings build on —
-the C++ internals and their dependencies (fmt, spdlog) stay hidden behind it.
+All bindings share one substrate: the **Rust-generated C ABI** `libptiff_c`,
+built by the Rust crate [`crates/ptiff-c`](../../crates/ptiff-c) and exposed
+through a **cbindgen-generated header** (`target/ptiff_c.h`). Because every
+foreign-language runtime can call a plain C ABI, that single C surface is the
+source of truth all bindings build on — the Rust internals and their
+dependencies stay hidden behind it.
 
 > **Direction (2026-08-11), Go promoted (2026-08-12), Python and Ruby promoted
-> (2026-08-13), Octave added (2026-08-22).** SWIG is the **primary** binding
-> layer (`bindings/swig`).
-> **All four targeted languages are now promoted**: `bindings/go/ptiff`,
+> (2026-08-13), Octave added (2026-08-22), Rust C ABI migration complete
+> (2026-08-24).** SWIG is the **primary** binding layer (`bindings/swig`).
+> **All four targeted languages are promoted**: `bindings/go/ptiff`,
 > `bindings/python/src`, `bindings/ruby/lib` and `bindings/octave/lib` are all
 > SWIG output, regenerated from `bindings/swig/ptiff.i`; the hand-written cgo,
 > ctypes and Fiddle wrappers are all deleted. `bindings/swig` itself holds no
 > per-language staged output anymore — only the shared `ptiff.i` /
-> `typemaps.i` / `Makefile` driving all four. **Rust stays on rust-bindgen**
-> (no SWIG Rust target). See [`bindings/swig`](./swig) → "Planned migration".
+> `typemaps.i` / `Makefile` driving all four. **The C ABI is now generated from
+> Rust**: `bindings/c` and `bindings/swig/swig_include` were both deleted on
+> 2026-08-24 — the header source of truth is now the cbindgen output
+> `target/ptiff_c.h`. See [`bindings/swig`](./swig) → "Planned migration".
 
 ```
-            libptiff (C++23, fmt/spdlog)
+        crates/ptiff-c (Rust extern "C" surface)
                  │
-        bindings/c → libptiff_c   (extern "C" veneer)
+        cbindgen → target/ptiff_c.h   (Rust-generated C ABI → libptiff_c)
                  │
         bindings/swig → ptiff.i + typemaps.i   (one .i, four language targets)
                  │
       ┌───────────┼───────────┬──────────┬──────────┐
       ▼           ▼           ▼          ▼          ▼
-     Go         Rust       Python       Ruby      Octave
-  (promoted:   (bindgen)  (promoted:   (promoted: (promoted:
-  bindings/go)            bindings/    bindings/  bindings/
-                          python)      ruby)      octave)
+     Go         Python       Ruby      Octave
+  (promoted:   (promoted:   (promoted: (promoted:
+  bindings/go)  bindings/    bindings/  bindings/
+                python)      ruby)      octave)
                  │
                  ▼
         bindings/mcp → ptiff_mcp (MCP server over the Python binding)
@@ -36,9 +40,8 @@ the C++ internals and their dependencies (fmt, spdlog) stay hidden behind it.
 
 | Binding | Directory | Approach          | Status |
 |---------|-----------|-------------------|--------|
-| **C**   | `bindings/c` | `libptiff_c` (the ABI itself) | ✅ implemented, installable |
+| **C ABI**| `crates/ptiff-c` | Rust `extern "C"` surface → cbindgen → `target/ptiff_c.h`; builds `libptiff_c` | ✅ implemented, official |
 | **Go**  | `bindings/go` | SWIG output over `libptiff_c` (promoted from `bindings/swig`) | ✅ tested, official |
-| **Rust**| `bindings/rust` | Cargo `#[link]`/FFI over `libptiff_c` | ✅ tested |
 | **Python**| `bindings/python` | SWIG output over `libptiff_c` (promoted from `bindings/swig`) | ✅ tested, official |
 | **Ruby**| `bindings/ruby` | SWIG output over `libptiff_c` (promoted from `bindings/swig`) | ✅ tested, official |
 | **Octave**| `bindings/octave` | SWIG output over `libptiff_c` (promoted from `bindings/swig`) | ✅ tested, official |
@@ -49,9 +52,13 @@ Every binding covers the same implemented surface: versioning, error codes,
 logging, the backend registry, `Image` domain type plus its descriptor/value
 types, and tile read/write.
 
-A thin **command-line tool** sits on top of the Rust binding: [`../ptiff-cli`](../ptiff-cli)
-builds a `ptiff` binary that wraps the same ABI (`version`, `backends`, `logger`,
-`info`).
+The SWIG driver uses a cbindgen-generated header: the `%{}` block in
+`bindings/swig/ptiff.i` includes a sed-filtered copy of the generated header
+(`bindings/swig/real_inc/ptiff_c.h`) that strips the `PTIFF_C_API` macro block
+SWIG can't parse. The four language bindings (go/ptiff, python/src, ruby/lib,
+octave/lib) are SWIG output — gitignored generated files (ptiff.go /
+ptiff_wrap.c / cgo_flags.go; ptiff.py / _ptiff.so; ptiff.{bundle}; octave
+wrapper) — plus tracked hand-written tests.
 
 A **Model Context Protocol (MCP) server** sits on top of the Python binding:
 [`bindings/mcp`](./mcp) exposes the same ABI as a set of LLM tools over stdio
@@ -65,45 +72,32 @@ First build `libptiff_c` from the repo root (shared, so backend registration
 stays visible):
 
 ```bash
-cmake -B build -S . -DBUILD_SHARED_LIBS=ON -DPTIFF_BUILD_C_BINDINGS=ON
-cmake --build build --target ptiff_c
+cargo build -p ptiff-c --release
 ```
 
-Then point each binding at the output (`PTIFF_C_LIB_DIR` / rpath) and run its
-tests — see the per-binding READMEs.
+That invokes cbindgen to generate `target/ptiff_c.h` from the Rust
+`extern "C"` surface and produces `libptiff_c` in `target/release`.
 
-### Consuming an installed prefix (pkg-config)
-
-The C/C++ libraries also generate **relocatable pkg-config files** (`libptiff.pc`,
-`libptiff_c.pc`) and, for shared builds, `libptiff_c.dylib` ships an
-`@loader_path`/`$ORIGIN` instal rpath. So every binding can consume a *single
-installed prefix* cleanly — no repo-relative paths, no `DYLD_`/`LD_` plumbing:
+Then build and test all four language bindings in one shot (builds the SWIG
+outputs and runs each language's tests):
 
 ```bash
-cmake --build build --target ptiff_c
-cmake --install build --prefix /where/ever
-
-# Rust binding, CLI, Go, SWIG:
-PKG_CONFIG_PATH=/where/ever/lib/pkgconfig cargo test    # bindings/rust, ptiff-cli
-PKG_CONFIG_PATH=/where/ever/lib/pkgconfig go test ./ptiff          # bindings/go (+CGO_*)
-PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make test               # bindings/swig (all four languages)
-
-# Python, Go, Ruby and Octave are all SWIG output -- regenerate before testing
-# directly (make test above does this automatically for all four):
-PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make -C bindings/swig python
-cd bindings/python && uv run pytest
-
-PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make -C bindings/swig ruby
-cd bindings/ruby && bundle exec rake test
-
-PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make -C bindings/swig octave
-octave --no-gui --eval "addpath('bindings/octave/lib','bindings/octave/test'); run_tests_octave();"
+make -C bindings/swig test
 ```
 
-Each binding's `build.rs`/loader falls back to `PTIFF_C_LIB_DIR` (or the
-repo-relative build output) for fast in-tree dev without an install step.
+Or build/test a single language at a time — the SWIG Makefile points directly at
+`target/release` (via `cgo_flags.go` for Go and rpath elsewhere):
+
+```bash
+make -C bindings/swig python   # Python (bindings/python, uv run pytest)
+make -C bindings/swig go       # Go (bindings/go, go test ./ptiff)
+make -C bindings/swig ruby     # Ruby (bindings/ruby, bundle exec rake test)
+make -C bindings/swig octave   # Octave (bindings/octave, octave run_tests_octave)
+```
 
 ## Adding an API
 
-Extend the `ptiff_*` surface in `bindings/c/*.{h,cpp}` once, then wrap it thinly
-in each language. High-level bindings never touch libptiff's C++ headers.
+Extend the Rust `extern "C"` surface in `crates/ptiff-c/src/*.rs` — cbindgen
+regenerates `target/ptiff_c.h` automatically — then rerun SWIG
+(`make -C bindings/swig`) and wrap the new entry point thinly in each language.
+High-level bindings never touch the C ABI header by hand.
