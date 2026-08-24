@@ -4,7 +4,8 @@
 **Version:** 0.1.0
 **Private tag:** 65001 (`PtiffSpice`)
 **Storage notation:** `ptiff.spice.*`
-**Normative basis:** `RFC-0001-Core.md`, reference implementation `scripts/gen_interop_fixture.cpp` and `libptiff/tests/`.
+**Normative basis:** `RFC-0001-Core.md`, reference implementation
+`crates/ptiff-rust/examples/write_ptiff_fixture.rs` and `crates/ptiff-core/tests/`.
 
 ---
 

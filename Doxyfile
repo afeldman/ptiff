@@ -1,23 +1,24 @@
 # ============================================================================
 # PTIFF -- Doxygen configuration
 # ----------------------------------------------------------------------------
-# Generates HTML + XML documentation for the libptiff public API and the
-# project-wide Markdown sources. See docs/doxygen/ for the hand-written pages.
+# Generates HTML + XML documentation for the PTIFF C ABI (the cbindgen
+# generated `target/ptiff_c.h`) and the project-wide Markdown sources. See
+# docs/doxygen/ for the hand-written pages. The primary API documentation for
+# the Rust workspace is rustdoc (`cargo doc`); this Doxygen site complements
+# it for the C ABI and the concept/overview pages.
 #
 # Generate interactively with:
 #     doxygen Doxyfile
 #
-# Or as part of the CMake build (find_package(Doxygen) + doxygen_add_docs):
-#     cmake --build build --target docs
-#
 # Requires: doxygen >= 1.9  (developed/tested against 1.17.0)
+# The generated C header exists after `cargo build -p ptiff-c` runs build.rs.
 # ============================================================================
 
 # ----------------------------------------------------------------------------
 # Project information
 # ----------------------------------------------------------------------------
 PROJECT_NAME           = "PTIFF"
-PROJECT_NUMBER         = 0.4.0
+PROJECT_NUMBER         = 1.0.0
 PROJECT_BRIEF          = "Planetary Terrain-sensor Image File Format -- reference implementation"
 PROJECT_LOGO           =
 OUTPUT_DIRECTORY       = build/docs
@@ -31,23 +32,20 @@ ALLOW_UNICODE_NAMES    = YES
 INPUT                  = README.md \
                          ARCHITECTURE.md \
                          docs/doxygen \
-                         libptiff/include \
-                         libptiff/README.md
+                         target/ptiff_c.h
 
 INPUT_ENCODING         = UTF-8
 
-# Recursion on (headers live under libptiff/include/ptiff/...)
+# Recursion on
 RECURSIVE              = YES
 
 # File patterns to scan for documentation
 FILE_PATTERNS          = *.h \
-                         *.hpp \
-                         *.hxx \
                          *.md \
                          *.dox
 
 # Explicitly exclude generated/config-internal trees
-EXCLUDE                = libptiff/include/ptiff/core/version.hpp.in
+EXCLUDE                =
 EXCLUDE_PATTERNS      =
 EXCLUDE_SYMBOLS        = detail \
                          ptiff::detail
@@ -100,7 +98,7 @@ SHORT_NAMES            = NO
 HIDE_UNDOC_RELATIONS   = NONE
 
 # ----------------------------------------------------------------------------
-# Preprocessing (common for PTIFF headers)
+# Preprocessing (common for the C ABI header)
 # ----------------------------------------------------------------------------
 ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
@@ -108,8 +106,7 @@ EXPAND_ONLY_PREDEF     = NO
 EXPAND_AS_DEFINED      =
 SKIP_FUNCTION_MACROS   = YES
 
-# PTIFF uses generate_export_header(); make the export macro a no-op for
-# parsing so class/function declarations are seen.
+# Export/API macros are resolved to empty so declarations are seen as-is.
 PREDEFINED             = PTIFF_EXPORT= \
                          PTIFF_API= \
                          "DOXYGEN_SHOULD_SKIP_THIS=1" \
@@ -240,9 +237,10 @@ OPTIMIZE_OUTPUT_VHDL    = NO
 OPTIMIZE_OUTPUT_SLICE   = NO
 EXTENSION_MAPPING       =
 
-# Treat the first sentence of a C++ Doxygen comment (up to the first period) as an
-# implicit @brief when no explicit @brief is given. PTIFF headers use explicit @brief;
-# this is a safety-net for the ones that rely on the first-sentence convention.
+# Treat the first sentence of a Doxygen comment (up to the first period) as an
+# implicit @brief when no explicit @brief is given. Project sources use explicit
+# @brief; this is a safety-net for the ones that rely on the first-sentence
+# convention.
 JAVADOC_AUTOBRIEF        = YES
 LOOKUP_CACHE_SIZE       = 0
 ALLEXTERNALS            = NO

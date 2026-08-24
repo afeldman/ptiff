@@ -29,7 +29,7 @@ FIXTURE = os.path.realpath(
 )
 
 
-def approx(a, b, tol=1e-9):
+def approx(a: float, b: float, tol: float = 1e-9) -> bool:
     return abs(a - b) <= tol
 
 

@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: ptiff_c
+Description: PTIFF 1.0 C ABI over the Rust core (Rust)
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lptiff_c
+Cflags: -I${includedir}

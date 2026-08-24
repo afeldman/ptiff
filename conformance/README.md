@@ -28,13 +28,16 @@ conformance/
 └── (extension domains)  # future per-RFC suites, e.g. camera/, crs/, spice/, ...
 ```
 
-Executable tests live next to the implementation they validate so they can compile against
-internal headers and link the library under test. Specifically:
+Executable tests live next to the implementation they validate so they can link the library
+under test. The reference implementation is a Rust workspace: **baseline / container
+conformance** is covered by the Rust tests under `crates/ptiff-core/tests/` (see
+[matrix.md](matrix.md) for the files). Future extension-domain suites will follow the same
+split: normative prose here, executable Rust tests under `crates/ptiff-core/tests/`.
 
-- **Baseline / container conformance** → `libptiff/tests/conformance/` (Catch2, wired into
-  CTest), mirroring this top-level suite. See [matrix.md](matrix.md) for the files.
-- Future extension-domain suites will follow the same split: normative prose here,
-  executable tests under `libptiff/tests/`.
+> **History:** the original baseline conformance executable tests were written as C++
+> (`libptiff/tests/conformance/`, Catch2/CTest). With the migration to the pure-Rust
+> reference implementation those are being re-expressed as Rust `#[test]` integration
+> tests in the workspace; the normative requirements below are unchanged.
 
 ## Conformance levels (summary)
 
@@ -49,16 +52,20 @@ The full normative definitions are in [levels.md](levels.md). In short, from bot
 
 ## How to run
 
-The baseline conformance tests are CMake/CTest targets just like the rest of the test tree:
+The baseline conformance requirements are enforced by the Rust workspace test suite
+(pure `cargo test`; Cargo is the real build):
 
 ```bash
-# From a configured build (see the build instructions in the repository README):
-cmake --build <build-dir>
-ctest --test-dir <build-dir> -R conformance --output-on-failure
+# Run the whole workspace test suite (includes the conformance/baseline tests):
+cargo test --workspace --all-features
+
+# Or just the ptiff-core tests:
+cargo test -p ptiff-core
 ```
 
-To run every conformance executable including the not-yet-populated extension domains,
-drop the `-R conformance` filter once they exist.
+To run a specific conformance-focused test, filter by its name/number as usual, e.g.
+`cargo test -p ptiff-core --test golden` or `cargo test -p ptiff-core conformance` once
+dedicated conformance tests exist under `crates/ptiff-core/tests/`.
 
 ## Drafting rule
 

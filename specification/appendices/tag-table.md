@@ -20,4 +20,4 @@ Notes:
   AI) are expected to be realized on the existing Scientific-Layers (65004) and Provenance
   (65005) tags or to request new allocations through the RFC process (RFC-0001 §17 item 2).
 
-Reference implementation: `libptiff/include/ptiff/io/backend/tiff/tiff_tag.hpp`.
+Reference implementation: `crates/ptiff-core/src/io/backend/tiff/tag.rs`.

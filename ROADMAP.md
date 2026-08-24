@@ -1,10 +1,14 @@
 # PTIFF Roadmap
 
 Diese Roadmap ordnet die geplanten Arbeiten an der PTIFF-Spezifikation und der
-Referenzimplementierung `libptiff` nach Meilensteinen. Stand des Projekts (0.2.0,
-2026-08-11): die Referenzimplementierung liest/schreibt TIFF/BigTIFF inklusive
-Kompression und Mehrbild-Dokumente, bietet mehrere weitere echte Backends sowie
-einen Lese-Transport für Cloud-Object-Storage.
+Referenzimplementierung (reiner Rust-Workspace) nach Meilensteinen. Stand des
+Projekts (1.0.0, 2026-08-24): die Referenzimplementierung ist vollständig nach
+Rust überführt — `ptiff-core` → `ptiff-rust` → `ptiff-cli`/`ptiff-c` — und liest/
+schreibt TIFF/BigTIFF inklusive Kompression und Mehrbild-Dokumente, bietet
+mehrere weitere echte Backends sowie einen Lese-Transport für
+Cloud-Object-Storage. Die frühere C++-Implementierung (`libptiff`) und die
+C++-Veneer (`libptiff_c`) sind entfernt; Cargo ist der reale Build, CMake/CPack
+nur noch dünnes Packaging.
 
 Die Meilensteine sind bewusst grob und ändern sich mit dem RFC-/Design-Prozess
 (GOVERNANCE.md). Es gilt: **Reihenfolge = Priorität**, nicht verbindlicher Termin.
@@ -19,7 +23,7 @@ Die Meilensteine sind bewusst grob und ändern sich mit dem RFC-/Design-Prozess
 
 ## Meilenstein 0 — Grundstein (abgeschlossen)
 
-- ✅ Build-System: CMake (C++23) + Conan 2, vcpkg-kompatibel
+- ✅ Build-System: Rust-Workspace (Cargo/CPack; kein C++/Conan mehr im Build)
 - ✅ Öffentliche API-Oberfläche & Kern-Typen (`Result`, `Error`, `Version`, `Logger`, ...)
 - ✅ In-memory Domain-Modell (`Scene`, `Image`, `Camera`, `CRS`, `Metadata`, `History`, `Spice`, ...)
 - ✅ Format-neutrale Speicher-/I/O-Architektur (`StorageModel`, `StorageBackend`, `BinaryReader/Writer`, Tile-Modell)
@@ -39,13 +43,13 @@ Die Meilensteine sind bewusst grob und ändern sich mit dem RFC-/Design-Prozess
 
 ## Meilenstein 2 — Weitere Backends (abgeschlossen)
 
-- ✅ **PDS4** — XML-Labels (pugixml) + seekbare Roh-Pixel
+- ✅ **PDS4** — XML-Labels + seekbare Roh-Pixel
 - ✅ **ISIS3 CUB** — PDS3-artiges Textlabel, line-basierter Parser
 - ✅ **Zarr** — JSON-Header + zstd/zlib-Chunk-Kompression, chunk == tile
-- ✅ **OpenEXR** — echte `.exr` über die OpenEXR-C++-API
+- ✅ **OpenEXR** — echte `.exr`
 - ✅ **Memory-Backend** — In-Memory-Format "PMEM" + `MemoryBinaryReader/Writer`
 - ✅ **Cloud/Objekt-Speicher (lesend)** — HTTP `Range`-Requests via
-  `HttpRangeBinaryReader` (libcurl), Cloud-Optimized Access
+  `HttpRangeBinaryReader`, Cloud-Optimized Access
 
 ## Meilenstein 3 — PTIFF-spezifische Extension-Domänen (RFCs)
 
@@ -70,7 +74,7 @@ fachlichen Domain-Klassen oberhalb des Containers:
 - ☐ Stabile "Core"-RFCs (Status: Stable)
 - ☐ Offizielle Konformitätsstufen & Zertifizierung
 - ☐ Einbindung in Tools: GIS, Computer Vision/Photogrammetrie, planetarische Werkzeuge
-- ☐ Referenz-Datensätze & Beispiel-Files in `tests/golden/` und Konformitätstests in `tests/conformance/`
+- ☐ Referenz-Datensätze & Beispiel-Files in `crates/ptiff-core/tests/` (Golden- und Property-Tests)
 - ☐ Performance-Optimierungen (tiled/streaming, weitere Cloud-Optimierung)
 - ☐ Als das "GeoTIFF der Planetenwissenschaft" etablieren (RFC-0001 §15)
 
@@ -78,6 +82,11 @@ fachlichen Domain-Klassen oberhalb des Containers:
 
 ## Anmerkungen
 
+- **Stand 1.0.0 (2026-08-24):** vollständige Rust-Migration abgeschlossen — die
+  C++-Implementierung (`libptiff/`) und die C++-Veneer (`bindings/c`) sind
+  entfernt; `cargo build`/`cargo test` (Workspace, alle Features) sind grün,
+  die C-ABI (`ptiff-c`) und die Bindings (Go/Python/Ruby/Octave) laufen über den
+  Rust-Kern. Siehe `RUST-WORKSPACE.md` und `CHANGELOG.md`.
 - **Stand 0.3.0 (2026-08-17):** erstmals sind die PTIFF-spezifischen Private-Tags
   65001–65005 als konkreter TIFF-Tag-Output implementiert und roundtrip-fest getestet
   (Testsuite 371 grün). Die Container-/I/O-Schicht der Extension-Domänen ist damit
