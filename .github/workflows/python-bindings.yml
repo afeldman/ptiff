@@ -15,9 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-24.04 (not ubuntu-latest) is pinned for the SWIG step: its
-        # apt `swig` is 4.2.0 (>= 4.1 runtime), matching the typemaps in
-        # bindings/swig/typemaps.i. See benchmarks.yml for the same note.
+        # ubuntu-24.04 (not ubuntu-latest) is pinned; the SWIG step installs
+        # 4.5.0 via pip (matching local/macOS). See the Install SWIG step.
         os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -33,7 +32,13 @@ jobs:
 
       - name: Install SWIG (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y swig
+        # Pin to SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package),
+        # NOT the distro apt `swig` (Ubuntu 24.04 is only 4.2.0). This repo is
+        # developed and validated against SWIG 4.5.x (Homebrew locally, brew on
+        # macos-latest); generated code differs materially between 4.2 and 4.5
+        # (Go enum type names, the 3-arg SWIG_*_AppendOutput arity), so CI must
+        # use the same 4.5.0 as local/macOS to keep codegen identical.
+        run: pip install swig==4.5.0
 
       - name: Install SWIG (macOS)
         if: runner.os == 'macOS'

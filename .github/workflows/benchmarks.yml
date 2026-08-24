@@ -22,11 +22,12 @@ on:
 
 jobs:
   benchmarks:
-    # Pin to ubuntu-24.04 rather than ubuntu-latest: its `swig` package is
-    # 4.2.0 (SWIG >= 4.1 runtime, matching the workflow's SWIG_Python_
-    # AppendOutput typemaps). Older ubuntu-latest images ship SWIG 4.0.x whose
-    # embedded runtime has a two-arg AppendOutput, which breaks the Python
-    # binding build (see bindings/swig/typemaps.i).
+    # Pin to ubuntu-24.04 and install SWIG 4.5.0 via pip (see the Install
+    # SWIG step below): this repo is developed/validated against SWIG 4.5.x
+    # and its generated code differs materially from the apt `swig` (4.2.0) --
+    # e.g. Go enum type names and the 3-arg SWIG_*_AppendOutput arity (see
+    # bindings/swig/typemaps.i). Using 4.5.0 here keeps codegen identical to
+    # local dev and the macos-latest binding jobs.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -36,12 +37,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      # SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package), NOT the
+      # distro apt `swig` (Ubuntu 24.04 is only 4.2.0). This repo is developed
+      # and validated against SWIG 4.5.x (Homebrew locally, brew on
+      # macos-latest); generated code differs materially between 4.2 and 4.5
+      # (Go enum type names, the 3-arg SWIG_*_AppendOutput arity), so CI must
+      # use the same 4.5.0 as local/macOS. setup-python puts the pip bin dir on
+      # PATH, so `swig` resolves without further steps.
+      - name: Install SWIG 4.5.0 (Linux)
+        run: pip install swig==4.5.0
+
       - name: Install build toolchain + languages (Linux)
         run: |
           sudo apt-get update
           # mkoctfile is not a standalone Ubuntu/Debian package -- it ships
           # inside `octave` (see bindings/swig/Makefile: MKOCTFILE ?= mkoctfile).
-          sudo apt-get install -y swig golang-go ruby octave pkg-config
+          sudo apt-get install -y golang-go ruby octave pkg-config
           # Rust via rustup in a later step (dtolnay/rust-toolchain).
 
       - name: Set up Go
