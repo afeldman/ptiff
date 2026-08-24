@@ -14,7 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-24.04 (not ubuntu-latest) for a SWIG >= 4.1 apt package;
+        # older ubuntu-latest images ship SWIG 4.0.x (see typemaps.i note).
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

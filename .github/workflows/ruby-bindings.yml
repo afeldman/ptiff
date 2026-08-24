@@ -15,7 +15,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-24.04 (not ubuntu-latest) so apt `swig` is >= 4.1, matching
+        # the SWIG_Python/... typemaps (see typemaps.i). macOS uses brew swig.
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

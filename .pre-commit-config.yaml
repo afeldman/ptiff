@@ -46,7 +46,13 @@ repos:
         #
         # LICENSE / LICENSE-SPEC are legal texts and are never reformatted.
         # Doxyfile uses its own 4-space-plus key/value continuation layout.
-        exclude: '^(LICENSE|LICENSE-SPEC|Doxyfile)$|^(scripts/interop\.sh|benchmarks/run_benchmarks\.sh)$|^benchmarks/rust_bench/Cargo\.lock$|^benchmarks/src/(bench_python\.py|bench_ruby\.rb)$'
+        #
+        # SWIG interface files (*.i) mix `%typemap { ... }` bodies (2-space
+        # per SWIG convention, see .editorconfig [*.i]) with a stream of
+        # `/* */` comment continuations whose indent is not a constant
+        # multiple of indent_size -- their layout is owned by SWIG and would
+        # need a noisy reformat to satisfy a strict block-indent linter.
+        exclude: '^(LICENSE|LICENSE-SPEC|Doxyfile)$|^(scripts/interop\.sh|benchmarks/run_benchmarks\.sh)$|^.*\.i$|^benchmarks/rust_bench/Cargo\.lock$|^benchmarks/src/(bench_python\.py|bench_ruby\.rb)$'
 
   # ---------------------------------------------------------------------------
   # CMake (build system). Uses the `cmakelang` pip package directly so it does
