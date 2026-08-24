@@ -34,10 +34,9 @@
 //! - logger (`ptiff_logger.h` — forwards to the dependency-free `ptiff-core` logger)
 //! - camera (`ptiff_camera.h` `ptiff_open_path_camera` read + `ptiff_sink_create_camera`
 //!   write, on top of the core's structured camera domain)
-//!
-//! Recognised stub (symbol surface complete, returning
-//! `PTIFF_ERROR_NOT_IMPLEMENTED` where the core has no feature):
-//! the flat `ptiff.*` field view (`ptiff_open_path_fields`).
+//! - flattened `ptiff.*` extension fields (`ptiff_metadata.h`
+//!   `ptiff_open_path_fields` + `ptiff_fields_free`, decoded from the private
+//!   tags 65001-65005 via the core's format-neutral `StorageModel`)
 
 // `ptiff-c` is the ABI boundary: it deliberately wraps core resources in
 // pointer-typed opaque handles, so it cannot `forbid(unsafe_code)` the way the
