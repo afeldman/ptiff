@@ -32,3 +32,6 @@ ptiff-core = { path = "../ptiff-core" }
 [dev-dependencies]
 # Test-only: write a temp TIFF to exercise the C-ABI readers against a real file.
 tempfile = "3"
+
+[build-dependencies]
+cbindgen = "0.29"

@@ -27,13 +27,9 @@
 //! | camera | `ptiff.camera.principal_x` / `principal_y` | principal point (pixels) |
 //! | camera | `ptiff.camera.rot_w/x/y/z` | camera-to-world rotation quaternion |
 //! | camera | `ptiff.camera.pos_x/y/z` | camera world position (meters) |
-//! | crs    | `ptiff.crs.planet_name` | body name (`"Moon"`, ...) |
-//! | crs    | `ptiff.crs.planet_iau_id` | IAU body id (`"301"`, ...) |
-//! | crs    | `ptiff.crs.planet_semi_major_m` | equatorial (semi-major) radius, meters |
-//! | crs    | `ptiff.crs.planet_semi_minor_m` | polar (semi-minor) radius, meters |
-//! | crs    | `ptiff.crs.frame` | frame-override id (omitted when none) |
+//! | crs    | `ptiff.crs.body` | planetary body NAIF id (`"301"`, ...) |
 //! | crs    | `ptiff.crs.projection` | projection kind (`"equirectangular"`, ...) |
-//! | crs    | `ptiff.crs.param.<key>` | a named projection parameter |
+//! | crs    | `ptiff.crs.reference_frame` | reference-frame / datum id (`"IAU_MOON"`, ...) |
 //!
 //! `f64` values use Rust's `to_string()`, which is the shortest round-trippable
 //! representation; parsing it back reproduces the exact value.
@@ -164,36 +160,30 @@ fn domain_present(model: &StorageModel, prefix: &str) -> bool {
     present
 }
 
-/// Maps a CRS's state into `ptiff.crs.*` fields on `child`.
+/// Maps a CRS's state into the registered RFC-0004 `ptiff.crs.*` fields.
+///
+/// The writer emits exactly the three normative RFC-0004 fields: `body`
+/// (NAIF body id), `projection`, and `reference_frame` (the effective frame:
+/// the override if set, else the body's canonical IAU default). This is the
+/// interoperable schema the C++ oracle / bindings / GIS tooling expect.
+///
+/// The structured [`CoordinateReferenceSystem`] carries richer state (planet
+/// name, ellipsoid, projection parameters) that RFC-0004 deliberately does
+/// not; serializing it is intentionally **lossy**. The reader re-derives the
+/// name from the NAIF body id and the ellipsoid / projection parameters fall
+/// back to `UNSPECIFIED` / unset. Callers that need the full structured state
+/// should not round-trip through the flat fields (see `ptiff_open_path_fields`
+/// for a lossless flat view of the on-disk fields).
 pub fn crs_fields(crs: &CoordinateReferenceSystem) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut push = |key: &str, value: String| out.push((format!("{CRS_PREFIX}{key}"), value));
 
-    let planet = crs.planet();
-    let ellipsoid = planet.ellipsoid();
-    push("planet_name", planet.name().to_string());
-    push("planet_iau_id", planet.iau_identifier().to_string());
-    push(
-        "planet_semi_major_m",
-        ellipsoid.semi_major_axis_meters.to_string(),
-    );
-    push(
-        "planet_semi_minor_m",
-        ellipsoid.semi_minor_axis_meters.to_string(),
-    );
-
-    if let Some(frame) = crs.frame_override() {
-        push("frame", frame.id().to_string());
-    }
-
-    let projection = crs.projection();
+    push("body", crs.planet().iau_identifier().to_string());
     push(
         "projection",
-        projection_kind_str(projection.kind()).to_string(),
+        projection_kind_str(crs.projection().kind()).to_string(),
     );
-    for (key, value) in projection.iter() {
-        push(&format!("param.{key}"), value.to_string());
-    }
+    push("reference_frame", crs.frame().id().to_string());
 
     out
 }
@@ -203,16 +193,18 @@ pub fn crs_fields(crs: &CoordinateReferenceSystem) -> Vec<(String, String)> {
 ///
 /// Accepts **both** CRS field schemas:
 ///
-/// 1. the **registered** schema (RFC-0004 / `field-register.md`, what the
-///    C++ oracle writes): `ptiff.crs.body`, `ptiff.crs.projection`,
-///    `ptiff.crs.reference_frame`;
-/// 2. the **extended** schema emitted by this writer (`crs_fields`):
+/// 1. the **registered** schema (RFC-0004 / `field-register.md`, what this
+///    writer [`crs_fields`] and the C++ oracle emit): `ptiff.crs.body`,
+///    `ptiff.crs.projection`, `ptiff.crs.reference_frame`;
+/// 2. a **legacy extended** schema (pre-RFC-0004 Rust writer output):
 ///    `ptiff.crs.planet_name`, `planet_iau_id`, `planet_semi_major_m`,
 ///    `planet_semi_minor_m`, `frame`, `projection`, `param.*`, which carries
-///    more of the internal `CoordinateReferenceSystem` state.
+///    more of the internal `CoordinateReferenceSystem` state. Kept readable
+///    for backward compatibility with files written by the old writer.
 ///
-/// A domain the file doesn't carry stays `None`; a malformed numeric field is
-/// an error (mirrors [`camera_from_model`]).
+/// The registered schema is prioritised when present. A domain the file
+/// doesn't carry stays `None`; a malformed numeric field is an error (mirrors
+/// [`camera_from_model`]).
 pub fn crs_from_model(node: &StorageModel) -> Result<Option<CoordinateReferenceSystem>> {
     if !domain_present(node, CRS_PREFIX) {
         return Ok(None);
@@ -493,22 +485,100 @@ mod tests {
     }
 
     #[test]
+    fn crs_fields_emit_registered_rfc_0004_schema() {
+        // The writer emits exactly the three normative RFC-0004 fields,
+        // regardless of the richer internal state on the CRS.
+        let crs = sample_crs();
+        let mut fields = crs_fields(&crs);
+        fields.sort();
+        assert_eq!(
+            fields,
+            vec![
+                ("ptiff.crs.body".to_string(), "301".to_string()),
+                (
+                    "ptiff.crs.projection".to_string(),
+                    "stereographic".to_string(),
+                ),
+                (
+                    "ptiff.crs.reference_frame".to_string(),
+                    "spacecraft".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn crs_writes_effective_frame_when_no_override() {
+        // With no frame override, the writer uses the body's canonical IAU
+        // default frame as the reference_frame.
+        let crs = sample_crs();
+        let crs =
+            CoordinateReferenceSystem::new(crs.planet().clone(), None, crs.projection().clone());
+        let fields = crs_fields(&crs);
+        let rf = fields
+            .iter()
+            .find(|(k, _)| k == "ptiff.crs.reference_frame")
+            .expect("reference_frame present");
+        assert_eq!(rf.1, "IAU_MOON");
+    }
+
+    #[test]
     fn crs_round_trips_through_fields() {
+        // RFC-0004 carries body / projection / reference_frame only. The rich
+        // internal state (name, ellipsoid, projection params) is deliberately
+        // NOT round-tripped: the name is re-derived from the NAIF body id and
+        // the ellipsoid falls back to UNSPECIFIED.
         let crs = sample_crs();
         let mut model = StorageModel::new();
         for (k, v) in crs_fields(&crs) {
             model.set_field(k, v);
         }
         let back = crs_from_model(&model).expect("parse").expect("present");
-        // Frame override round-trips via the known SPACECRAFT constant.
+        // Body id drives the derived planet name.
         assert_eq!(back.planet().name(), "Moon");
         assert_eq!(back.planet().iau_identifier(), "301");
+        // Ellipsoid is not carried by RFC-0004 → UNSPECIFIED.
+        assert_eq!(back.planet().ellipsoid(), Ellipsoid::UNSPECIFIED);
+        // Frame override round-trips via the known SPACECRAFT constant.
+        assert_eq!(back.frame_override(), Some(Frame::SPACECRAFT));
+        assert_eq!(back.frame(), Frame::SPACECRAFT);
+        assert_eq!(back.projection().kind(), ProjectionKind::Stereographic);
+    }
+
+    #[test]
+    fn crs_legacy_extended_schema_still_reads() {
+        // Files written by the pre-RFC-0004 writer (extended schema) must
+        // remain readable: name / ellipsoid / frame / projection params.
+        let model = model_with(vec![
+            ("ptiff.crs.planet_name".to_string(), "Moon".to_string()),
+            ("ptiff.crs.planet_iau_id".to_string(), "301".to_string()),
+            (
+                "ptiff.crs.planet_semi_major_m".to_string(),
+                "1737400.0".to_string(),
+            ),
+            (
+                "ptiff.crs.planet_semi_minor_m".to_string(),
+                "1735700.0".to_string(),
+            ),
+            ("ptiff.crs.frame".to_string(), "spacecraft".to_string()),
+            (
+                "ptiff.crs.projection".to_string(),
+                "stereographic".to_string(),
+            ),
+            (
+                "ptiff.crs.param.central_meridian".to_string(),
+                "0.0".to_string(),
+            ),
+        ]);
+        let crs = crs_from_model(&model).expect("parse").expect("present");
+        assert_eq!(crs.planet().name(), "Moon");
+        assert_eq!(crs.planet().iau_identifier(), "301");
         assert_eq!(
-            back.planet().ellipsoid(),
+            crs.planet().ellipsoid(),
             Ellipsoid::new(1_737_400.0, 1_735_700.0)
         );
-        assert_eq!(back.frame_override(), Some(Frame::SPACECRAFT));
-        assert_eq!(back.projection().kind(), ProjectionKind::Stereographic);
+        assert_eq!(crs.frame_override(), Some(Frame::SPACECRAFT));
+        assert_eq!(crs.projection().kind(), ProjectionKind::Stereographic);
     }
 
     #[test]
