@@ -90,7 +90,17 @@
     PyTuple_SetItem(t, 1, SWIG_FromCharPtr(farr[i].value));
     PyList_SetItem(lst, i, t);
   }
+  /* The signature of SWIG_Python_AppendOutput changed between SWIG 4.0 (two
+     args, no third `is_void`/`frees` flag) and SWIG >= 4.1 (three args, where
+     the added int must be passed). Distro SWIG on older Ubuntu images is
+     still 4.0.x, while the local/macOS toolchain and Ubuntu 24.04 ship
+     >= 4.1, so branch on SWIG_VERSION to stay buildable under both. We pass
+     0 (append -- never free `lst`; the caller owns it). */
+#if SWIG_VERSION >= 0x040100
   resultobj = SWIG_Python_AppendOutput(resultobj, lst, 0);
+#else
+  resultobj = SWIG_Python_AppendOutput(resultobj, lst);
+#endif
   ptiff_fields_free(farr, n);
 }
 
@@ -138,7 +148,12 @@
     PyDict_SetItemString(d, "projection", p);
   }
   PyDict_SetItemString(d, "timestamp", PyUnicode_FromString((const char*)cam_tmp2.timestamp));
+  /* Same SWIG_VERSION branch as the fields typemap above. */
+#if SWIG_VERSION >= 0x040100
   resultobj = SWIG_Python_AppendOutput(resultobj, d, 0);
+#else
+  resultobj = SWIG_Python_AppendOutput(resultobj, d);
+#endif
 }
 
 
