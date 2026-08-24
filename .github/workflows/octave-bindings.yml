@@ -48,8 +48,8 @@ jobs:
       - name: Install Octave (Linux)
         if: runner.os == 'Linux'
         # mkoctfile does NOT ship inside the `octave` package on
-        # Debian/Ubuntu -- it needs the separate `liboctave-dev` package.
-        run: sudo apt-get update && sudo apt-get install -y octave liboctave-dev
+        # Debian/Ubuntu -- it needs the separate `octave-dev` package.
+        run: sudo apt-get update && sudo apt-get install -y octave octave-dev
 
       # libptiff_c is built by the Rust crate crates/ptiff-c into
       # target/release/ (bindings/swig/Makefile links there by default).
