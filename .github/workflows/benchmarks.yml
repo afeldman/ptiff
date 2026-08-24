@@ -50,11 +50,8 @@ jobs:
       - name: Install build toolchain + languages (Linux)
         run: |
           sudo apt-get update
-          # mkoctfile does NOT ship inside the `octave` package on
-          # Debian/Ubuntu -- it needs the separate `liboctave-dev` package
-          # (see bindings/swig/Makefile: MKOCTFILE ?= mkoctfile). Confirmed
-          # by CI failure: `octave` alone leaves mkoctfile missing.
-          sudo apt-get install -y golang-go ruby octave liboctave-dev pkg-config
+          # octave-dev provides mkoctfile (needed by bindings/swig/Makefile)
+          sudo apt-get install -y swig golang-go ruby octave octave-dev pkg-config
           # Rust via rustup in a later step (dtolnay/rust-toolchain).
 
       - name: Set up Go
