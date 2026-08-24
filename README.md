@@ -13,9 +13,9 @@ Teil der PTIFF-2.x-Welt (die frühere C++-Veneer `libptiff_c` und die C++
 `libptiff`-Bibliothek) ist vollständig durch Rust ersetzt und gelöscht.
 Neu in 1.0.0: `samplesPerPixel` unterstützt nun beliebige Bandzahlen (1–512,
 nicht mehr nur Grau/RGB) für multispektrale Daten, inkl. korrektem
-`ExtraSamples`-Tag. Neu in 0.3.0 (Rust-Kern): die PTIFF-spezifischen Private-Tags
-**65001–65005** (SPICE, Kamera-Geometrie, CRS, Scientific-Layer, Provenienz)
-sind als konkreter TIFF-Tag-Output implementiert und roundtrip-fest getestet.
+`ExtraSamples`-Tag. Die PTIFF-spezifischen Private-Tags **65001–65005** (SPICE,
+Kamera-Geometrie, CRS, Scientific-Layer, Provenienz) sind als konkreter
+TIFF-Tag-Output implementiert und roundtrip-fest getestet.
 
 ## Features (Stand 1.0.0)
 

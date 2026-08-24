@@ -132,7 +132,7 @@ numbers, run locally on a quiet machine with the default knobs (as above).
   trend over time when you re-run after changes.
 
 ```text
-# representative run (macOS arm64, libptiff 0.3.0, repeats=20, iters=50)
+# representative run (macOS arm64, libptiff 1.0.0, repeats=20, iters=50)
 | metric            | python | ruby |  go  | octave | rust  |
 |-------------------|--------|------|------|--------|-------|
 | write_all_tiles   | 0.401  | 0.384| 0.356| 0.662  | 0.251 |

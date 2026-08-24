@@ -8,9 +8,19 @@ und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v
 Sofern nicht anders vermerkt, gelten alle Einträge mit einem `Unreleased`-Abschnitt
 als noch nicht veröffentlicht.
 
-## [Unreleased]
+## [1.0.0] — 2026-08-24
 
-### Rust-C-ABI-Migration (2026-08-24)
+### Meilenstein: Rust-Referenzkern und C-ABI-Homogenisierung
+
+Die erste stabile Hauptversion 1.0.0 markiert den Abschluss der Rust-Migration der
+Referenzimplementierung. Der Workspace (`Cargo.toml`, `CITATION.cff`) ist auf `1.0.0`
+gestellt; die handgeschriebene `extern "C"`-Veneer (`bindings/c`, `libptiff_c`) ist
+zugunsten der cbindgen-verwalteten Rust-Crate `crates/ptiff-c` entfernt. Alle vier
+Sprachbindings (Go, Python, Ruby, Octave) laufen gegen diese Rust-ABI und melden
+konsistent `1.0.0` als `runtime == compile`-Version. **498+ Workspace-Tests grün,
+clippy + fmt clean.**
+
+### Rust-C-ABI-Migration
 
 - **`bindings/c/` gelöscht.** Die handgeschriebene `extern "C"`-Veneer
   (`libptiff_c`) ist entfernt. Die C-ABI wird jetzt vollständig von der
