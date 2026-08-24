@@ -1,7 +1,8 @@
 # PTIFF Governance
 
 Dieses Dokument beschreibt, wie das PTIFF-Projekt — insbesondere die
-Offene Spezifikation und die Referenzimplementierung `libptiff` — verwaltet wird.
+Offene Spezifikation und die Referenzimplementierung (reiner Rust-Workspace) —
+verwaltet wird.
 Es ist der normreferentielle Bezug für Goal G4 ("Open specification and governance")
 des RFC-0001 und legt die Prozesse fest, über die Änderungen an der Spezifikation
 entschieden werden.
@@ -46,7 +47,8 @@ Gemeinschaft heraus erneuern.
 - **Spezifikation** (Dokumente unter `rfcs/`, `specification/`, ...): Apache-2.0
   gemäß `LICENSE-SPEC`. Die Spezifikation ist frei implementierbar, auch in
   proprietären und Closed-Source-Kontexten.
-- **Implementierung** (`libptiff`): Apache-2.0 gemäß `LICENSE`. Beiträge werden
+- **Implementierung** (Rust-Workspace: `ptiff-core` → `ptiff-rust` → `ptiff-cli`/`ptiff-c`):
+  Apache-2.0 gemäß `LICENSE`. Beiträge werden
   unter denselben Bedingungen eingereicht (siehe auch Abschnitt "Beiträge" in
   `CONTRIBUTING.md`).
 
@@ -92,9 +94,10 @@ dauerhaften Sperren führen; Konsequenzen werden von der Projektleitung festgele
 
 - PRe-1.0 gilt (SemVer): jede Veröffentlichung KANN die API/ABI brechen.
 - Änderungen werden in `CHANGELOG.md` unter folgenden Versionen dokumentiert
-  (Keep a Changelog). Versionsnummern aus `CMakeLists.txt` (`VERSION 0.1.0`).
-- `compileTimeVersion()` vs. `runtimeVersion()` (in
-  `ptiff/core/version.hpp`) dienen als zukünftiger ABI-Abgleich.
+  (Keep a Changelog). Versionsnummern aus der Workspace-Definition (`Cargo.toml`,
+  `version.workspace = true`).
+- Versionierung erfolgt im Rust-Kern über `ptiff::{APP_VERSION, VERSION_STR}` und
+  (für die C-ABI) über die `ptiff_version_*`-Funktionen in `crates/ptiff-c`.
 
 ## 7. Umgang mit Dritt-Formaten
 

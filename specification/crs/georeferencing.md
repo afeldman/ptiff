@@ -5,7 +5,7 @@
 **Private tag:** 65003 (`PtiffCrs`)
 **Storage notation:** `ptiff.crs.*`
 **Normative basis:** `RFC-0001-Core.md`, `RFC-0002-GeoTIFF.md`, reference implementation
-`scripts/gen_interop_fixture.cpp`.
+`crates/ptiff-rust/examples/write_ptiff_fixture.rs`.
 
 ---
 

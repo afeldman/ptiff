@@ -2,35 +2,57 @@
 //!
 //! Generates the public C header `ptiff_c.h` from this crate's `extern "C"`
 //! declarations via cbindgen (the ABI's source of truth, plan §7.4). The
-//! header lands in `OUT_DIR` and is re-emitted on every `cargo build`, so FFI
-//! consumers (SWIG, the C-ABI test suite, CMake) can consume it straight out
-//! of the cargo target dir.
+//! header is emitted to `OUT_DIR` and a copy is placed at the workspace
+//! `target/ptiff_c.h` (a stable path) so the C-ABI test suite, SWIG and FFI
+//! consumers can include it regardless of the per-build `OUT_DIR` hash.
 
 use std::env;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 fn main() {
     // Rebuild the header whenever a source file changes.
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=src");
 
-    let crate_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
-
-    let config = cbindgen::Config::from_file("cbindgen.toml")
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let config = cbindgen::Config::from_file(manifest_dir.join("cbindgen.toml"))
         .expect("failed to parse cbindgen.toml");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let header_path = out_dir.join("ptiff_c.h");
+    let header_out = out_dir.join("ptiff_c.h");
 
     cbindgen::Builder::new()
-        .with_crate(crate_dir)
+        .with_crate(&manifest_dir)
         .with_config(config)
         .generate()
         .expect("cbindgen failed to generate ptiff_c.h")
-        .write_to_file(&header_path);
+        .write_to_file(&header_out);
 
-    // Emit the location so the rest of the build (tests, docs) can find it and
-    // so downstream build scripts can rely on `DEP`-style location via the env.
-    println!("cargo:rustc-env=PTIFF_C_HEADER={}", header_path.display());
-    println!("cargo:warning=generated C header at {}", header_path.display());
+    // Stable copy of the header at <target-dir>/ptiff_c.h so consumers (the C
+    // ABI test suite, SWIG, the CMake packaging install and any isolated/nix
+    // build) can include it from a deterministic path without knowing the
+    // per-build OUT_DIR hash. The target dir is CARGO_TARGET_DIR when set;
+    // otherwise the default <workspace-root>/target/ (the dir two levels up
+    // from CARGO_MANIFEST_DIR: crates/ptiff-c -> crates -> <root>).
+    let stable_dir = match env::var("CARGO_TARGET_DIR") {
+        Ok(dir) => PathBuf::from(dir),
+        Err(_) => {
+            let root = manifest_dir
+                .parent()
+                .and_then(Path::parent)
+                .expect("workspace root");
+            root.join("target")
+        }
+    };
+    fs::create_dir_all(&stable_dir).expect("create stable header dir");
+    let stable_header = stable_dir.join("ptiff_c.h");
+    fs::copy(&header_out, &stable_header).expect("copy ptiff_c.h to stable path");
+
+    println!("cargo:rustc-env=PTIFF_C_HEADER={}", stable_header.display());
+    println!("cargo:rustc-env=OUT_DIR={}", out_dir.display());
+    println!(
+        "cargo:warning=generated C header at {}",
+        stable_header.display()
+    );
 }

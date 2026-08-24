@@ -10,6 +10,8 @@ pub mod backend_factory;
 pub mod binary_reader;
 pub mod binary_writer;
 pub mod deserializer;
+#[cfg(feature = "http-range-reader")]
+pub mod http_range_binary_reader;
 pub mod image_sink;
 pub mod image_source;
 pub mod memory_binary_reader;
@@ -26,6 +28,8 @@ pub use backend_factory::BackendFactory;
 pub use binary_reader::BinaryReader;
 pub use binary_writer::BinaryWriter;
 pub use deserializer::Deserializer;
+#[cfg(feature = "http-range-reader")]
+pub use http_range_binary_reader::HttpRangeBinaryReader;
 pub use image_sink::ImageSink;
 pub use image_source::ImageSource;
 pub use memory_binary_reader::MemoryBinaryReader;

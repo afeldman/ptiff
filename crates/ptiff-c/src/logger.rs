@@ -1,9 +1,9 @@
-//! Logger C ABI (`bindings/c/ptiff_logger.h`).
+//! Logger C ABI (emitted into `target/ptiff_c.h` by cbindgen from this crate).
 //!
-//! The `ptiff_logger_*` surface mirrors the C++ `ptiff::Logger` singleton and
-//! forwards to the dependency-free Rust logger in `ptiff-core::logging`
-//! (`LogLevel`). The `log_level` enum ordering matches the C++ `ptiff::LogLevel`
-//! and is a hard C-ABI contract (`PTIFF_LOG_TRACE == 0` … `PTIFF_LOG_OFF == 6`).
+//! The `ptiff_logger_*` surface forwards to the dependency-free Rust logger in
+//! `ptiff-core::logging` (`LogLevel`). The `log_level` enum ordering matches
+//! the core's [`LogLevel`] and is a hard C-ABI contract
+//! (`PTIFF_LOG_TRACE == 0` … `PTIFF_LOG_OFF == 6`).
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -11,7 +11,8 @@ use std::os::raw::c_char;
 use ptiff_core::LogLevel;
 
 /// Mirror of the C `ptiff_log_level` enum (`ptiff_logger.h`). Ordering matches
-/// the C++ `ptiff::LogLevel` and the core's [`LogLevel`].
+/// the core's [`LogLevel`] (a hard C-ABI contract: `PTIFF_LOG_TRACE == 0` to
+/// `PTIFF_LOG_OFF == 6`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]

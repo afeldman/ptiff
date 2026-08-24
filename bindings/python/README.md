@@ -1,33 +1,36 @@
 # Python bindings for libptiff
 
 Idiomatic Python bindings for [libptiff](../..), via the language-agnostic C ABI
-([`bindings/c`](../c), built as `libptiff_c`). Pure-C standard-library `ctypes`
-— no C++ compilation, no third-party runtime deps.
+(`libptiff_c`) produced by the Rust crate
+[`crates/ptiff-c`](../../crates/ptiff-c): `cargo build -p ptiff-c --release`
+builds `target/release/libptiff_c.*` and cbindgen generates the single header
+`target/ptiff_c.h`. Pure-C standard-library `ctypes` — no C++ compilation, no
+third-party runtime deps.
 
 ## Prerequisites
 
 The binding loads `libptiff_c` at import time, so you must first build the C ABI
-library (and its transitive `libptiff` shared library):
+library (and its transitive Rust core):
 
 ```bash
-# from the repo root, with CMake + Conan deps available:
-cmake -S . -B build -DPTIFF_BUILD_C_BINDINGS=ON
-cmake --build build
+# from the repo root, with the Rust toolchain available:
+cargo build -p ptiff-c --release
 ```
 
 The package then locates the shared library in this order:
 
 1. **`PTIFF_C_LIB_DIR` / `PTIFF_LIB_DIR`** env vars — explicit override for in-tree
-   dev/CI against a CMake/Conan build output (no install step).
+   dev/CI against the Rust-built `target/release` (no install step).
 2. **pkg-config `libptiff_c`** — the clean, layout-agnostic path for an
-   *installed* library: run `cmake --install` once, then point `PKG_CONFIG_PATH`
-   at the prefix's `lib/pkgconfig`.
-3. **Repository-relative CMake build output** — last resort for ad-hoc dev.
+   *installed* library: install the `target/release` artifacts once, then point
+   `PKG_CONFIG_PATH` at the prefix's `lib/pkgconfig`.
+3. **Repository-relative build output** — last resort for ad-hoc dev.
 
 For an installed prefix:
 
 ```bash
-cmake --install /path/to/build --prefix /where/ever
+# (after cargo build -p ptiff-c --release) install libptiff_c + pc file, e.g.:
+# cp target/release/libptiff_c.* /where/ever/lib && cp target/ptiff_c.h /where/ever/include
 PKG_CONFIG_PATH=/where/ever/lib/pkgconfig uv run pytest
 ```
 
@@ -81,8 +84,8 @@ uv run pytest test
 Without `uv`, or to run under a specific interpreter with explicit paths:
 
 ```bash
-PTIFF_C_LIB_DIR=/path/to/build/.../bindings/c \
-PTIFF_LIB_DIR=/path/to/build/.../libptiff \
+PTIFF_C_LIB_DIR=/path/to/repo/target/release \
+PTIFF_LIB_DIR=/path/to/repo/target/release \
 python3 -m unittest test_ptiff -v
 ```
 

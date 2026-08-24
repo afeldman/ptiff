@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Version:** 0.1.0
-**Normative basis:** `RFC-0001-Core.md`, implementation `libptiff/src/io/backend/tiff/`
+**Normative basis:** `RFC-0001-Core.md`, implementation `crates/ptiff-core/src/io/backend/tiff/`
 **Scope:** The PTIFF container as a strict extension of TIFF 6.0 / BigTIFF, the private
 extension tags, the versioned extension payload format, and the core image metadata model.
 
@@ -176,5 +176,5 @@ representation of those tags.
 
 - `RFC-0001-Core.md` — PTIFF Core (motivation, goals, design principles).
 - `RFC-0002-GeoTIFF.md` — PTIFF's relationship to GeoTIFF.
-- `libptiff/include/ptiff/io/backend/tiff/tiff_tag.hpp` — tag IDs.
-- `libptiff/include/ptiff/io/backend/tiff/ptiff_metadata.hpp` — payload format definition.
+- `crates/ptiff-core/src/io/backend/tiff/tag.rs` — tag IDs.
+- `crates/ptiff-core/src/io/backend/tiff/ptiff_metadata.rs` — payload format definition.

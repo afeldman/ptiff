@@ -2,9 +2,10 @@
 #
 # The architectural plan (PTIFF-1.0-RUST-CORE-PLAN.md §4.1, §7) keeps the C ABI
 # OUT of `ptiff-core` (which forbids unsafe_code and deliberately ships no
-# #[no_mangle]). `ptiff-c` is the separate layer implementing the stable,
-# hand-maintained `extern "C"` surface whose prototypes live in `bindings/c/*.h`
-# (the source of truth) on top of the idiomatic `ptiff` crate.
+# #[no_mangle]). `ptiff-c` is the separate layer implementing the stable
+# `extern "C"` surface — the signatures here are the source of truth; cbindgen
+# authorises `target/ptiff_c.h` from them (see cbindgen.toml) — on top of the
+# idiomatic `ptiff` crate.
 #
 # It builds as both a cdylib and a staticlib so C/C++ and any FFI runtime (Go,
 # Ruby, Octave, Python ctypes) can link `libptiff_c` against the Rust core, and

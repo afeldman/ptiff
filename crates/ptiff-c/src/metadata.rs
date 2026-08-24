@@ -1,4 +1,4 @@
-//! Metadata C ABI (`bindings/c/ptiff_metadata.h`).
+//! Metadata C ABI (emitted into `target/ptiff_c.h` by cbindgen from this crate).
 //!
 //! [`ptiff_open_path`] opens a TIFF/BigTIFF file read-only and fills a
 //! [`crate::types::ptiff_image_descriptor`] with the first image's metadata
@@ -10,9 +10,8 @@
 //! 65001-65005 (SPICE, camera geometry, CRS, scientific layers, provenance),
 //! together with the primary image metadata. Field keys carry the
 //! `ptiff.<domain>.<name>` shape (e.g. `ptiff.spice.frame`) and are returned in
-//! lexicographic order, matching the C++ oracle's `deserializeModel` +
-//! `for_each_field` iteration over the (key-)sorted `StorageModel` field map.
-//! Domains absent from the file simply contribute no entries.
+//! lexicographic order, matching the core's (key-)sorted `StorageModel` field
+//! map. Domains absent from the file simply contribute no entries.
 //!
 //! The flat field view is read by re-deriving the format-neutral
 //! [`ptiff::StorageModel`] through the core [`TiffBackend::deserialize_model`]
@@ -30,10 +29,12 @@ use std::os::raw::{c_char, c_int};
 /// A single flattened PTIFF extension field (private tags 65001-65005). `key`
 /// is the fully qualified field name, e.g. `ptiff.spice.frame` or
 /// `ptiff.camera.model`. Both strings are owned by the array returned from
-/// [`ptiff_open_path_fields`]; free the whole array with [`ptiff_fields_free`].
+/// [`ptiff_open_path_fields`]. Both strings are `malloc`'d and owned by the
+/// array returned from [`ptiff_open_path_fields`]; free the whole array with
+/// [`ptiff_fields_free`].
 ///
-/// `#[repr(C)]` and plain `*mut c_char` mirrors `ptiff_field` in
-/// `bindings/c/ptiff_metadata.h`, so foreign runtimes read it directly.
+/// `#[repr(C)]` and plain `*mut c_char` (emitted into `target/ptiff_c.h` by
+/// cbindgen), so foreign runtimes read it directly.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ptiff_field {
@@ -181,9 +182,13 @@ pub extern "C" fn ptiff_open_path_fields(
                 });
             }
             let array_ptr = array.as_mut_ptr();
-            std::mem::forget(array); // ownership transfers to the caller
-                                        // Safety: out/out_count validated non-null; array_ptr is a heap
-                                        // allocation freed only via ptiff_fields_free.
+            // Ownership of `array` transfers to the caller, so we must
+            // forget the local binding here; it is freed only via
+            // ptiff_fields_free.
+            //
+            // Safety: out/out_count validated non-null; array_ptr is a heap
+            // allocation owned by the caller after this call.
+            std::mem::forget(array);
             unsafe {
                 *out = array_ptr;
                 *out_count = field_count as c_int;

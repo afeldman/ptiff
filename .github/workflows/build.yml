@@ -1,71 +1,57 @@
 name: Build
 
+# PTIFF is a Rust project; every test and lint target is exercised through
+# Cargo. This is the main CI: build + full-test the workspace (all features)
+# across OSes, run fmt/clippy, then build the C ABI (libptiff_c) and run the
+# C ABI capability test against the generated C header.
+
 on:
   push:
   pull_request:
 
 jobs:
-  build:
+  test:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            compiler: gcc
-            cc: gcc-13
-            cxx: g++-13
-          - os: ubuntu-latest
-            compiler: clang
-            cc: clang-17
-            cxx: clang++-17
-          - os: macos-latest
-            compiler: clang
-            cc: clang
-            cxx: clang++
-          - os: windows-latest
-            compiler: msvc
-            cc: cl
-            cxx: cl
-
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.12"
+          components: clippy, rustfmt
 
-      - name: Install Conan
-        run: pip install conan
+      - name: Check formatting
+        run: cargo fmt --all --check
 
-      - name: Configure Conan profile
-        run: conan profile detect --force
+      - name: Clippy (all targets, all features)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Install dependencies (Conan)
-        run: conan install . --output-folder=build --build=missing -s build_type=Debug
+      - name: Build (workspace, all features)
+        run: cargo build --workspace --all-features
 
-      - name: Configure (Unix)
-        if: runner.os != 'Windows'
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
-        run: >
-          cmake -B build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Debug
+      - name: Test (workspace, all features)
+        run: cargo test --workspace --all-features
 
-      - name: Configure (Windows)
-        if: runner.os == 'Windows'
-        run: >
-          cmake -B build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Debug
+      # The C ABI is part of the shipped surface (SWIG bindings + C consumers);
+      # verify the cbindgen header compiles and the library links + runs in C.
+      - name: Build C ABI (libptiff_c)
+        run: cargo build -p ptiff-c --release
 
-      - name: Build
-        run: cmake --build build --config Debug
+      - name: C ABI capability test (C)
+        shell: bash
+        working-directory: crates/ptiff-c/tests/c
+        run: make run
 
-      - name: Test
-        working-directory: build
-        run: ctest --output-on-failure --build-config Debug
+  # Rust toolchain cross-check on the minimum rust-version declared for the
+  # workspace (kept cheap: build-only on Linux).
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97
+      - name: Build (MSRV, -Z minimal-versions not needed for a dep-light core)
+        run: cargo build --workspace --all-features

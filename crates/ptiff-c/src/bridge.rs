@@ -1,4 +1,4 @@
-//! Minimal C ABI bridge (`bindings/c/ptiff_bridge.h`).
+//! Minimal C ABI bridge (emitted into `target/ptiff_c.h` by cbindgen from this crate).
 //!
 //! Provides the process-wide [`ptiff_backend_names`] (backed by the core's
 //! [`ptiff::BackendFactory`]) and the uniform C-string deallocator

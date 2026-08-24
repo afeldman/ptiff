@@ -70,6 +70,12 @@ mod tiff;
 
 pub use tiff::Tiff;
 
+#[cfg(feature = "remote")]
+mod remote_tiff;
+
+#[cfg(feature = "remote")]
+pub use remote_tiff::RemoteTiff;
+
 #[cfg(test)]
 mod tests {
     use super::*;

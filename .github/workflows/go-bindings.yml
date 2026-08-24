@@ -2,9 +2,9 @@ name: Go bindings
 
 # Builds and tests the SWIG-generated Go bindings (bindings/go/ptiff), promoted
 # from bindings/swig (see the "alles in SWIG" migration notes in
-# bindings/swig/README.md). CTest regenerates ptiff/{ptiff.go,ptiff_wrap.c,
-# cgo_flags.go} via `make -C bindings/swig go` (requires SWIG on PATH), then
-# runs `go test`.
+# bindings/swig/README.md). `make -C bindings/swig go` regenerates
+# ptiff/{ptiff.go,ptiff_wrap.c,cgo_flags.go} (requires SWIG on PATH), then
+# `go test` runs the suite.
 
 on:
   push:
@@ -25,19 +25,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Conan
-        run: pip install conan
-
-      - name: Configure Conan profile
-        run: conan profile detect --force
-
-      - name: Install dependencies (Conan)
-        run: conan install . --output-folder=build --build=missing -s build_type=Debug
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install SWIG (Linux)
         if: runner.os == 'Linux'
@@ -47,27 +41,20 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install swig
 
-      # The Go binding builds on the standalone C ABI (libptiff_c), which
-      # PTIFF_BUILD_GO_BINDINGS pulls in automatically.
-      - name: Configure (shared lib + C + Go bindings)
-        run: >
-          cmake -B build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Debug
-          -DBUILD_SHARED_LIBS=ON
-          -DPTIFF_BUILD_C_BINDINGS=ON
-          -DPTIFF_BUILD_GO_BINDINGS=ON
-
-      # Build libptiff_c (draws in libptiff transitively for a shared build).
-      - name: Build libptiff_c
-        run: cmake --build build --target ptiff_c --config Debug
+      # The Go binding builds on the standalone C ABI (libptiff_c), built by
+      # the Rust crate crates/ptiff-c via Cargo into target/release/.
+      - name: Build libptiff_c (Rust)
+        run: cargo build -p ptiff-c --release
 
       # Regenerates bindings/go/ptiff/{ptiff.go,ptiff_wrap.c,cgo_flags.go} from
-      # bindings/swig/ptiff.i (ptiff_go_bindings_generate), then `go test`
-      # (ptiff_go_bindings).
-      - name: Test (ctest -> swig regen -> go test)
-        working-directory: build
-        run: ctest --output-on-failure --build-config Debug -R ptiff_go_bindings
+      # bindings/swig/ptiff.i (the Makefile links the Rust-built libptiff_c by
+      # default), then `go test`.
+      - name: Generate SWIG Go bindings
+        run: make -C bindings/swig go
+
+      - name: Test (go test)
+        working-directory: bindings/go
+        run: go test ./ptiff
 
       # -unsafeptr=false: SWIG's generated ptiff.go trips vet's unsafe.Pointer
       # heuristic on its own boilerplate (a well-known SWIG/Go false positive,

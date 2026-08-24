@@ -1,128 +1,74 @@
-# Taskfile — lokal bauen, testen und packen mit clang + Ninja, inkl. `act`.
+# Taskfile — lokal bauen, testen und packen (Rust-first).
 #
-#   task --list              # alle Tasks anzeigen
-#   task            / build  # voller Refresh-Build (Release, clang, Ninja)
-#   task test                # ctest (static-lib Build, damit Tests linken)
-#   task act                 # release.yml lokal via act (Linux) durchspielen
-#   task pkg                 # native Pakete erzeugen (deb/rpm auf Linux, pkg auf macOS)
+# PTIFF 1.0 ist komplett in Rust implementiert; `cargo` ist der echte Build.
+# CMake dient nur noch als schlanker Packaging-Wrapper (install + CPack um die
+# Rust-Artefakte libptiff_c + ptiff-CLI). Untergoawchen: der gesamte C++-Pfad
+# (Conan, clang, .cpp) wurde entfernt.
 #
-# Konto: Auf Linux braucht clang 18 zusaetzlich libstdc++ 13 kein std::expected
-# (C++23) — siehe __cpp_concepts-Gate. Wir verwenden daher clang-19 auf Linux.
-# Auf macOS nutzen wir AppleClang (libc++), das std::expected unterstuetzt.
+#   task --list        # alle Tasks anzeigen
+#   task build         # cargo build --release (Workspace)
+#   task test          # cargo test --workspace --all-features
+#   task pkg           # native Pakete (deb/rpm auf Linux, .pkg auf macOS)
+#   task act           # release-Paket-Test lokal via act (Linux) durchspielen
 
 version: "3"
 
 vars:
-  # Build layout (Conan 'cmake_layout').
   BUILD_DIR: "build-rel"
   BUILD_TREE: "{{.BUILD_DIR}}/build"
-  TOOLCHAIN: "{{.BUILD_TREE}}/Release/generators/conan_toolchain.cmake"
   STAGING: "staging"
   DIST: "dist"
-  CONAN_PROFILE: "~/.conan2/profiles/default"
-
-  # Compiler-/Generator-Wahl (clang ist der bevorzugte Compiler).
-  GENERATOR: "Ninja"
-  CXX_STD: "23"
 
   # act-Debugsteuerung: ACT_FLAGS über die Kommandozeile setzen,
-  # z.B. `ACT_FLAGS="-v" task act`. act kennt kein `--debug`;
-  # verbose ist `-v`/`--verbose`, JSON-Logs sind `--json`.
+  # z.B. `ACT_FLAGS="-v" task act`.
   ACT_FLAGS: "{{.ACT_FLAGS}}"
   ACT_LOG: "act-out.log"
 
   CONF_ARGS: >-
-    -G {{.GENERATOR}} -B {{.BUILD_TREE}} -S .
-    -DCMAKE_TOOLCHAIN_FILE={{.TOOLCHAIN}}
+    -G Ninja -B {{.BUILD_TREE}} -S .
     -DCMAKE_BUILD_TYPE=Release
-    -DBUILD_SHARED_LIBS=ON
-    -DPTIFF_BUILD_C_BINDINGS=ON
+    -DPTIFF_BUILD_C_ABI=ON
     -DPTIFF_BUILD_CLI=ON
-    -DPTIFF_BUILD_TESTS=OFF
     -DPTIFF_BUILD_DOCS=OFF
-
-env:
-  CC: clang
-  CXX: clang++
 
 tasks:
   default:
-    desc: "Voller Build (install abhängig): clang + Ninja + CLI + Staging"
+    desc: "Voller Build: cargo release + CMake-Staging-Install (libptiff_c + CLI)"
     cmds:
-      - task: conan:profile
-      - task: conan:install
-      - task: configure
       - task: build
+      - task: configure
       - task: install
       - task: cli
-      - task: rpath
       - task: install
 
   build:
-    desc: "cmake --build (Libraries + ptiff_cli-Target Nicht-ALL wird hier nicht gebaut)"
+    desc: "cargo build --release (gesamtes Rust-Workspace: core, rust, cli, c-abi)"
     cmds:
-      - cmake --build {{.BUILD_TREE}} -j
+      - cargo build --release --workspace
 
   configure:
-    desc: "CMake konfigurieren (Release, Ninja, clang, shared libs, C-Bindings, CLI)"
+    desc: "CMake konfigurieren (Release, C-ABI + CLI fuer Packaging)"
     cmds:
       - cmake {{.CONF_ARGS}}
 
-  # ------------------------------------------------------------------ Conan
-  conan:profile:
-    desc: "Conan-Nutzprofil auf clang setzen (Linux: clang-19 wegen std::expected)"
-    deps: [tools]
-    cmds:
-      - conan profile detect --force
-      - |
-        OS="{{.OS}}"
-        if [[ "$OS" == "linux" && -z "$NO_CLANG19" ]]; then
-          VER="$(clang -dumpversion | cut -d. -f1)"
-          sed -i "s/^compiler=.*/compiler=clang/" {{.CONAN_PROFILE}}
-          sed -i "s/^compiler.version=.*/compiler.version=$VER/" {{.CONAN_PROFILE}}
-          sed -i "s/^compiler.libcxx=.*/compiler.libcxx=libstdc++11/" {{.CONAN_PROFILE}}
-          sed -i "s/^compiler.cppstd=.*/compiler.cppstd={{.CXX_STD}}/" {{.CONAN_PROFILE}}
-        fi
-        conan profile show
-
-  conan:install:
-    desc: "Conan-Abhängigkeiten installieren (Release, clang)"
-    cmds:
-      - conan install . --output-folder={{.BUILD_DIR}} --build=missing -s build_type=Release -s compiler.cppstd={{.CXX_STD}}
-
-  # ---------------------------------------------------------------- Install
   install:
-    desc: "cmake --install nach {{.STAGING}} (zaehe, dann mit CLI)"
+    desc: "cmake --install nach {{.STAGING}} (Rust CLI + libptiff_c + Header + pkg-config)"
     cmds:
       - rm -rf {{.STAGING}}
       - cmake --install {{.BUILD_TREE}} --config Release --prefix "$(pwd)/{{.STAGING}}"
 
   cli:
-    desc: "ptiff-CLI (Rust) gegen den Staging-Prefix bauen (cargo, pkg-config)"
+    desc: "ptiff-CLI (Rust) bauen ueber das CMake-target ptiff_cli"
     cmds:
-      - |
-        PKG_CONFIG_PATH="$(pwd)/{{.STAGING}}/lib/pkgconfig" \
-          cmake --build {{.BUILD_TREE}} --target ptiff_cli --config Release
-
-  rpath:
-    desc: "Relokalisierbaren Install-Rpath in die CLI setzen (fuer die Pakete)"
-    cmds:
-      - |
-        PTIFF_BIN="$(pwd)/{{.BUILD_TREE}}/ptiff-cli/target/release/ptiff"
-        if [[ "{{.OS}}" == "darwin" ]]; then
-          RPATH="$(otool -l "$PTIFF_BIN" | awk '/LC_RPATH/ {getline; getline; print $2; exit}')"
-          install_name_tool -rpath "$RPATH" '@loader_path/../lib' "$PTIFF_BIN"
-        else
-          patchelf --set-rpath '$ORIGIN/../lib' "$PTIFF_BIN"
-        fi
+      - cmake --build {{.BUILD_TREE}} --target ptiff_cli --config Release
 
   smoke:
-    desc: "Staging-CLI testen (version + backends)"
+    desc: "Staging-CLI testen (version + info + copy roundtrip)"
     deps: [install]
     cmds:
       - |
         "{{.STAGING}}/bin/ptiff" version
-        "{{.STAGING}}/bin/ptiff" backends
+        "{{.STAGING}}/bin/ptiff" --help >/dev/null
 
   # ------------------------------------------------------------------ pkg
   pkg:
@@ -133,32 +79,24 @@ tasks:
       - task: pkg:run
 
   pkg:run:
-    desc: "Paket-Generator ausfuehren"
+    desc: "Paket-Generator ausfuehren (CPack)"
     cmds:
       - |
-        OS="{{.OS}}"
-        if [[ "$OS" == "linux" ]]; then
-          (cd {{.BUILD_TREE}} && cpack -C Release)
-        else
-          VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
-          VERSION="${VERSION:-0.4.2}"
-          mkdir -p {{.DIST}}
-          pkgbuild --root {{.STAGING}} --install-location /usr/local \
-            --identifier org.ptiff.libptiff --version "$VERSION" \
-            {{.DIST}}/libptiff-$VERSION-macOS.pkg
-        fi
+        (cd {{.BUILD_TREE}} && cpack -C Release)
 
   # ------------------------------------------------------------------ test
   test:
-    desc: "ctest — baut static-lib Variante (Tests linken dann korrekt)"
+    desc: "cargo test --workspace --all-features (Rust-Testsuite)"
     cmds:
-      - task: conan:profile
-      - task: conan:install
-      - cmake -G {{.GENERATOR}} -B {{.BUILD_TREE}}-test -S .
-          -DCMAKE_TOOLCHAIN_FILE={{.BUILD_TREE}}-test/Release/generators/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Release -DPTIFF_BUILD_TESTS=ON -DPTIFF_BUILD_DOCS=OFF
-      - cmake --build {{.BUILD_TREE}}-test -j
-      - ctest --test-dir {{.BUILD_TREE}}-test --output-on-failure
+      - cargo test --workspace --all-features
+
+  # ------------------------------------------------------------------ bindings
+  bindings:
+    desc: "SWIG/FFI-Bindings regenerieren + testen (Go + C-ABI)"
+    cmds:
+      - cargo build -p ptiff-c --release
+      - make -C bindings/swig go
+      - cd bindings/go && go test -count=1 ./ptiff
 
   # ------------------------------------------------------------------ act
   act:
@@ -192,22 +130,21 @@ tasks:
 
   # ------------------------------------------------------------------ tools
   tools:
-    desc: "Systemwerkzeuge installieren (clang-19 auf Linux, ninja, patchelf ...)"
+    desc: "Systemwerkzeuge installieren (Rust, ninja/cmake, swig, go, Packager)"
     internal: true
     cmds:
       - |
         OS="{{.OS}}"
         if [[ "$OS" == "darwin" ]]; then
-          brew install ninja || brew link ninja
+          brew install ninja cmake || brew link ninja cmake
         else
           sudo apt-get update
-          sudo apt-get install -y clang-19 ninja-build patchelf rpm dpkg
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+          sudo apt-get install -y ninja-build cmake rpm dpkg swig golang
         fi
 
   clean:
-    desc: "Build-Artefakte entfernen (build-Verzeichnisse, staging, dist)"
+    desc: "Build-Artefakte entfernen (build-Verzeichnisse, staging, dist, target)"
     cmds:
-      - rm -rf {{.BUILD_DIR}} {{.BUILD_TREE}}-test {{.STAGING}} {{.DIST}}
+      - rm -rf {{.BUILD_DIR}} {{.STAGING}} {{.DIST}} target
       - rm -rf .tmp-act-dist
+      - cargo clean

@@ -14,9 +14,9 @@ Containerformat direkt zu fassen.
 ## Prinzip
 
 ```
-    libptiff (C++23)
+    crates/ptiff-rust + ptiff-core (idiomatischer Rust-Core)
          │
- binding/c → libptiff_c  (extern "C" Veneer)
+ crates/ptiff-c → libptiff_c  (Rust-extern-"C"-C-ABI, cargo build -p ptiff-c)
          │
  bindings/python (SWIG, promoted)   ←  `ptiff`-Modul
          │
@@ -25,17 +25,17 @@ Containerformat direkt zu fassen.
         LLM / MCP-Client (z. B. Claude Code)
 ```
 
-Der Server ändert **nichts** an `libptiff`, `bindings/c` oder `bindings/swig` —
-nur eine zusätzliche Anwendungs-Ebene.
+Der Server ändert **nichts** an `libptiff`, `crates/ptiff-c` oder
+`bindings/swig` — nur eine zusätzliche Anwendungs-Ebene.
 
 ## Voraussetzungen
 
-- Gebaute `libptiff_c` (+ `libptiff`), z. B.:
+- Gebaute `libptiff_c` (+ Rust-Core), z. B.:
   ```bash
   cd <repo-root>
-  cmake -B build-shared -S . -DBUILD_SHARED_LIBS=ON -DPTIFF_BUILD_C_BINDINGS=ON
-  cmake --build build-shared --target ptiff_c
+  cargo build -p ptiff-c --release
   ```
+  erzeugt `target/release/libptiff_c.*` und den Header `target/ptiff_c.h`.
 - `uv` (für das venv) und Python 3.13.
 
 ## Setup
@@ -55,8 +55,17 @@ uv pip install --python .venv/bin/python "mcp[cli]" "anyio[trio]" pytest
 
 ```bash
 cd bindings/mcp
-PTIFF_C_LIB_DIR=/pfad/zu/build-shared/build/Release/bindings/c \
-PTIFF_LIB_DIR=/pfad/zu/build-shared/build/Release/libptiff \
+PYTHONPATH=src:../python/src \
+.venv/bin/python -m ptiff_mcp.server
+```
+
+Die Python-Bindung findet `libptiff_c` standardmäßig im Rust-Build-Output
+(`target/release`) — oder explizit:
+
+```bash
+cd bindings/mcp
+PTIFF_C_LIB_DIR=/pfad/zu/<repo>/target/release \
+PTIFF_LIB_DIR=/pfad/zu/<repo>/target/release \
 PYTHONPATH=src:../python/src \
 .venv/bin/python -m ptiff_mcp.server
 ```
@@ -72,8 +81,8 @@ Für einen MCP-Client (z. B. Claude Code `mcpServers`) den Server als
       "args": ["-m", "ptiff_mcp.server"],
       "env": {
         "PYTHONPATH": "/pfad/zu/bindings/mcp/src:/pfad/zu/bindings/python/src",
-        "PTIFF_C_LIB_DIR": "/pfad/zu/.../bindings/c",
-        "PTIFF_LIB_DIR": "/pfad/zu/.../libptiff"
+        "PTIFF_C_LIB_DIR": "/pfad/zu/<repo>/target/release",
+        "PTIFF_LIB_DIR": "/pfad/zu/<repo>/target/release"
       }
     }
   }

@@ -334,8 +334,10 @@ Die Reihenfolge folgt `PTIFF-1.0-RUST-CORE-PLAN.md` und `GEOMETRY-FOUNDATION.md`
    17 neue CLI-Tests (9 Unit + 8 CLI-Behavior, die den echten Binary gegenüber einer
    temp TIFF-Datei spawnen).
 7. `ptiff-c` (C-ABI) — **erster Slice committet + C-Fähigkeitstest + Logger/Camera grün.** Crate
-   `crates/ptiff-c` (cdylib + staticlib + rlib) implementiert die handgepflegten C-Header in
-   `bindings/c/` unverändert: Version-ABI, Error-/Pixel-Type-/Compression-Enums, Image-Bridge,
+   `crates/ptiff-c` (cdylib + staticlib + rlib) implementiert die `extern "C"`-Oberfläche;
+   cbindgen autorisiert den Header `target/ptiff_c.h` daraus (die Single Source of Truth).
+   Stand 2026-08-24 sind die ursprünglichen handgepflegten `bindings/c/*.h` **gelöscht**;
+   `ptiff-c` deckt unverändert die ABI ab: Version-ABI, Error-/Pixel-Type-/Compression-Enums, Image-Bridge,
    Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path`, Logger und Camera —
    **33 Unit-Tests grün**. **C-ABI-Fähigkeitstest gegen echtes C-Programm:**
    `crates/ptiff-c/tests/c/ptiff_c_abiltest.c` wird mit `cc` gegen die `staticlib`

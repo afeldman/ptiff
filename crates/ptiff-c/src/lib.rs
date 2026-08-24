@@ -1,9 +1,10 @@
 //! # `ptiff-c` — the PTIFF 1.0 C ABI over the Rust core
 //!
-//! This crate implements the stable, hand-maintained `ptiff_*` C ABI whose
-//! header prototypes live in `bindings/c/*.h` — **the single source of truth**
-//! (plan §7.4: manuell gepflegte Header bleiben die Spezifikation; cbindgen darf
-//! nur ergänzend zur Konsistenzprüfung laufen, nie als Autor der ABI).
+//! This crate implements the stable `ptiff_*` C ABI. The Rust `extern "C"`
+//! signatures in this crate are **the single source of truth** for the header:
+//! cbindgen (see `build.rs` + `cbindgen.toml`) authorises `target/ptiff_c.h`
+//! from them (plan §7.4, updated 2026-08-24 — the hand-maintained
+//! `bindings/c/*.h` veneer has been deleted).
 //!
 //! ## Architecture
 //!
@@ -45,15 +46,15 @@
 // caller-supplied pointer.
 //
 // `missing_docs` is relaxed here: the structs/enums on this crate mirror the
-// hand-maintained C headers in `bindings/c/`, which are the authoritative,
-// documented specification of the ABI (plan §7.4). Requiring redundant
-// per-field docs on every header-derived struct would add noise without
-// keeping the ABI any safer; the module/function-level docs above carry the
-// meaningful guidance.
+// C ABI that cbindgen authorises into `target/ptiff_c.h` from these very
+// declarations — the generated header is the documented specification foreign
+// runtimes read. Requiring redundant per-field docs on every ABI-derived
+// struct would add noise without keeping the ABI any safer; the
+// module/function-level docs above carry the meaningful guidance.
 //
 // `not_unsafe_ptr_arg_deref` is allowed because these `#[no_mangle] extern "C"`
 // functions are the ABI boundary: their callers are *C* runtimes governed by
-// the pointer contracts documented in `bindings/c/*.h` (non-null out-params,
+// the pointer contracts documented in the generated header (non-null out-params,
 // caller-owned buffers, NULL = no-op), not Rust callers whom a `unsafe fn`
 // signature would protect. Marking them `unsafe extern "C"` would also force
 // every `#[test]` (which cannot be `unsafe fn`) to re-wrap the calls, at the

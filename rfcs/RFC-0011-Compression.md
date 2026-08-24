@@ -31,7 +31,7 @@ defines the canonical per-scheme encoding rules and conformance requirements.
 
 ## 2. Status and reference-implementation coverage
 
-The reference implementation (`libptiff`, `TiffBackend`) already reads and writes these
+The reference implementation (Rust workspace, `TiffBackend`) already reads and writes these
 baseline TIFF compression schemes:
 
 | Scheme | TIFF Compression value | Predictor support |
@@ -39,7 +39,7 @@ baseline TIFF compression schemes:
 | PackBits | 32773 | — |
 | LZW | 5 | horizontal-differencing (Predictor 2) on strip writes |
 | Deflate | 8 (and 32946) | horizontal-differencing (Predictor 2) on strip writes |
-| JPEG | 7 | libjpeg-turbo; grayscale and RGB/YCbCr, UInt8-only; not combined with tiled write or a predictor |
+| JPEG | 7 | pure-Rust `jpeg-encoder`/`jpeg-decoder`; grayscale and RGB/YCbCr, UInt8-only; not combined with tiled write or a predictor (tiled JPEG reads back within a documented lossy tolerance) |
 
 The `predictor` core field (`None`, `Horizontal` (1), `FloatingPoint` (2)) is exposed on the
 storage model per `specification/core/container-encoding.md`.
@@ -72,5 +72,5 @@ output.
 
 - `RFC-0001-Core.md` — §12 (extensibility), §17 item 9.
 - `RFC-7002` — payload codec.
-- Reference implementation: `libptiff/src/io/backend/tiff/` (`tiff_image_source.cpp`,
-  `tiff_image_sink.cpp`), `specification/core/container-encoding.md` §5.
+- Reference implementation: `crates/ptiff-core/src/io/backend/tiff/`
+  (Rust; `image_source.rs`, `image_sink.rs`), `specification/core/container-encoding.md` §5.

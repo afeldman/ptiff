@@ -1,6 +1,6 @@
 //! FFI-safe error plumbing.
 //!
-//! Mirrors `bindings/c/ptiff_error.h`: the [`ptiff_error_code`] enum is a
+//! Mirrors the original C ABI error surface (the `ptiff_error_code` enum is a
 //! stable, additive list whose ordering must match `ptiff::ErrorCode` (which
 //! itself mirrors the C++ `ptiff::ErrorCode`). Every fallible C-ABI operation
 //! returns a negative value on failure (`-ptiff_error_code`) and `0` on
@@ -9,7 +9,7 @@
 
 use ptiff::{Error, ErrorCode};
 
-/// Mirror of the C `ptiff_error_code` enum (see `bindings/c/ptiff_error.h`).
+/// Mirror of the C `ptiff_error_code` enum (see the generated `ptiff_c.h`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
@@ -55,8 +55,8 @@ mod tests {
 
     #[test]
     fn error_code_ordering_matches_c_header() {
-        // `bindings/c/ptiff_error.h` pins these indices; the mapping must not
-        // drift, because foreign runtimes switch on the raw integers.
+        // The ABI pins these indices (see the generated `ptiff_c.h`); the
+        // mapping must not drift, because foreign runtimes switch on the raw integers.
         assert_eq!(ErrorCode::NotImplemented as i32, 0);
         assert_eq!(ErrorCode::InvalidArgument as i32, 1);
         assert_eq!(ErrorCode::OutOfRange as i32, 2);

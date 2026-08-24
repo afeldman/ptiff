@@ -46,7 +46,7 @@ repos:
         #
         # LICENSE / LICENSE-SPEC are legal texts and are never reformatted.
         # Doxyfile uses its own 4-space-plus key/value continuation layout.
-        exclude: '^(LICENSE|LICENSE-SPEC|Doxyfile)$|^(scripts/interop\.sh|benchmarks/run_benchmarks\.sh)$|^benchmarks/rust_bench/Cargo\.lock$|^benchmarks/src/(bench_python\.py|bench_ruby\.rb)$|^libptiff/CMakeLists\.txt$|^ptiff-cli/build\.rs$|\.(c|cc|cpp|cxx|h|hh|hpp|hxx|i)$'
+        exclude: '^(LICENSE|LICENSE-SPEC|Doxyfile)$|^(scripts/interop\.sh|benchmarks/run_benchmarks\.sh)$|^benchmarks/rust_bench/Cargo\.lock$|^benchmarks/src/(bench_python\.py|bench_ruby\.rb)$|^ptiff-cli/build\.rs$|\.(c|cc|cpp|cxx|h|hh|hpp|hxx|i)$'
 
   # ---------------------------------------------------------------------------
   # C / C++ (core library + bindings)

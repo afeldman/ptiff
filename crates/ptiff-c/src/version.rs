@@ -1,4 +1,4 @@
-//! C-ABI version surface (`bindings/c/ptiff_version.h`).
+//! C-ABI version surface (emitted into `target/ptiff_c.h` by cbindgen from this crate).
 //!
 //! PTIFF's ABI philosophy (plan §7.2): `compile_time_version()` and
 //! `runtime_version()` let a consumer detect an ABI/library mismatch early.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Downloads a TIFF/BigTIFF file (e.g. a real planetary imagery sample) into a local,
-# gitignored cache directory, then -- if libptiff's read_tiff example has been built --
-# runs it against the downloaded file to report whether TiffBackend can read it.
+# gitignored cache directory, then -- if the Rust `ptiff` CLI is built -- runs it
+# against the downloaded file to report whether TiffBackend can read it.
 #
 # Usage:
 #   scripts/fetch_sample_tiff.sh <url> [output-filename]
@@ -11,7 +11,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SAMPLES_DIR="${SCRIPT_DIR}/samples"
 
 if [[ $# -lt 1 ]]; then
@@ -38,14 +37,13 @@ curl --fail --location --progress-bar --output "${OUTPUT_PATH}" "${URL}"
 SIZE_BYTES=$(wc -c < "${OUTPUT_PATH}" | tr -d ' ')
 echo "Downloaded ${SIZE_BYTES} bytes."
 
-READER_BIN="${REPO_ROOT}/build/Debug/libptiff/examples/ptiff_example_read_tiff"
-if [[ -x "${READER_BIN}" ]]; then
+if command -v cargo >/dev/null 2>&1 && cargo build -q -p ptiff-cli "${CARGO_FLAGS:-}"; then
     echo
-    echo "Running ptiff_example_read_tiff against the downloaded file..."
-    "${READER_BIN}" "${OUTPUT_PATH}"
+    echo "Running the Rust 'ptiff' CLI against the downloaded file..."
+    cargo run -q -p ptiff-cli "${CARGO_FLAGS:-}" -- info "${OUTPUT_PATH}" || true
 else
     echo
-    echo "Note: ${READER_BIN} not found -- build it first to test-read this file:"
-    echo "  cmake --preset conan-debug -DPTIFF_BUILD_EXAMPLES=ON && cmake --build --preset conan-debug"
-    echo "  ${READER_BIN} ${OUTPUT_PATH}"
+    echo "Note: could not build the 'ptiff' CLI -- build it first to test-read this file:"
+    echo "  cargo build -p ptiff-cli"
+    echo "  target/debug/ptiff info ${OUTPUT_PATH}"
 fi

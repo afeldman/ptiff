@@ -1,4 +1,5 @@
-//! `ptiff_image_*` handle surface (`bindings/c/ptiff_image_bridge.h`).
+//! `ptiff_image_*` handle surface (emitted into `target/ptiff_c.h` by cbindgen
+//! from this crate).
 //!
 //! The opaque `ptiff_image` is a heap-owned metadata model (no pixels) built
 //! from a C descriptor. It mirrors the C++ `libptiff_c` behaviour of wrapping
