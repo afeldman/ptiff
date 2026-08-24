@@ -19,9 +19,14 @@ CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra -std=c11
 # libdl doesn't exist on Windows (dlopen-equivalents ship in the CRT/kernel32
 # already); MinGW's ld fails outright with "cannot find -ldl" if it's listed.
+# `-lptiff_c` resolves to the static `ptiff_c.lib` there (no matching DLL
+# import lib is produced), which pulls in Rust std's raw Windows syscalls
+# (WSAGetLastError, RtlNtStatusToDosError, ...) -- these live in ws2_32,
+# ntdll, bcrypt and userenv, the same set rustc's own windows-gnu linker
+# script pulls in for a static build.
 UNAME_S := $(shell uname -s 2>/dev/null)
 ifneq (,$(findstring MINGW,$(UNAME_S))$(findstring MSYS,$(UNAME_S)))
-LDFLAGS ?= -lpthread -lm
+LDFLAGS ?= -lpthread -lm -lws2_32 -lbcrypt -luserenv -lntdll
 else
 LDFLAGS ?= -lpthread -ldl -lm
 endif
