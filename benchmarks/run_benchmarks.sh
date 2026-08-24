@@ -154,11 +154,21 @@ run_rust() {
 run_cli() {
   log "benchmarking ptiff CLI (end-to-end subprocess)"
   if ! command -v cargo >/dev/null; then fail "cargo not installed (needed to build CLI)"; return 1; fi
-  local CLI_BIN="$REPO/crates/ptiff-cli/target/debug/ptiff"
-  if [ ! -x "$CLI_BIN" ]; then
-    log "building ptiff CLI (crates/ptiff-cli)"
-    (cd "$REPO/crates/ptiff-cli" && cargo build) \
+  if [ ! -f "$PKGCONF/libptiff_c.pc" ]; then fail "no libptiff_c.pc under $PKGCONF"; return 1; fi
+  # Prefer the release binary (pre-built by CI / local `cargo build --release`)
+  # and fall back to debug; build whichever is needed.
+  local CLI_REL="$REPO/ptiff-cli/target/release/ptiff"
+  local CLI_DBG="$REPO/ptiff-cli/target/debug/ptiff"
+  local CLI_BIN
+  if [ -x "$CLI_REL" ]; then
+    CLI_BIN="$CLI_REL"
+  elif [ -x "$CLI_DBG" ]; then
+    CLI_BIN="$CLI_DBG"
+  else
+    log "building ptiff CLI (ptiff-cli/)"
+    (cd "$REPO/ptiff-cli" && PKG_CONFIG_PATH="$PKGCONF" cargo build) \
       || { fail "ptiff CLI build failed"; return 1; }
+    CLI_BIN="$CLI_DBG"
   fi
   PYTHONPATH="$REPO/bindings/python/src" \
     python3 src/bench_cli.py --bin "$CLI_BIN" --out "$OUT/cli.json"
