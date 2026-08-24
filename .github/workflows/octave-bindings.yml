@@ -1,12 +1,11 @@
 name: Octave bindings
 
 # Builds the standalone C ABI library (libptiff_c) via the Rust crate
-# crates/ptiff-c, regenerates the SWIG Octave module (bindings/octave/lib/ptiff.oct
-# -- promoted output, see the "alles in SWIG" migration notes in
-# bindings/swig/README.md), then runs the bindings/octave/test suite against
-# it. Mirrors the Ruby job's shape (build libptiff_c, install SWIG, set up the
-# runtime, regenerate, test); Octave is installed from the distro/brew package
-# (ships mkoctfile).
+# crates/ptiff-c, then builds the hand-written Octave MEX binding
+# (bindings/octave/mex/) with `make build` and runs the MEX test suite with
+# `make test`. This is the *only* Octave binding; the old SWIG-Octave path
+# (bindings/octave/lib + bindings/octave/test) has been removed in favour of
+# the C++ MEX adapter (see PTIFF-1.0-RUST-CORE-PLAN.md §10).
 
 on:
   workflow_call:
@@ -16,34 +15,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-24.04 (not ubuntu-latest) is pinned; the SWIG step installs
-        # 4.5.0 via pip (matching local/macOS). See the Install SWIG step.
         os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install SWIG (Linux)
-        if: runner.os == 'Linux'
-        # Pin to SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package),
-        # NOT the distro apt `swig` (Ubuntu 24.04 is only 4.2.0). This repo is
-        # developed and validated against SWIG 4.5.x (Homebrew locally, brew on
-        # macos-latest); generated code differs materially between 4.2 and 4.5
-        # (Go enum type names, the 3-arg SWIG_*_AppendOutput arity), so CI must
-        # use the same 4.5.0 as local/macOS to keep codegen identical.
-        run: pip install swig==4.5.0
-
-      - name: Install SWIG (macOS)
-        if: runner.os == 'macOS'
-        run: brew install swig octave
 
       - name: Install Octave (Linux)
         if: runner.os == 'Linux'
@@ -51,27 +29,20 @@ jobs:
         # Debian/Ubuntu -- it needs the separate `octave-dev` package.
         run: sudo apt-get update && sudo apt-get install -y octave octave-dev
 
+      - name: Install Octave (macOS)
+        if: runner.os == 'macOS'
+        run: brew install octave
+
       # libptiff_c is built by the Rust crate crates/ptiff-c into
-      # target/release/ (bindings/swig/Makefile links there by default).
+      # target/release/ (bindings/octave/mex/Makefile links there by default).
       - name: Build libptiff_c (Rust)
         run: cargo build -p ptiff-c --release
 
-      # Regenerates bindings/octave/lib/ptiff.oct against the libptiff_c just
-      # built. mkoctfile has no usable `--prefix`, so it links via the
-      # Makefile's default target/release lib dir, exactly like the other
-      # bindings' make targets.
-      - name: Regenerate SWIG Octave module
-        run: make -C bindings/swig octave
+      # Builds bindings/octave/mex/ptiff_octave.oct (mkoctfile) against the
+      # libptiff_c just built, with an rpath so no DYLD/LD_LIBRARY_PATH is
+      # needed at runtime.
+      - name: Build Octave MEX binding
+        run: make -C bindings/octave/mex build
 
-      - name: Test (Octave suite)
-        working-directory: bindings/octave
-        # Absolute paths (pwd == bindings/octave via working-directory) are
-        # required: `run` re-resolves the script's directory relative to the
-        # file being run, so the relative "lib"/"test" addpaths get resolved
-        # against bindings/octave/test and fail with "load_path: No such
-        # file or directory". Use Octave's own `pwd` builtin (not shell
-        # `$(pwd)`) -- the shell-substituted form silently produced a bare
-        # "lib"/"test" on the macOS runner (`load_path: lib: No such file or
-        # directory`, root cause not fully understood, but octave's own pwd()
-        # sidesteps the shell/YAML quoting entirely and is more robust).
-        run: octave --quiet --no-gui --eval "addpath(fullfile(pwd, 'lib')); addpath(fullfile(pwd, 'test')); run(fullfile(pwd, 'test', 'run_tests_octave.m'));"
+      - name: Test (MEX suite)
+        run: make -C bindings/octave/mex test

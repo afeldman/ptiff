@@ -113,14 +113,15 @@ error, sink).
 
 ## Regression check across the whole pipeline
 
-The Go/Ruby/Octave outputs were already regenerated (with the new metadata
+The Go/Ruby outputs were already regenerated (with the new metadata
 surface) and their native files rebuild themselves from `ptiff.i` via the same
 Makefile; they are unaffected by the `PY_DIR` change (it only touches `$(PY_DIR)`).
-Re-run to be safe (each target's `staticlib` dependency ensures the Rust-built
+(Octave is no longer a SWIG target — build the MEX binding separately via
+`make -C ../octave/mex build`; see `bindings/octave/README.md`.) Re-run to be
+safe (each target's `staticlib` dependency ensures the Rust-built
 lib in `target/release/` is present):
 
 ```bash
 make -C ../swig go
 make -C ../swig ruby
-make -C ../swig octave
 ```

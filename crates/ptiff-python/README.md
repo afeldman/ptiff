@@ -31,12 +31,9 @@ maturin develop --release
 python -m pytest python/tests -v
 ```
 
-The pytest suite exercises the feature-parity surface that the legacy SWIG
-Python binding (`bindings/python`) covers — version / backend names / constant
-ordering, logger round-trip, write→read pixel roundtrip (Source/Sink), NumPy
-tile dtype+shape, camera write+read, and read-only metadata. The SWIG binding
-remains the fallback until it is deprecated (Plan §9 DoD); both can coexist
-because the PyO3 module is imported as `ptiff_pyo3`, not `ptiff`.
+The pytest suite exercises the full API surface — version / backend names /
+constant ordering, logger round-trip, write→read pixel roundtrip (Source/Sink),
+NumPy tile dtype+shape, camera write+read, and read-only metadata.
 
 Rust unit tests (no Python runtime needed) run via
 `cargo test -p ptiff-python`.

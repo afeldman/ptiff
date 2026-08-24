@@ -1,9 +1,9 @@
 function bench_octave(out_path, use_real, use_nac)
-%BENCH_OCTAVE  Benchmark read/write throughput of the SWIG Octave binding.
+%BENCH_OCTAVE  Benchmark read/write throughput of the Octave MEX binding.
 %
 %   Mirrors benchmarks/src/bench_python.py with the same metric set and
-%   median-of-repeats timing (tic/toc == perf_counter), over the raw
-%   SWIG-generated Octave API (see bindings/octave/test/test_roundtrip.m).
+%   median-of-repeats timing (tic/toc == perf_counter), over the hand-written
+%   MEX adapter (bindings/octave/mex/), the sole idiomatic Octave binding.
 %
 %   Metrics:
 %     write_all_tiles_ms  - create 128x128 UInt8 tiled TIFF, write all tiles
@@ -13,23 +13,21 @@ function bench_octave(out_path, use_real, use_nac)
 %
 %   Each metric repeats the tile body BENCH_ITERS times (default 50) inside one
 %   timed sample; repeats come from BENCH_REPEATS (default 20). Results are
-%   written as JSON to OUT_PATH.
+%   written as JSON (matching bench_python.py / summary.py) to out_path.
 %
-%   Usage:
-%     BENCH_REPEATS=20 BENCH_ITERS=50 octave --quiet --no-gui \
-%       --eval "bench_octave('<abs path to benchmark-results>/octave.json');"
+%   See run_benchmarks.sh: it places bindings/octave/mex + benchmarks/src on
+%   the Octave path, so ptiff_* functions and bench_octave resolve directly.
 %     Pass USE_REAL=true to also read fixtures/real_lola_512.tif (a real NASA
-%     LOLA elevation crop copied in by run_benchmarks.sh --real).
+%   LOLA elevation crop copied in by run_benchmarks.sh --real).
 %     Pass USE_NAC=true to also read fixtures/nac_dtm.tif (a real NASA LRO-NAC
-%     DTM, 2693x14236, 616 tiles -- copied in by run_benchmarks.sh --nac).
+%   DTM, 2693x14236, 616 tiles -- copied in by run_benchmarks.sh --nac).
 
   if nargin < 2, use_real = false; end
   if nargin < 3, use_nac = false; end
 
-  % ---- Load module once (one-shot loader; guard) ----
-  if exist('ptiff', 'var') == 0
-    ptiff();
-  end
+  % ---- Constants from the MEX adapter ----
+  c = ptiff_constants_mex();
+  PIX_UINT8 = c.PTIFF_PIXEL_UINT8;
 
   repeats = str2double(getenv('BENCH_REPEATS'));
   if isnan(repeats) || repeats <= 0, repeats = 20; end
@@ -41,33 +39,24 @@ function bench_octave(out_path, use_real, use_nac)
   here = fileparts(mfilename('fullpath'));
   fixtures_dir = fullfile(here, '..', 'fixtures');
 
-  t0 = tic; v = ptiff_runtime_version(); clear t0; % warm up backend
-  global PTIFF_PIXEL_UINT8;
+  t0 = tic; v = ptiff_version(); clear t0; % warm up backend
 
   % ---- write_all_tiles ----
   tmp = fullfile(tempdir(), 'bench_octave_write.tif');
   if exist(tmp, 'file'), delete(tmp); end
-  d = new_ptiff_image_descriptor();
-  d.width = 128; d.height = 128;
-  d.pixel_type = PTIFF_PIXEL_UINT8;
-  d.channel_count = 1;
-  d.has_tile_info = 1;
-  d.tile_info.tile_width = 64;
-  d.tile_info.tile_height = 64;
-  d.has_compression = 0;
-  sink = ptiff_sink_create(tmp, d);
-  bsc = ptiff_sink_tile_columns(sink);
-  bsr = ptiff_sink_tile_rows(sink);
-  bsb = ptiff_sink_tile_byte_size(sink);
-  write_fn = @() (ptiff_sink_write_tile(sink, 0, 0, ...
-      uint8(zeros(1, bsb))) == 0);
-  write_fn(); % warm-up check (write once)
+  sink = ptiff_create(tmp, 128, 128, PIX_UINT8, 1, 64, 64);
+  si = ptiff_sink_info(sink);
+  bsc = si.tile_columns;
+  bsr = si.tile_rows;
+  bsb = si.tile_byte_size;
+  ptiff_write_tile(sink, 0, 0, uint8(zeros(1, bsb))); % warm-up write once
   % reset file for the timed run
   if exist(tmp, 'file'), delete(tmp); end
-  sink2 = ptiff_sink_create(tmp, d);
-  wcols = ptiff_sink_tile_columns(sink2);
-  wrows = ptiff_sink_tile_rows(sink2);
-  wbs  = ptiff_sink_tile_byte_size(sink2);
+  sink2 = ptiff_create(tmp, 128, 128, PIX_UINT8, 1, 64, 64);
+  si2 = ptiff_sink_info(sink2);
+  wcols = si2.tile_columns;
+  wrows = si2.tile_rows;
+  wbs  = si2.tile_byte_size;
   pattern = uint8(7 * ones(1, wbs));
   write_run = @() bench_write_loop(sink2, wcols, wrows, pattern, iters);
   write_run(); % warm-up
@@ -79,18 +68,18 @@ function bench_octave(out_path, use_real, use_nac)
     write_times(i) = toc(ste) * 1000.0;
   end
   ptiff_sink_close(sink2);
-  delete_ptiff_image_descriptor(d);
 
   % ---- read_all_tiles over fixtures ----
   read_metrics = struct();
   for spec = {'uint8_128.tif', 'uint8_512.tif', 'f32_512.tif'}
     fname = spec{1};
     path = fullfile(fixtures_dir, fname);
-    [src, ~] = ptiff_source_open(path);
-    rcols = ptiff_source_tile_columns(src);
-    rrows = ptiff_source_tile_rows(src);
-    rbs   = ptiff_source_tile_byte_size(src);
-    read_run = @() bench_read_loop(src, rcols, rrows, rbs, iters);
+    src = ptiff_open(path);
+    si = ptiff_source_info(src);
+    rcols = si.tile_columns;
+    rrows = si.tile_rows;
+    rbs   = si.tile_byte_size;
+    read_run = @() bench_read_loop(src, rcols, rrows, iters);
     read_run(); % warm-up
     rt = zeros(repeats, 1);
     for i = 1:repeats
@@ -98,7 +87,7 @@ function bench_octave(out_path, use_real, use_nac)
       read_run();
       rt(i) = toc(ste) * 1000.0;
     end
-    ptiff_source_close(src);
+    ptiff_close(src);
     switch fname
       case 'uint8_128.tif', read_metrics.read_uint8_128_ms = stat_of(rt);
       case 'uint8_512.tif', read_metrics.read_uint8_512_ms = stat_of(rt);
@@ -112,11 +101,11 @@ function bench_octave(out_path, use_real, use_nac)
   if use_real
     real_tif = fullfile(fixtures_dir, 'real_lola_512.tif');
     if exist(real_tif, 'file')
-      [rsrc, ~] = ptiff_source_open(real_tif);
-      rrcols = ptiff_source_tile_columns(rsrc);
-      rrrows = ptiff_source_tile_rows(rsrc);
-      rrbs   = ptiff_source_tile_byte_size(rsrc);
-      rread_run = @() bench_read_loop(rsrc, rrcols, rrrows, rrbs, iters);
+      rsrc = ptiff_open(real_tif);
+      rsi = ptiff_source_info(rsrc);
+      rrcols = rsi.tile_columns;
+      rrrows = rsi.tile_rows;
+      rread_run = @() bench_read_loop(rsrc, rrcols, rrrows, iters);
       rread_run(); % warm-up
       rrt = zeros(repeats, 1);
       for i = 1:repeats
@@ -124,7 +113,7 @@ function bench_octave(out_path, use_real, use_nac)
         rread_run();
         rrt(i) = toc(ste) * 1000.0;
       end
-      ptiff_source_close(rsrc);
+      ptiff_close(rsrc);
       read_metrics.read_real_lola_512_ms = stat_of(rrt);
     else
       fprintf(2, '[octave] --real requested but real_lola_512.tif missing; skipping\n');
@@ -136,11 +125,11 @@ function bench_octave(out_path, use_real, use_nac)
   if use_nac
     nac_tif = fullfile(fixtures_dir, 'nac_dtm.tif');
     if exist(nac_tif, 'file')
-      [nsrc, ~] = ptiff_source_open(nac_tif);
-      ncols = ptiff_source_tile_columns(nsrc);
-      nrows = ptiff_source_tile_rows(nsrc);
-      nbs   = ptiff_source_tile_byte_size(nsrc);
-      nac_run = @() bench_read_loop(nsrc, ncols, nrows, nbs, nac_iters);
+      nsrc = ptiff_open(nac_tif);
+      nsi = ptiff_source_info(nsrc);
+      ncols = nsi.tile_columns;
+      nrows = nsi.tile_rows;
+      nac_run = @() bench_read_loop(nsrc, ncols, nrows, nac_iters);
       nac_run(); % warm-up
       nt = zeros(repeats, 1);
       for i = 1:repeats
@@ -148,7 +137,7 @@ function bench_octave(out_path, use_real, use_nac)
         nac_run();
         nt(i) = toc(ste) * 1000.0;
       end
-      ptiff_source_close(nsrc);
+      ptiff_close(nsrc);
       read_metrics.read_nac_ms = stat_of(nt);
     else
       fprintf(2, '[octave] --nac requested but nac_dtm.tif missing; skipping\n');
@@ -168,7 +157,7 @@ function bench_octave(out_path, use_real, use_nac)
     doc.nac_ifd.nac_iters = nac_iters;
   end
   doc.language = 'octave';
-  doc.binding_version = sprintf('%d.%d.%d', v.major, v.minor, v.patch);
+  doc.binding_version = sprintf('%d.%d.%d', v.compile_major, v.compile_minor, v.compile_patch);
   doc.repeats = repeats;
   doc.iterations_per_sample = iters;
   doc.write_image.width = 128; doc.write_image.height = 128;
@@ -207,20 +196,18 @@ function bench_write_loop(sink, cols, rows, pattern, iters)
   for i = 1:iters
     for c = 0:cols-1
       for r = 0:rows-1
-        rc = ptiff_sink_write_tile(sink, c, r, pattern);
-        if rc ~= 0, error('write_tile rc=%d', rc); end
+        ptiff_write_tile(sink, c, r, pattern);
       end
     end
   end
 end
 
-function bench_read_loop(src, cols, rows, bs, iters)
+function bench_read_loop(src, cols, rows, iters)
   for i = 1:iters
-    buf = uint8(zeros(1, bs));
     for c = 0:cols-1
       for r = 0:rows-1
-        [rc, ~, ~] = ptiff_source_read_tile(src, c, r, buf);
-        if rc ~= 0, error('read_tile rc=%d', rc); end
+        data = ptiff_read_tile(src, c, r);
+        if isempty(data), error('read_tile empty'); end
       end
     end
   end

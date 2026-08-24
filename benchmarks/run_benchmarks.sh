@@ -10,7 +10,7 @@
 # Requirements (all four are built by the binding CI / README flows):
 #   - Python binding:     bindings/python/src  (ptiff + _ptiff.so)
 #   - Ruby binding:       bindings/ruby/lib    (ptiff.bundle)
-#   - Octave binding:     bindings/octave/lib  (ptiff.oct)
+#   - Octave binding:     bindings/octave/mex  (ptiff_octave.oct + .m wrappers)
 #   - Go binding:         bindings/go  (cgo; cgo_flags.go links target/release)
 #   - Rust binding:       crates/ptiff-rust via rust_bench/ (workspace crate)
 #
@@ -138,9 +138,9 @@ run_go() {
 run_octave() {
   log "benchmarking octave"
   if ! command -v octave >/dev/null; then fail "octave not installed"; return 1; fi
-  if [ ! -d "$REPO/bindings/octave/lib" ]; then fail "octave binding missing"; return 1; fi
+  if [ ! -d "$REPO/bindings/octave/mex" ]; then fail "octave binding missing"; return 1; fi
   octave --quiet --no-gui \
-    --eval "addpath('$REPO/bindings/octave/lib','$REPO/benchmarks/src'); bench_octave('$REPO/benchmarks/$OUT/octave.json', $([ "$REAL" = 1 ] && echo true || echo false), $([ "$NAC" = 1 ] && echo true || echo false));"
+    --eval "addpath('$REPO/bindings/octave/mex','$REPO/benchmarks/src'); bench_octave('$REPO/benchmarks/$OUT/octave.json', $([ "$REAL" = 1 ] && echo true || echo false), $([ "$NAC" = 1 ] && echo true || echo false));"
 }
 
 run_rust() {
