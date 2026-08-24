@@ -8,16 +8,17 @@
 # them into the Markdown table (+ CSV) you use for the "Auswertung".
 #
 # Requirements (all four are built by the binding CI / README flows):
-#   - PYTHONPATH binding: bindings/python/src  (ptiff + _ptiff.so)
+#   - Python binding:     bindings/python/src  (ptiff + _ptiff.so)
 #   - Ruby binding:       bindings/ruby/lib    (ptiff.bundle)
 #   - Octave binding:     bindings/octave/lib  (ptiff.oct)
-#   - Go binding:         bindings/go  (cgo; needs libptiff_c on pkg-config)
-#   - Rust binding:       bindings/rust + this crate (rust_bench/)
+#   - Go binding:         bindings/go  (cgo; cgo_flags.go links target/release)
+#   - Rust binding:       crates/ptiff-rust via rust_bench/ (workspace crate)
 #
-# The C ABI libptiff_c is resolved per language: Python/Ruby/Octave dylibs ship
-# an rpath so they work out-of-the-box; Go and Rust need a pkg-config prefix
-# (default: $REPO/install-shared). Override with PTIFF_PREFIX (an install
-# directory containing lib/pkgconfig) or the usual per-binding env vars.
+# The C ABI libptiff_c is now the Rust crate `crates/ptiff-c` (built by
+# `cargo build -p ptiff-c` into target/release). Python/Ruby/Octave dylibs ship
+# an rpath to target/release so they work out-of-the-box; Go (via cgo_flags.go)
+# and the Rust/CLI benchmarks link the workspace directly — no pkg-config and
+# no installed prefix are needed.
 #
 # Usage:
 #   benchmarks/run_benchmarks.sh              # full suite (all languages)
@@ -56,10 +57,15 @@ export BENCH_ITERS="${BENCH_ITERS:-50}"
 # keeps the big-file read cheap even at the default BENCH_REPEATS.
 export BENCH_NAC_ITERS="${BENCH_NAC_ITERS:-2}"
 
-# pkg-config prefix for the Go/Rust bindings (install dir with lib/pkgconfig).
-PTIFF_PREFIX="${PTIFF_PREFIX:-$REPO/install-shared}"
-PKGCONF="$PTIFF_PREFIX/lib/pkgconfig"
-LIBDIR="$PTIFF_PREFIX/lib"
+# The Rust-built C ABI lib is expected in the workspace target (used by the Go
+# cgo_flags.go and the CLI/Python/Ruby/Octave rpaths). Locate it so the per-
+# language functions can verify it is present.
+C_LIB="$REPO/target/release/libptiff_c.so"
+if [ "$(uname -s)" = "Darwin" ]; then
+  C_LIB="$REPO/target/release/libptiff_c.dylib"
+elif [ "$(uname -s | cut -c1-5)" = "MINGW" ]; then
+  C_LIB="$REPO/target/release/libptiff_c.dll"
+fi
 # Flags passed through to every benchmark: `--real` / `--nac` appear only if
 # the corresponding option was requested (the expansion intentionally word-splits,
 # so use an array rather than the unquoted $(...) && echo idiom).
@@ -124,10 +130,9 @@ run_ruby() {
 run_go() {
   log "benchmarking go"
   if ! command -v go >/dev/null; then fail "go not installed"; return 1; fi
-  if [ ! -f "$PKGCONF/libptiff_c.pc" ]; then fail "no libptiff_c.pc under $PKGCONF"; return 1; fi
-  PKG_CONFIG_PATH="$PKGCONF" \
-    go run ./src/bench_go.go --out "$OUT/go.json" \
-      "${EXTRA_ARGS[@]}"
+  if [ ! -f "$C_LIB" ]; then fail "no libptiff_c under target/release (run 'cargo build -p ptiff-c --release')"; return 1; fi
+  go run ./src/bench_go.go --out "$OUT/go.json" \
+    "${EXTRA_ARGS[@]}"
 }
 
 run_octave() {
@@ -141,25 +146,29 @@ run_octave() {
 run_rust() {
   log "benchmarking rust"
   if ! command -v cargo >/dev/null; then fail "cargo not installed"; return 1; fi
-  if [ ! -f "$PKGCONF/libptiff_c.pc" ]; then fail "no libptiff_c.pc under $PKGCONF"; return 1; fi
-  PKG_CONFIG_PATH="$PKGCONF" DYLD_LIBRARY_PATH="$LIBDIR" \
-    cargo run --release --manifest-path rust_bench/Cargo.toml -- \
-      --out "$OUT/rust.json" \
-      "${EXTRA_ARGS[@]}"
+  cargo run --release --manifest-path rust_bench/Cargo.toml -- \
+    --out "$OUT/rust.json" \
+    "${EXTRA_ARGS[@]}"
 }
 
 run_cli() {
   log "benchmarking ptiff CLI (end-to-end subprocess)"
   if ! command -v cargo >/dev/null; then fail "cargo not installed (needed to build CLI)"; return 1; fi
-  if [ ! -f "$PKGCONF/libptiff_c.pc" ]; then fail "no libptiff_c.pc under $PKGCONF"; return 1; fi
-  local CLI_BIN="$REPO/ptiff-cli/target/debug/ptiff"
-  if [ ! -x "$CLI_BIN" ]; then
-    log "building ptiff CLI (ptiff-cli/)"
-    (cd "$REPO/ptiff-cli" && PKG_CONFIG_PATH="$PKGCONF" cargo build) \
+  if [ ! -f "$C_LIB" ]; then fail "no libptiff_c under target/release (run 'cargo build -p ptiff-c --release')"; return 1; fi
+  local CLI_BIN
+  local CLI_BIN_RELEASE="$REPO/target/release/ptiff"
+  local CLI_BIN_DEBUG="$REPO/target/debug/ptiff"
+  if [ -x "$CLI_BIN_RELEASE" ]; then
+    CLI_BIN="$CLI_BIN_RELEASE"
+  elif [ -x "$CLI_BIN_DEBUG" ]; then
+    CLI_BIN="$CLI_BIN_DEBUG"
+  else
+    log "building ptiff CLI (crates/ptiff-cli/)"
+    (cd "$REPO" && cargo build -p ptiff-cli --release) \
       || { fail "ptiff CLI build failed"; return 1; }
+    CLI_BIN="$CLI_BIN_RELEASE"
   fi
   PYTHONPATH="$REPO/bindings/python/src" \
-    DYLD_LIBRARY_PATH="$LIBDIR" \
     python3 src/bench_cli.py --bin "$CLI_BIN" --out "$OUT/cli.json"
 }
 
