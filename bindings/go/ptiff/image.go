@@ -48,7 +48,7 @@ type CreateOptions struct {
 // CreateImage creates a new image at path with the given size and pixel type.
 // A zero-value CreateOptions produces an untiled, single-channel image. On
 // C-ABI failure a non-zero error code is returned as an error.
-func CreateImage(path string, width, height uint, pixelType Ptiff_pixel_type, opts CreateOptions) (*Image, error) {
+func CreateImage(path string, width, height uint, pixelType PixelType, opts CreateOptions) (*Image, error) {
 	channels := opts.ChannelCount
 	if channels == 0 {
 		channels = 1
@@ -99,7 +99,7 @@ func (img *Image) Height() uint { return img.desc.GetHeight() }
 func (img *Image) ChannelCount() uint { return img.desc.GetChannel_count() }
 
 // PixelType returns the pixel type (a PTIFF_PIXEL_* value).
-func (img *Image) PixelType() Ptiff_pixel_type { return Ptiff_pixel_type(img.desc.GetPixel_type()) }
+func (img *Image) PixelType() PixelType { return PixelType(img.desc.GetPixel_type()) }
 
 // Camera returns the structured camera calibration. For an opened image it is
 // read from the file's `ptiff.camera.*` extension fields; for a created image

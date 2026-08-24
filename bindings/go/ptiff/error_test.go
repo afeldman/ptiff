@@ -11,14 +11,14 @@ import "testing"
 
 func TestErrorCodeOrdering(t *testing.T) {
 	cases := []struct {
-		code Ptiff_error_code
+		code int
 		want int
 	}{
-		{PTIFF_ERROR_NOT_IMPLEMENTED, 0},
-		{PTIFF_ERROR_INVALID_ARGUMENT, 1},
-		{PTIFF_ERROR_OUT_OF_RANGE, 2},
-		{PTIFF_ERROR_NOT_FOUND, 3},
-		{PTIFF_ERROR_UNKNOWN, 4},
+		{int(PTIFF_ERROR_NOT_IMPLEMENTED), 0},
+		{int(PTIFF_ERROR_INVALID_ARGUMENT), 1},
+		{int(PTIFF_ERROR_OUT_OF_RANGE), 2},
+		{int(PTIFF_ERROR_NOT_FOUND), 3},
+		{int(PTIFF_ERROR_UNKNOWN), 4},
 	}
 	for _, tc := range cases {
 		if int(tc.code) != tc.want {

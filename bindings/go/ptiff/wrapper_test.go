@@ -13,7 +13,7 @@ func TestIdiomaticImageRoundtrip(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "wrappertest.tif")
 	defer os.Remove(out)
 
-	img, err := CreateImage(out, 32, 32, PTIFF_PIXEL_UINT8, CreateOptions{
+	img, err := CreateImage(out, 32, 32, PixelType(PTIFF_PIXEL_UINT8), CreateOptions{
 		TileWidth:  16,
 		TileHeight: 16,
 	})
@@ -143,7 +143,7 @@ func TestIdiomaticCameraWriteRoundtrip(t *testing.T) {
 	cam.Projection[0], cam.Projection[4], cam.Projection[10] = 700.0, 715.0, 1.0
 	cam.Projection[3], cam.Projection[7], cam.Projection[11] = 700*1+32*3, 715*2+24*3, 3.0
 
-	img, err := CreateImage(out, 32, 32, PTIFF_PIXEL_UINT8, CreateOptions{
+	img, err := CreateImage(out, 32, 32, PixelType(PTIFF_PIXEL_UINT8), CreateOptions{
 		TileWidth:  16,
 		TileHeight: 16,
 		Camera:     &cam,

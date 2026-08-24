@@ -4,14 +4,16 @@ package ptiff
 // `ptiff.Logger` class constants. They re-export the SWIG `PTIFF_LOG_*`
 // values (which are runtime variables, not Go constants) under friendlier
 // names.
+type LogLevel = int
+
 var (
-	LogTrace    = Ptiff_log_level(PTIFF_LOG_TRACE)
-	LogDebug    = Ptiff_log_level(PTIFF_LOG_DEBUG)
-	LogInfo     = Ptiff_log_level(PTIFF_LOG_INFO)
-	LogWarn     = Ptiff_log_level(PTIFF_LOG_WARN)
-	LogError    = Ptiff_log_level(PTIFF_LOG_ERROR)
-	LogCritical = Ptiff_log_level(PTIFF_LOG_CRITICAL)
-	LogOff      = Ptiff_log_level(PTIFF_LOG_OFF)
+	LogTrace    = LogLevel(PTIFF_LOG_TRACE)
+	LogDebug    = LogLevel(PTIFF_LOG_DEBUG)
+	LogInfo     = LogLevel(PTIFF_LOG_INFO)
+	LogWarn     = LogLevel(PTIFF_LOG_WARN)
+	LogError    = LogLevel(PTIFF_LOG_ERROR)
+	LogCritical = LogLevel(PTIFF_LOG_CRITICAL)
+	LogOff      = LogLevel(PTIFF_LOG_OFF)
 )
 
 // Logger is a thin, stateless view over the library's global logger.
@@ -22,17 +24,17 @@ var (
 type Logger struct{}
 
 // Level returns the current minimum level that gets emitted.
-func (Logger) Level() Ptiff_log_level {
-	return Ptiff_log_level(Ptiff_logger_level())
+func (Logger) Level() LogLevel {
+	return LogLevel(Ptiff_logger_level())
 }
 
 // SetLevel sets the minimum level that gets emitted (see the Log* constants).
-func (Logger) SetLevel(level Ptiff_log_level) {
+func (Logger) SetLevel(level LogLevel) {
 	Ptiff_logger_set_level(int(level))
 }
 
 // Log emits message at level; it is filtered out below the current threshold.
-func (Logger) Log(level Ptiff_log_level, message string) {
+func (Logger) Log(level LogLevel, message string) {
 	Ptiff_logger_log(int(level), message)
 }
 

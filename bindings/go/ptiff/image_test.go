@@ -94,14 +94,14 @@ func TestImageOptionalFieldsAbsent(t *testing.T) {
 
 func TestPixelTypeOrdering(t *testing.T) {
 	cases := []struct {
-		pt   Ptiff_pixel_type
+		pt   PixelType
 		want int
 	}{
-		{PTIFF_PIXEL_UINT8, 0},
-		{PTIFF_PIXEL_UINT16, 1},
-		{PTIFF_PIXEL_UINT32, 2},
-		{PTIFF_PIXEL_FLOAT32, 3},
-		{PTIFF_PIXEL_FLOAT64, 4},
+		{PixelType(PTIFF_PIXEL_UINT8), 0},
+		{PixelType(PTIFF_PIXEL_UINT16), 1},
+		{PixelType(PTIFF_PIXEL_UINT32), 2},
+		{PixelType(PTIFF_PIXEL_FLOAT32), 3},
+		{PixelType(PTIFF_PIXEL_FLOAT64), 4},
 	}
 	for _, tc := range cases {
 		if int(tc.pt) != tc.want {
@@ -112,13 +112,13 @@ func TestPixelTypeOrdering(t *testing.T) {
 
 func TestCompressionKindOrdering(t *testing.T) {
 	cases := []struct {
-		c    Ptiff_compression_kind
+		c    int
 		want int
 	}{
-		{PTIFF_COMPRESSION_NONE, 0},
-		{PTIFF_COMPRESSION_LZW, 1},
-		{PTIFF_COMPRESSION_DEFLATE, 2},
-		{PTIFF_COMPRESSION_JPEG, 3},
+		{int(PTIFF_COMPRESSION_NONE), 0},
+		{int(PTIFF_COMPRESSION_LZW), 1},
+		{int(PTIFF_COMPRESSION_DEFLATE), 2},
+		{int(PTIFF_COMPRESSION_JPEG), 3},
 	}
 	for _, tc := range cases {
 		if int(tc.c) != tc.want {

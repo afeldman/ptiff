@@ -192,14 +192,16 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+type PixelType = int
+
 // pixelTypeNames maps the PTIFF pixel-type enum values to human names, matching
 // Python's Metadata.pixel_type_name and the C ABI's documentation.
-var pixelTypeNames = map[Ptiff_pixel_type]string{
-	PTIFF_PIXEL_UINT8:   "UInt8",
-	PTIFF_PIXEL_UINT16:  "UInt16",
-	PTIFF_PIXEL_UINT32:  "UInt32",
-	PTIFF_PIXEL_FLOAT32: "Float32",
-	PTIFF_PIXEL_FLOAT64: "Float64",
+var pixelTypeNames = map[PixelType]string{
+	PixelType(PTIFF_PIXEL_UINT8):   "UInt8",
+	PixelType(PTIFF_PIXEL_UINT16):  "UInt16",
+	PixelType(PTIFF_PIXEL_UINT32):  "UInt32",
+	PixelType(PTIFF_PIXEL_FLOAT32): "Float32",
+	PixelType(PTIFF_PIXEL_FLOAT64): "Float64",
 }
 
 // Metadata is a read-only view of a single image file's core descriptor plus
@@ -210,7 +212,7 @@ type Metadata struct {
 	width  uint
 	height uint
 	ch     uint
-	pixel  Ptiff_pixel_type
+	pixel  PixelType
 	fields map[string]string
 }
 
@@ -238,7 +240,7 @@ func NewMetadata(path string) (*Metadata, error) {
 		width:  desc.GetWidth(),
 		height: desc.GetHeight(),
 		ch:     desc.GetChannel_count(),
-		pixel:  Ptiff_pixel_type(desc.GetPixel_type()),
+		pixel:  PixelType(desc.GetPixel_type()),
 		fields: fmap,
 	}, nil
 }
@@ -256,7 +258,7 @@ func (m *Metadata) Height() uint { return m.height }
 func (m *Metadata) ChannelCount() uint { return m.ch }
 
 // PixelType returns the pixel type (a PTIFF_PIXEL_* value).
-func (m *Metadata) PixelType() Ptiff_pixel_type { return m.pixel }
+func (m *Metadata) PixelType() PixelType { return m.pixel }
 
 // PixelTypeName returns the human name of the pixel type (e.g. "UInt16"), or
 // "Unknown" for an unrecognised value.
