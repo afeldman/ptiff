@@ -8,10 +8,8 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-[*.{cpp,hpp,h,cc,cxx,in}]
-indent_size = 4
-
-[*.{cmake}]
+# CMake sources and @ONLY/pkg-config templates use a 4-space indent.
+[*.{cmake,in}]
 indent_size = 4
 
 [CMakeLists.txt]
@@ -48,13 +46,6 @@ indent_size = 2
 indent_size = 2
 
 [*.gemspec]
-indent_size = 2
-
-# clang-format / clang-tidy config files use a YAML-like 2-space layout.
-[.clang-format]
-indent_size = 2
-
-[.clang-tidy]
 indent_size = 2
 
 # Nix expressions (flake.nix / default.nix) conventionally use a 2-space indent.
