@@ -130,7 +130,7 @@ func readAllTiles(path string, iters int) {
 		buf := make([]byte, bs)
 		for c := uint(0); c < ncols; c++ {
 			for r := uint(0); r < nrows; r++ {
-				var nread int64
+				var nread uint
 				if rc := ptiff.Ptiff_source_read_tile(src, c, r, buf, &nread); rc != 0 {
 					panic(fmt.Sprintf("read_tile(%d,%d) rc=%d", c, r, rc))
 				}
