@@ -230,12 +230,14 @@ impl<'a> TiffImageSink<'a> {
 #[derive(Debug, Clone, Copy)]
 struct TileEncodeParams {
     width: u32,
+    #[cfg_attr(not(feature = "tiff-codecs"), allow(dead_code))]
     height: u32,
     samples_per_pixel: u32,
     bytes_per_sample: u8,
     predictor_horizontal: bool,
     big_endian: bool,
     compression: TiffCompression,
+    #[cfg_attr(not(feature = "tiff-codecs"), allow(dead_code))]
     jpeg_quality: u32,
 }
 
@@ -355,6 +357,7 @@ impl<'a> TiffImageSink<'a> {
     /// Sequential fallback for [`Self::write_compressed_tiles_parallel`] when
     /// the tile count is below the parallelization threshold — performs the
     /// same encoding via the shared `encode_tile_bytes` and writes in order.
+    #[cfg_attr(not(feature = "parallel"), allow(dead_code))]
     fn write_compressed_tiles_sequential(
         &mut self,
         raw_tiles: &[Vec<u8>],

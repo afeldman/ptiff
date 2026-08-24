@@ -126,6 +126,7 @@ impl ImageSource for TiffImageSource<'_> {
 #[derive(Debug, Clone, Copy)]
 struct TileDecodeParams {
     width: u32,
+    #[cfg_attr(not(feature = "tiff-codecs"), allow(dead_code))]
     height: u32,
     samples_per_pixel: u32,
     bytes_per_sample: u8,
