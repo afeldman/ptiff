@@ -46,6 +46,41 @@ jobs:
         working-directory: crates/ptiff-c/tests/c
         run: make run
 
+  # ARM64 ("small CPU") coverage. The x86 matrix above runs on the three
+  # primary runners; this job re-runs the full build+test+C-ABI chain on a
+  # native arm64 runner (GitHub's Ubuntu ARM public preview, e.g. AWS Graviton /
+  # Raspberry Pi 4+ class hardware) so the "small CPU" world is continuously
+  # verified, not just at release time.
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust (arm64)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy (all targets, all features)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Build (workspace, all features)
+        run: cargo build --workspace --all-features
+
+      - name: Test (workspace, all features)
+        run: cargo test --workspace --all-features
+
+      - name: Build C ABI (libptiff_c, arm64)
+        run: cargo build -p ptiff-c --release
+
+      - name: C ABI capability test (C)
+        shell: bash
+        working-directory: crates/ptiff-c/tests/c
+        run: make run
+
   # Rust toolchain cross-check on the minimum rust-version declared for the
   # workspace (kept cheap: build-only on Linux).
   msrv:

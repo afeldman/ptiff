@@ -63,8 +63,10 @@ jobs:
           tail -n 5 cpack.log
           ls -la *.deb *.rpm
 
-      - name: Inspect packages
+      - name: Inspect packages (arch-qualified names)
         run: |
+          echo "=== built packages ==="
+          ls -la build-rel/build/*.deb build-rel/build/*.rpm
           echo "=== .deb ==="
           dpkg -c build-rel/build/*.deb 2>/dev/null | grep -E "bin/ptiff|/lib/ptiff|libptiff|pkgconfig|include" | head -25
           echo "=== .rpm ==="
