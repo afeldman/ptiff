@@ -7,7 +7,7 @@
 # (ptiff_sink_create/write_tile/close, ptiff_source_open/read_tile/
 # descriptor) to demonstrate what SWIG emits for the libptiff C ABI.
 #
-# Run `make ruby` in bindings/swig/ (builds ruby/lib/ptiff.bundle) then:
+# Run `make ruby` in bindings/swig/ (builds ruby/lib/ptiff.{bundle,so}) then:
 #   RUBYLIB=../lib ruby test_roundtrip.rb
 # or `bundle exec rake test` from bindings/ruby/ (Rakefile puts lib/ on the
 # load path).
