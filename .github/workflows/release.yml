@@ -4,13 +4,27 @@ name: Release
 # publishes them as a GitHub Release, and re-triggers the Pages + docs build
 # for the tag.
 #
-#   Linux (ubuntu-latest):  Rust + Ninja -> CPack DEB + RPM
-#   macOS (macos-latest):   Rust + Ninja -> CPack productbuild .pkg
+# The matrix covers all three major desktop/server OSes on *both* common CPU
+# architectures, so the release ships native packages for Intel/AMD (x86_64)
+# AND the "small CPU"/ARM world (arm64: Apple Silicon, Windows on ARM, AWS
+# Graviton / Raspberry Pi 4+):
+#
+#   Linux   ubuntu-latest       x86_64 native  -> CPack DEB + RPM
+#   Linux   ubuntu-24.04-arm    arm64  native  -> CPack DEB + RPM
+#   macOS   macos-13            x86_64 native  -> CPack productbuild .pkg
+#   macOS   macos-14            arm64  native  -> CPack productbuild .pkg
+#   Windows windows-2022        x86_64 native  -> CPack ZIP (+ NSIS if present)
+#   Windows windows-11-arm      arm64  native  -> CPack ZIP
+#
+# Every job runs on hardware matching its target arch, so no cross-compilation
+# is needed: cargo builds for the native host and the CMake wrapper derives the
+# arch from CMAKE_SYSTEM_PROCESSOR for the <OS>-<arch>-qualified package name.
 #
 # Each package carries the Rust `ptiff` CLI (crates/ptiff-cli, a pure-Rust
 # workspace binary over ptiff-core) and the C ABI `libptiff_c` (crates/ptiff-c:
-# shared + static lib, cbindgen header, pkg-config). There is no C++ library:
-# `cargo` is the build, CMake only wraps the install + CPack packaging.
+# shared + static lib, cbindgen header, pkg-config on *nix / import lib on
+# Windows). There is no C++ library: `cargo` is the build, CMake only wraps the
+# install + CPack packaging.
 
 on:
   push:
@@ -26,11 +40,29 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            label: Linux
+            label: linux-x86_64
+            arch: x86_64
             packages: deb+rpm
-          - os: macos-latest
-            label: macOS
+          - os: ubuntu-24.04-arm
+            label: linux-arm64
+            arch: arm64
+            packages: deb+rpm
+          - os: macos-13
+            label: macos-x86_64
+            arch: x86_64
             packages: pkg
+          - os: macos-14
+            label: macos-arm64
+            arch: arm64
+            packages: pkg
+          - os: windows-2022
+            label: windows-x86_64
+            arch: x86_64
+            packages: zip
+          - os: windows-11-arm
+            label: windows-arm64
+            arch: arm64
+            packages: zip
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -42,6 +74,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install system tools + packagers
+        shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
@@ -50,15 +83,18 @@ jobs:
             sudo apt-get install -y ninja-build cmake rpm dpkg patchelf
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew install ninja cmake || brew link ninja cmake
+          # Windows runners already ship cmake + ninja and CPack's ZIP generator.
           fi
 
       # Build the C ABI first (the CMake install references the lib + header
       # that `cargo build -p ptiff-c --release` produces). The CLI is built
       # next via the `ptiff_cli` CMake target after configure.
       - name: Build C ABI (libptiff_c, Rust)
+        shell: bash
         run: cargo build -p ptiff-c --release
 
       - name: Configure (CMake packaging wrapper, Release)
+        shell: bash
         run: >
           cmake -G Ninja -B build-rel/build -S .
           -DCMAKE_BUILD_TYPE=Release
@@ -67,27 +103,37 @@ jobs:
           -DPTIFF_BUILD_DOCS=OFF
 
       - name: Build ptiff CLI (Rust, workspace crate)
+        shell: bash
         run: cmake --build build-rel/build --target ptiff_cli --config Release
 
       - name: Install to staging prefix (CLI + C ABI + header + pkg-config)
+        shell: bash
         run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
 
       - name: Smoke test the packaged CLI
         shell: bash
         run: |
-          "${{ github.workspace }}/staging/bin/ptiff" version
-          "${{ github.workspace }}/staging/bin/ptiff" --help >/dev/null
+          CLI="${{ github.workspace }}/staging/bin/ptiff"
+          # .exe is not auto-discovered in bash on Windows; point at the full name.
+          if [[ "$RUNNER_OS" == "Windows" ]]; then CLI="$CLI.exe"; fi
+          "$CLI" version
+          "$CLI" --help >/dev/null
 
-      - name: Build native packages (CPack deb + rpm on Linux, .pkg on macOS)
+      - name: Build native packages (CPack deb/rpm / pkg / zip)
         working-directory: build-rel/build
+        shell: bash
         run: cpack -C Release
 
-      - name: Collect artifacts
+      - name: Collect artifacts (arch-qualified)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${{ github.workspace }}/dist"
-          cp build-rel/build/*.deb build-rel/build/*.rpm build-rel/build/*.pkg "${{ github.workspace }}/dist/" 2>/dev/null || true
+          # CPack names packages ptiff-<version>-<OS>-<arch>.<ext>; copy every
+          # platform package matching this arch's build.
+          find build-rel/build -maxdepth 1 -type f \
+            \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.zip" \) \
+            -exec cp {} "${{ github.workspace }}/dist/" \;
           cd "${{ github.workspace }}/dist"
           ls -la
           shasum -a 256 * > SHA256SUMS
@@ -97,6 +143,7 @@ jobs:
         with:
           name: ptiff-${{ matrix.label }}
           path: ${{ github.workspace }}/dist/
+          if-no-files-found: error
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

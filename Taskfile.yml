@@ -24,12 +24,20 @@ vars:
   ACT_FLAGS: "{{.ACT_FLAGS}}"
   ACT_LOG: "act-out.log"
 
+  # Optionaler Rust-Ziel-Triple für Cross-Compile auf andere CPU-Architekturen
+  # ("small CPUs"/ARM). Leer = native Host. Beispiel:
+  #   task pkg:cross RUST_TARGET=aarch64-unknown-linux-gnu
+  RUST_TARGET: "{{.RUST_TARGET}}"
+
   CONF_ARGS: >-
     -G Ninja -B {{.BUILD_TREE}} -S .
     -DCMAKE_BUILD_TYPE=Release
     -DPTIFF_BUILD_C_ABI=ON
     -DPTIFF_BUILD_CLI=ON
     -DPTIFF_BUILD_DOCS=OFF
+
+  CONF_ARGS_CROSS: >-
+    {{.CONF_ARGS}} -DPTIFF_RUST_TARGET={{.RUST_TARGET}}
 
 tasks:
   default:
@@ -83,6 +91,48 @@ tasks:
     cmds:
       - |
         (cd {{.BUILD_TREE}} && cpack -C Release)
+
+  # --------------------------------------------------------------- pkg:cross
+  pkg:cross:
+    desc: "Pakete für eine andere CPU-Arch (small CPU/ARM) cross-kompilieren. RUST_TARGET setzen, z.B. task pkg:cross RUST_TARGET=aarch64-unknown-linux-musl"
+    cmds:
+      - task: cross:setup
+      - task: cross:build
+      - task: pkg:cross:run
+
+  cross:setup:
+    desc: "Rust-Ziel-Triple installieren (rustup target add)"
+    internal: true
+    cmds:
+      - |
+        if [[ -z "{{.RUST_TARGET}}" ]]; then
+          echo "RUST_TARGET ist leer. Beispiel: task pkg:cross RUST_TARGET=aarch64-unknown-linux-musl"
+          exit 2
+        fi
+        rustup target add {{.RUST_TARGET}}
+
+  cross:build:
+    desc: "CMake konfigurieren + CLI bauen + installieren für {{.RUST_TARGET}}"
+    internal: true
+    deps: [configure-cross]
+    cmds:
+      - rm -rf {{.STAGING}}
+      - cmake --build {{.BUILD_TREE}} --target ptiff_cli --config Release
+      - cmake --install {{.BUILD_TREE}} --config Release --prefix "$(pwd)/{{.STAGING}}"
+
+  configure-cross:
+    desc: "CMake mit Cross-Target {{.RUST_TARGET}} konfigurieren"
+    internal: true
+    cmds:
+      - cmake {{.CONF_ARGS_CROSS}}
+
+  pkg:cross:run:
+    desc: "CPack für die Cross-Arch-Pakete ausführen"
+    internal: true
+    cmds:
+      - |
+        (cd {{.BUILD_TREE}} && cpack -C Release)
+        ls -la {{.BUILD_TREE}}/*.deb {{.BUILD_TREE}}/*.rpm {{.BUILD_TREE}}/*.pkg 2>/dev/null || true
 
   # ------------------------------------------------------------------ test
   test:
