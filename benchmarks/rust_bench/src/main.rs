@@ -1,20 +1,15 @@
 //! Rust benchmarks over the ptiff binding, mirroring the Python/Ruby/Octave/Go
 //! suite (benchmarks/src/bench_*.py|rb|m|go).
 //!
-//! Metric set differs from the SWIG scripts in one documented way: the Rust
-//! binding has a Sink (tile write) but NO tile-read source (only `open_path`
-//! metadata). So this benchmark reports:
+//! This benchmark reports:
 //!
-//!   * write_all_tiles_ms   -- create 128x128 UInt8 tiled TIFF, write all tiles
-//!   * read_metadata_*_ms   -- `ptiff::open_path` on each fixture (metadata-only
-//!                             open; NO per-tile pixel decode is available)
-//!
-//! Read of pixels is deliberately omitted for Rust to stay honest; the metadata
-//! open still gauges the open/IFD-parse cost on identical files.
+//!   * write_all_tiles_ms   -- create 128x128 UInt8 tiled TIFF, write with pixels
+//!   * read_metadata_*_ms   -- `ptiff::Tiff::open` on each fixture (loads and
+//!                             parses the file; per-tile pixel decode is not
+//!                             exercised so the cost is open/IFD-parse only)
 //!
 //! Usage (from benchmarks/):
-//!   PTIFF_C_LIB_DIR=... PTIFF_LIB_DIR=... \
-//!     cargo run --release --manifest-path rust_bench/Cargo.toml -- \
+//!   cargo run --release --manifest-path rust_bench/Cargo.toml -- \
 //!       --out benchmark-results/rust.json
 
 use std::env;
@@ -22,7 +17,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use ptiff::{open_path, ImageDescriptorBuilder, PixelType, Sink};
+use ptiff::{ImageDescriptorBuilder, PixelType, Scene, Tiff};
 
 fn repeats() -> usize {
     env::var("BENCH_REPEATS")
@@ -60,26 +55,24 @@ fn stat(samples: Vec<f64>, n: usize) -> serde_json::Value {
 }
 
 fn write_all_tiles(out: &str, count: usize) {
-    let builder = ImageDescriptorBuilder::new(128, 128, PixelType::UInt8)
+    let desc = ImageDescriptorBuilder::new(128, 128)
+        .pixel_type(PixelType::UInt8)
         .channel_count(1)
-        .tile(64, 64);
-    let sink = Sink::create(out, builder).expect("sink_create failed");
-    let cols = sink.tile_columns();
-    let rows = sink.tile_rows();
-    let bs = sink.tile_byte_size();
-    let pattern = vec![7u8; bs];
+        .tile(64, 64)
+        .build();
+    let mut scene = Scene::new();
+    scene.add_image(desc).expect("add_image failed");
+    // 128x128 single-channel UInt8 raster filled with a constant pattern.
+    let pixels = vec![7u8; 128 * 128];
     for _ in 0..count {
-        for c in 0..cols {
-            for r in 0..rows {
-                sink.write_tile(c, r, &pattern).expect("write_tile failed");
-            }
-        }
+        let bytes = Tiff::to_bytes_with_pixels(&scene, &[&pixels])
+            .expect("to_bytes_with_pixels failed");
+        fs::write(out, &bytes).expect("write file failed");
     }
-    // Sink drop => ptiff_sink_close flushes.
 }
 
 fn open_meta(path: &str) {
-    open_path(path).expect("open_path failed");
+    Tiff::open(path).expect("Tiff::open failed");
 }
 
 fn time_repeats<F: FnMut()>(mut f: F, n: usize) -> Vec<f64> {
@@ -203,10 +196,10 @@ fn main() {
         }
     }
 
-    let v = ptiff::runtime_version();
+    let v = ptiff::VERSION_STR;
     let doc = serde_json::json!({
         "language": "rust",
-        "binding_version": format!("{}.{}.{}", v.major, v.minor, v.patch),
+        "binding_version": v,
         "repeats": rep,
         "iterations_per_sample": it,
         "read_is_metadata_only": true,
