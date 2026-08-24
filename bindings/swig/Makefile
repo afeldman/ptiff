@@ -68,6 +68,15 @@ PYINC := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_paths()['in
 RBHDR1 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyhdrdir"]')
 RBHDR2 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyarchhdrdir"]')
 
+# ---- Platform strings for OS-portable linker flags ----
+# `-undefined dynamic_lookup` lets a Python/Ruby extension resolve its host
+# interpreter's symbols at runtime on macOS (Mach-O). GNU ld (Linux) has no
+# such switch -- it would be parsed as a stray file name -- and the interpreter
+# symbols are already exported by the loaded interpreter there, so the flag is
+# simply omitted on every non-Darwin platform.
+UNAME_S := $(shell uname -s)
+UNDEFINED_SYMBOLS := $(if $(filter Darwin,$(UNAME_S)),-undefined dynamic_lookup,)
+
 # ---- Shim include dir: SWIG-parseable copy of target/ptiff_c.h ----
 # SWIG chokes on the PTIFF_C_API block (visibility attribute etc.), so we ship
 # SWIG a filtered copy where that block is dropped (PTIFF_C_API => empty). The
@@ -91,7 +100,7 @@ $(PY_DIR)/ptiff.py $(PY_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -python -outdir $(PY_DIR) -o $(PY_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(PY_DIR)/_ptiff.so: $(PY_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) -undefined dynamic_lookup
+	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) $(UNDEFINED_SYMBOLS)
 
 python: $(PY_DIR)/_ptiff.so staticlib
 
@@ -130,7 +139,7 @@ $(RB_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -ruby -outdir $(RB_DIR) -o $(RB_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(RB_DIR)/ptiff.bundle: $(RB_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared -undefined dynamic_lookup \
+	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared $(UNDEFINED_SYMBOLS) \
 		$(RB_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS)
 
 ruby: $(RB_DIR)/ptiff.bundle staticlib
