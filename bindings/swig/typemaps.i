@@ -224,7 +224,16 @@
     rb_ary_push(pair, rb_str_new2(farr[i].value));
     rb_ary_push(arr, pair);
   }
+  /* SWIG_Ruby_AppendOutput gained a third `int is_void` in the same 4.3.0
+     release as the Python form (2024-10-05, #2907); pre-4.3 distro SWIG
+     (e.g. Ubuntu 24.04's 4.2.0) declares only `(VALUE, VALUE)`. Branch on
+     SWIG_VERSION exactly like the Python typemaps above. We pass 0 (append;
+     the caller owns `arr`, and fields are freed below). */
+#if SWIG_VERSION >= 0x040300
   vresult = SWIG_Ruby_AppendOutput(vresult, arr, 0);
+#else
+  vresult = SWIG_Ruby_AppendOutput(vresult, arr);
+#endif
   ptiff_fields_free(farr, n);
 }
 
@@ -268,7 +277,12 @@
     rb_hash_aset(h, rb_str_new2("projection"), p);
   }
   rb_hash_aset(h, rb_str_new2("timestamp"), rb_str_new2((const char*)cam_tmp2.timestamp));
+  /* Same SWIG_VERSION branch (>= 4.3.0) as the fields typemap. */
+#if SWIG_VERSION >= 0x040300
   vresult = SWIG_Ruby_AppendOutput(vresult, h, 0);
+#else
+  vresult = SWIG_Ruby_AppendOutput(vresult, h);
+#endif
 }
 
 #elif defined(SWIGOCTAVE)
