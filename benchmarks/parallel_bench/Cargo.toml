@@ -1,0 +1,16 @@
+[package]
+name = "ptiff-parallel-bench"
+version = "0.1.0"
+edition = "2021"
+description = "Rayon parallel tile compression/decompression scaling benchmark over ptiff-core (Phase 5 / H7-H8)"
+publish = false
+
+[dependencies]
+# The current Rust core, with the optional Rayon parallel feature enabled.
+ptiff-core = { path = "../../crates/ptiff-core", features = ["tiff-backend", "tiff-codecs", "parallel"] }
+rayon = "1.10"
+serde_json = "1"
+
+[[bin]]
+name = "ptiff-parallel-bench"
+path = "src/main.rs"

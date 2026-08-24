@@ -122,69 +122,60 @@ impl<'a> TiffImageSink<'a> {
     /// Encodes `tile`'s pixel bytes through the image's compression scheme
     /// (applying horizontal differencing first when configured). Shared by the
     /// compressed-strip and compressed-tiled write paths.
+    ///
+    /// A thin adapter over the free [`encode_tile_bytes`] so the same logic is
+    /// reusable (as an owned, `Send + Sync` closure in parallel batches).
     fn encode_tile(&self, tile: &Tile<'_>) -> Result<Vec<u8>> {
-        let mut payload = tile.data().to_vec();
-        if self.directory.predictor
-            == crate::io::backend::tiff::TiffPredictor::HorizontalDifferencing
-        {
-            let big_endian = self.directory.endian == Endian::Big;
-            apply_horizontal_differencing(
-                &mut payload,
-                self.directory.layout.tile_size.width,
-                self.directory.samples_per_pixel,
-                bytes_per_sample(self.directory.pixel_type),
-                big_endian,
-            )?;
-        }
+        encode_tile_bytes(tile.data(), self.directory_layout_snapshot())
+    }
 
-        match self.directory.compression {
-            TiffCompression::Lzw => encode_lzw(&payload),
-            TiffCompression::PackBits => encode_pack_bits(&payload),
-            TiffCompression::Deflate => {
-                #[cfg(feature = "tiff-codecs")]
-                {
-                    encode_deflate(&payload)
-                }
-                #[cfg(not(feature = "tiff-codecs"))]
-                {
-                    Err(Error::not_implemented(
-                        "TiffImageSink::writeTile: Deflate encoding requires the tiff-codecs feature",
-                    ))
-                }
-            }
-            TiffCompression::Jpeg => {
-                #[cfg(feature = "tiff-codecs")]
-                {
-                    encode_jpeg(
-                        &payload,
-                        self.directory.layout.tile_size.width,
-                        self.directory.layout.tile_size.height,
-                        self.directory.samples_per_pixel,
-                        self.directory.jpeg_quality,
-                    )
-                }
-                #[cfg(not(feature = "tiff-codecs"))]
-                {
-                    Err(Error::not_implemented(
-                        "TiffImageSink::writeTile: Jpeg encoding requires the tiff-codecs feature",
-                    ))
-                }
-            }
-            TiffCompression::None => unreachable!("None is handled by the caller"),
+    /// Snapshot of the per-tile `Copy` parameters needed to encode a tile —
+    /// the owned, thread-safe projection the parallel path captures once.
+    fn directory_layout_snapshot(&self) -> TileEncodeParams {
+        TileEncodeParams {
+            width: self.directory.layout.tile_size.width,
+            height: self.directory.layout.tile_size.height,
+            samples_per_pixel: self.directory.samples_per_pixel,
+            bytes_per_sample: bytes_per_sample(self.directory.pixel_type),
+            predictor_horizontal: self.directory.predictor
+                == crate::io::backend::tiff::TiffPredictor::HorizontalDifferencing,
+            big_endian: self.directory.endian == Endian::Big,
+            compression: self.directory.compression,
+            jpeg_quality: self.directory.jpeg_quality,
         }
     }
 
     /// Writes one tile of a tiled-and-compressed image: validates write order,
     /// encodes, packs the tile back-to-back at the running cursor, then
     /// back-patches the tile's actual offset/byte-count into the IFD.
+    ///
+    /// Single-tile entry point (sequential). Use
+    /// [`Self::write_compressed_tiles_parallel`] to parallelize the CPU-bound
+    /// encoding across a whole tile set while keeping the write sequential.
     fn write_compressed_tile(&mut self, linear_index: usize, tile: &Tile<'_>) -> Result<()> {
+        let encoded = self.encode_tile(tile)?;
+        self.write_pre_encoded_compressed_tile(linear_index, &encoded)
+    }
+
+    /// Writes an already-encoded (compressed) tile: validates descending order,
+    /// packs the bytes back-to-back at the running cursor, then back-patches
+    /// the tile's actual offset/byte-count into the IFD.
+    ///
+    /// This is the sequential write half of the Phase 5 pipeline (§6.2): the
+    /// *encoding* (CPU-bound) can be done in parallel via Rayon, but the
+    /// on-disk byte layout must be written in row-major order so the running
+    /// cursor and back-patches stay deterministic.
+    fn write_pre_encoded_compressed_tile(
+        &mut self,
+        linear_index: usize,
+        encoded: &[u8],
+    ) -> Result<()> {
         if linear_index != self.next_linear_index {
             return Err(Error::invalid_argument(format!(
                 "TiffImageSink::writeTile: tiled+compressed requires tiles in row-major order; expected tile {}, got {linear_index}",
                 self.next_linear_index
             )));
         }
-        let encoded = self.encode_tile(tile)?;
         if encoded.len() as u64 > u32::MAX as u64 {
             return Err(Error::invalid_argument(
                 "TiffImageSink::writeTile: compressed tile exceeds uint32 size",
@@ -198,7 +189,7 @@ impl<'a> TiffImageSink<'a> {
         }
         // Write the encoded tile at the running cursor, then advance it.
         self.writer.seek(self.next_write_offset)?;
-        let n = self.writer.write(&encoded)?;
+        let n = self.writer.write(encoded)?;
         if n != encoded.len() {
             return Err(Error::invalid_argument(
                 "TiffImageSink::writeTile: short write",
@@ -228,6 +219,151 @@ impl<'a> TiffImageSink<'a> {
 
         self.writer.seek(self.next_write_offset)?;
         self.next_linear_index += 1;
+        Ok(())
+    }
+}
+
+/// Owned, `Copy` projection of the TiffLayout/directory parameters a single
+/// tile's encoder needs. Captured once (per write) and shared immutably across
+/// a Rayon pool — the parallel path never touches a `&mut` TiffImageSink or its
+/// `TiffDirectory` while workers run.
+#[derive(Debug, Clone, Copy)]
+struct TileEncodeParams {
+    width: u32,
+    height: u32,
+    samples_per_pixel: u32,
+    bytes_per_sample: u8,
+    predictor_horizontal: bool,
+    big_endian: bool,
+    compression: TiffCompression,
+    jpeg_quality: u32,
+}
+
+/// Encodes one tile's raw pixel bytes through the image's compression scheme,
+/// applying horizontal differencing first when the predictor requires it.
+///
+/// This is the **owned, `Send + Sync`** form of the encoder: it takes a raw
+/// `&[u8]` view into one tile buffer plus a [`TileEncodeParams`] snapshot, and
+/// returns the compressed bytes. Being a pure function over its inputs, it is
+/// safe to invoke from multiple Rayon workers concurrently (Phase 5 §6.3: «one
+/// job per tile, no shared &mut»).
+///
+/// # Errors
+///
+/// Propagates codec failures; returns [`ErrorCode::NotImplemented`] when a
+/// configured codec is disabled at compile time.
+fn encode_tile_bytes(raw: &[u8], p: TileEncodeParams) -> Result<Vec<u8>> {
+    let mut payload = raw.to_vec();
+    if p.predictor_horizontal {
+        apply_horizontal_differencing(
+            &mut payload,
+            p.width,
+            p.samples_per_pixel,
+            p.bytes_per_sample,
+            p.big_endian,
+        )?;
+    }
+
+    match p.compression {
+        TiffCompression::Lzw => encode_lzw(&payload),
+        TiffCompression::PackBits => encode_pack_bits(&payload),
+        TiffCompression::Deflate => {
+            #[cfg(feature = "tiff-codecs")]
+            {
+                encode_deflate(&payload)
+            }
+            #[cfg(not(feature = "tiff-codecs"))]
+            {
+                Err(Error::not_implemented(
+                    "TiffImageSink::writeTile: Deflate encoding requires the tiff-codecs feature",
+                ))
+            }
+        }
+        TiffCompression::Jpeg => {
+            #[cfg(feature = "tiff-codecs")]
+            {
+                encode_jpeg(
+                    &payload,
+                    p.width,
+                    p.height,
+                    p.samples_per_pixel,
+                    p.jpeg_quality,
+                )
+            }
+            #[cfg(not(feature = "tiff-codecs"))]
+            {
+                Err(Error::not_implemented(
+                    "TiffImageSink::writeTile: Jpeg encoding requires the tiff-codecs feature",
+                ))
+            }
+        }
+        TiffCompression::None => unreachable!("None is handled by the caller"),
+    }
+}
+
+impl<'a> TiffImageSink<'a> {
+    /// Parallel write path for a whole compressed tile set (Phase 5 §6.2
+    /// point 4): the CPU-bound **encoding** of every tile is handed to the
+    /// shared Rayon pool — one job per tile, each an owned `Vec<u8>` — while
+    /// the actual on-disk write stays sequential in row-major order so the
+    /// running cursor and IFD back-patches remain deterministic.
+    ///
+    /// `raw_tiles` must be given **in row-major order** (the same order the
+    /// sequential [`write_tile`](crate::io::ImageSink::write_tile) API expects);
+    /// the output byte layout is guaranteed identical to writing each tile
+    /// sequentially (lossless codecs are pure functions).
+    ///
+    /// Only the `compressed_tiled` layout takes this path; for non-tiled or
+    /// uncompressed layouts parallelizing encoding is unnecessary (no CPU
+    /// codec work), so this returns without doing anything — callers can guard
+    /// on the same flag but the method is a safe no-op regardless.
+    ///
+    /// # Errors
+    ///
+    /// On the first failing tile (by input order) the pool short-circuits; the
+    /// sink state is left at the index written before the failure.
+    #[cfg(feature = "parallel")]
+    pub fn write_compressed_tiles_parallel(&mut self, raw_tiles: &[Vec<u8>]) -> Result<()> {
+        use crate::io::backend::tiff::parallel::{encode_all, threshold};
+
+        if !self.compressed_tiled {
+            // Nothing CPU-bound to parallelize here.
+            return Ok(());
+        }
+
+        let params = self.directory_layout_snapshot();
+
+        if !threshold::should_parallelize(raw_tiles.len()) {
+            // Small tile sets: reuse the existing sequential write path, which
+            // is byte-identical and avoids pool startup overhead.
+            return self.write_compressed_tiles_sequential(raw_tiles, &params);
+        }
+
+        // Phase 5: parallel encode, ordered collect (deterministic), then
+        // sequential write.
+        let encoded = encode_all(
+            raw_tiles.iter().map(Vec::clone).collect::<Vec<Vec<u8>>>(),
+            move |raw: &[u8]| encode_tile_bytes(raw, params),
+        )?;
+
+        for (idx, bytes) in encoded.iter().enumerate() {
+            self.write_pre_encoded_compressed_tile(idx, bytes)?;
+        }
+        Ok(())
+    }
+
+    /// Sequential fallback for [`Self::write_compressed_tiles_parallel`] when
+    /// the tile count is below the parallelization threshold — performs the
+    /// same encoding via the shared `encode_tile_bytes` and writes in order.
+    fn write_compressed_tiles_sequential(
+        &mut self,
+        raw_tiles: &[Vec<u8>],
+        params: &TileEncodeParams,
+    ) -> Result<()> {
+        for (idx, raw) in raw_tiles.iter().enumerate() {
+            let encoded = encode_tile_bytes(raw, *params)?;
+            self.write_pre_encoded_compressed_tile(idx, &encoded)?;
+        }
         Ok(())
     }
 }

@@ -25,6 +25,7 @@ members = [
 exclude = [
     "ptiff-cli",
     "benchmarks/rust_bench",
+    "benchmarks/parallel_bench",
     "bindings/rust",
 ]
 

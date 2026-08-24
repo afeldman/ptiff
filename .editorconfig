@@ -60,3 +60,11 @@ indent_size = 2
 # Generated CMake install scripts (.cmake.in templates) follow a 2-space layout.
 [*.cmake.in]
 indent_size = 2
+
+# Generated dependency lockfiles (Cargo.lock / uv.lock) are machine-generated
+# and keep whatever indentation the tool emits; skip indent checks on them.
+[Cargo.lock]
+indent_size = unset
+
+[uv.lock]
+indent_size = unset

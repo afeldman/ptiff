@@ -76,6 +76,12 @@ tiff-codecs = ["dep:flate2", "dep:jpeg-encoder", "dep:jpeg-decoder", "tiff-backe
 # reading a COG) works over this transport unmodified. Pulls in the pure-Rust
 # `ureq` blocking client. Off by default so the core stays dependency-light.
 http-range-reader = ["dep:ureq"]
+# Optional Rayon-based parallel CPU work-stealing for tile compression /
+# decompression (PTIFF-1.0-RUST-CORE-PLAN.md Phase 5 / §6). Pulls in the
+# `rayon` data-parallelism crate. Off by default so the core stays
+# dependency-light; multi-threaded results are guaranteed byte-identical to
+# the sequential paths (deterministic decomposition clock).
+parallel = ["dep:rayon"]
 
 [dependencies]
 # Intentionally minimal: the core is dependency-light by design (§4.2/§4.3).
@@ -105,6 +111,9 @@ exr = { version = "1.74", default-features = false, optional = true }
 # rustls-based (default-native-free build). Feature-gated behind
 # `http-range-reader`; same principle as the other optional backends.
 ureq = { version = "3.4", default-features = false, features = ["rustls", "gzip"], optional = true }
+# Optional Rayon data-parallelism pool for CPU-bound tile work (compression /
+# decompression, Phase 5 §6). Feature-gated behind `parallel`; own build only.
+rayon = { version = "1.10", optional = true }
 
 # Mathematical geometry foundation (GEOMETRY-FOUNDATION.md): SO(3)/SE(3) Lie
 # groups, quaternions, Twist/Wrench, linear algebra. `multicalc` is dependency-
@@ -117,7 +126,7 @@ semver = "1.0"
 
 [dev-dependencies]
 # Enable the serde / backend features internally so their tests always run.
-ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs", "isis-backend", "pds4-backend", "zarr-backend", "openexr-backend", "http-range-reader"] }
+ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs", "isis-backend", "pds4-backend", "zarr-backend", "openexr-backend", "http-range-reader", "parallel"] }
 serde_json = "1"
 
 # Independent TIFF/BigTIFF reader used ONLY as a data-level interop oracle in
