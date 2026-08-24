@@ -58,6 +58,30 @@ impl BackendFactory {
             Box::new(|| Box::new(crate::io::backend::TiffBackend)),
         )
         .expect("built-in backend names must not collide");
+        #[cfg(feature = "isis-backend")]
+        self.register(
+            "isis",
+            Box::new(|| Box::new(crate::io::backend::IsisBackend)),
+        )
+        .expect("built-in backend names must not collide");
+        #[cfg(feature = "pds4-backend")]
+        self.register(
+            "pds4",
+            Box::new(|| Box::new(crate::io::backend::Pds4Backend)),
+        )
+        .expect("built-in backend names must not collide");
+        #[cfg(feature = "zarr-backend")]
+        self.register(
+            "zarr",
+            Box::new(|| Box::new(crate::io::backend::ZarrBackend)),
+        )
+        .expect("built-in backend names must not collide");
+        #[cfg(feature = "openexr-backend")]
+        self.register(
+            "openexr",
+            Box::new(|| Box::new(crate::io::backend::OpenExrBackend)),
+        )
+        .expect("built-in backend names must not collide");
     }
 
     /// Registers a `builder` under `name`.
@@ -252,5 +276,38 @@ mod tests {
             Err(e) => panic!("tiff backend should self-register: {e}"),
         };
         assert_eq!(backend.name(), "tiff");
+    }
+
+    #[cfg(feature = "isis-backend")]
+    #[test]
+    fn singleton_self_registers_isis_backend() {
+        let factory = BackendFactory::instance();
+        let backend = match factory.create("isis") {
+            Ok(b) => b,
+            Err(e) => panic!("isis backend should self-register: {e}"),
+        };
+        assert_eq!(backend.name(), "isis");
+    }
+
+    #[cfg(feature = "pds4-backend")]
+    #[test]
+    fn singleton_self_registers_pds4_backend() {
+        let factory = BackendFactory::instance();
+        let backend = match factory.create("pds4") {
+            Ok(b) => b,
+            Err(e) => panic!("pds4 backend should self-register: {e}"),
+        };
+        assert_eq!(backend.name(), "pds4");
+    }
+
+    #[cfg(feature = "zarr-backend")]
+    #[test]
+    fn singleton_self_registers_zarr_backend() {
+        let factory = BackendFactory::instance();
+        let backend = match factory.create("zarr") {
+            Ok(b) => b,
+            Err(e) => panic!("zarr backend should self-register: {e}"),
+        };
+        assert_eq!(backend.name(), "zarr");
     }
 }
