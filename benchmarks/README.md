@@ -20,6 +20,7 @@ benchmarks/
 │   ├── bench_cli.py           # ptiff CLI end-to-end (fresh subprocess) benchmark
 │   └── summary.py             # folds per-language JSONs into summary.md/.csv
 ├── rust_bench/                # Rust binding benchmark crate (Cargo project)
+├── parallel_bench/            # Phase-5 Rayon scaling benchmark (ptiff-core, 32768 tiles)
 ├── fixtures/                  # GENERATED (gitignored): uint8_*, f32_512, real_lola_512
 └── benchmark-results/         # GENERATED (gitignored): <lang>.json + cli.json + summary.{md,csv}
 ```
@@ -140,3 +141,62 @@ numbers, run locally on a quiet machine with the default knobs (as above).
 | read_uint8_512    | 3.521  | 3.597| 3.404| 7.573  | n/a   |
 | read_f32_512      | 10.014 |10.240| 9.934|22.102  | n/a   |
 ```
+
+---
+
+## Parallel scaling benchmark (`parallel_bench/`)
+
+A dedicated **Phase-5** scaling micro-benchmark over the current `ptiff-core`
+(with the `parallel` Rayon feature), measuring how the parallel TIFF tile
+compression / decompression paths scale with worker-thread count — directly
+coding hypotheses **H7** (parallel tile-decompression scales sub-linear to
+linear) and **H8** (parallel compression ≥ sequential at ≥2 cores) from
+`PTIFF-1.0-RUST-CORE-PLAN.md` §12.
+
+It builds a deterministic **4096×2048 / 32768-tile** tiled TIFF in memory and
+times the CPU-bound parallel paths inside explicit `rayon::ThreadPool`s of
+**1/2/4/8** threads (median of 20 samples, 3 warm-ups). I/O stays sequential
+by design (§6.2); only compression/decompression is parallel.
+
+```bash
+cd benchmarks/parallel_bench
+cargo run --release -- --out /tmp/ptiff_parallel_bench.json
+```
+
+Each metric row reports `median_ms` and `speedup_vs_1_thread`; a representative
+macOS-arm64 run (the single-thread baseline is 1.0×):
+
+| metric          | 2 threads | 4 threads | 8 threads |
+|-----------------|-----------|-----------|-----------|
+| `lzw_compress`  | 1.9×      | 3.7×      | **6.9×**  |
+| `lzw_decompress`| 1.9×      | 3.7×      | **7.0×**  |
+| `deflate_compress` | 1.7×   | 1.8×      | 1.1×      |
+
+LZW (hand-written codec) scales **near-linearly** — a clear H7/H8 win. Deflate
+(via `flate2`/miniz_oxide) peaks at 2–4 threads (~1.8×) then degrades at 8
+(more pool + memory-bandwidth overhead than the already-efficient zlib encoder
+can amortise), an expected, realistic behaviour. The single-thread absolute
+times are deterministic for the same host; compare *speedups* across hosts.
+
+The crate is `exclude`d from the Cargo workspace (like `rust_bench`) so the
+dependency-light `ptiff-core` default build is unaffected; it pulls `ptiff-core`
+itself with `tiff-backend + tiff-codecs + parallel`.
+
+### Idiomatic facade API (`ptiff` crate)
+
+The parallel path is also exposed through the high-level `ptiff` crate (feature
+`parallel`, forwarding `ptiff-core/parallel`):
+
+```rust
+use ptiff::Tiff;
+
+let tiff = Tiff::open("image.ptiff")?;
+let raster = tiff.read_image_pixels_parallel(0)?;   // parallel decompress (byte-identical to read_image_pixels)
+let tiles  = tiff.read_all_tiles_parallel(0)?;      // one owned Vec per tile, row-major
+
+let bytes = Tiff::to_bytes_with_pixels_parallel(&scene, &[raster.as_slice()])?; // parallel compress
+```
+
+Parallel output is byte-identical to the sequential APIs; the shared write
+kernel supports single-image tiled + compressed scenes (multi-image
+tiled + compressed is not combinable, matching the core).

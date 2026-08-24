@@ -40,6 +40,22 @@ pub struct Tiff {
     scene: Scene,
 }
 
+/// Selects how [`Tiff`]'s pixel-write kernel encodes tiles.
+///
+/// [`WriteMode::Sequential`] is always available and writes each tile through
+/// [`ptiff_core::io::ImageSink::write_tile`]. [`WriteMode::Parallel`] only
+/// exists when the `parallel` feature is enabled and hands the CPU-bound
+/// encoding of tiled + compressed images to the shared Rayon pool (the byte
+/// layout is identical to sequential).
+#[derive(Debug, Clone, Copy)]
+enum WriteMode {
+    /// Sequential `write_tile` encoding (available in every build).
+    Sequential,
+    /// Rayon-parallel tile encoding (only compiled with the `parallel` feature).
+    #[cfg(feature = "parallel")]
+    Parallel,
+}
+
 impl Tiff {
     /// Reads and parses a PTIFF/TIFF/BigTIFF file from disk.
     ///
@@ -158,6 +174,297 @@ impl Tiff {
         Ok(out)
     }
 
+    /// Decodes **every** tile of the `image_index`-th image in parallel (Phase
+    /// 5), returning one owned `Vec<u8>` per tile in row-major order (tile row,
+    /// then tile column — the same order [`Tiff::read_image_pixels`] concatenates).
+    ///
+    /// The on-disk tile bytes are read **sequentially** with a single cursor
+    /// (I/O is not the bottleneck), then the CPU-bound decompression of every
+    /// tile is handed to the shared Rayon pool — one job per tile over owned,
+    /// race-free buffers. The output is **byte-identical** to calling
+    /// [`Tiff::read_tile`] for every grid cell in order: Rayon's ordered
+    /// `collect` preserves input order and the (lossless) codecs are pure
+    /// functions. This is the low-level building block for
+    /// [`Tiff::read_image_pixels_parallel`].
+    ///
+    /// Only compiled with the `parallel` feature.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::NotFound`](crate::ErrorCode::NotFound) if `image_index` is out of
+    /// range, or a backend error if a tile cannot be read/decompressed (the
+    /// first failing tile by input order is returned).
+    #[cfg(feature = "parallel")]
+    pub fn read_all_tiles_parallel(&self, image_index: usize) -> Result<Vec<Vec<u8>>> {
+        use ptiff_core::io::backend::tiff::TiffImageSource;
+
+        let directory = Self::directory_at(&self.bytes, image_index)?;
+        let mut reader = MemoryBinaryReader::from_slice(&self.bytes);
+        let mut source = TiffImageSource::new(&mut reader, directory);
+        source.read_all_tiles_parallel()
+    }
+
+    /// Parallel counterpart to [`Tiff::read_image_pixels`]: decodes the
+    /// `index`-th image's full raster, decompressing every tile through the
+    /// shared Rayon pool. The returned buffer is **byte-identical** to
+    /// [`Tiff::read_image_pixels`] — only the CPU-bound decompression path is
+    /// parallelized.
+    ///
+    /// Only compiled with the `parallel` feature.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Tiff::read_all_tiles_parallel`].
+    #[cfg(feature = "parallel")]
+    pub fn read_image_pixels_parallel(&self, image_index: usize) -> Result<Vec<u8>> {
+        let tiles = self.read_all_tiles_parallel(image_index)?;
+        let total: usize = tiles.iter().map(Vec::len).sum();
+        let mut out = Vec::with_capacity(total);
+        for tile in tiles {
+            out.extend_from_slice(&tile);
+        }
+        Ok(out)
+    }
+
+    /// Resolves the [`TiffDirectory`](ptiff_core::io::backend::tiff::TiffDirectory)
+    /// for `image_index` by walking `bytes`' IFD chain. The parallel read tier
+    /// builds its concrete [`TiffImageSource`](ptiff_core::io::backend::tiff::TiffImageSource)
+    /// from it (whose `read_all_tiles_parallel` is an inherent method, not part
+    /// of the boxed `ImageSource` trait object).
+    #[cfg(feature = "parallel")]
+    fn directory_at(
+        bytes: &[u8],
+        image_index: usize,
+    ) -> Result<ptiff_core::io::backend::tiff::TiffDirectory> {
+        use ptiff_core::io::backend::tiff::{interpret_tiff_ifd, read_tiff_header, read_tiff_ifd};
+
+        let mut reader = MemoryBinaryReader::from_slice(bytes);
+        let header = read_tiff_header(&mut reader)?;
+        let mut ifd_offset = header.first_ifd_offset;
+        let mut directory = None;
+        for i in 0..=image_index {
+            let ifd = read_tiff_ifd(&mut reader, ifd_offset, header.endian, header.is_big_tiff)?;
+            if i == image_index {
+                let mut d = interpret_tiff_ifd(&ifd)?;
+                d.endian = header.endian;
+                directory = Some(d);
+                break;
+            }
+            ifd_offset = ifd.next_ifd_offset();
+            if ifd_offset == 0 {
+                break;
+            }
+        }
+        directory.ok_or_else(|| {
+            Error::not_found(format!(
+                "Tiff::directory_at: image index {image_index} out of range"
+            ))
+        })
+    }
+
+    // --- Pixel write tier (parallel) ----------------------------------
+
+    /// Shared write kernel for both [`Tiff::to_bytes_with_pixels`]
+    /// (`parallel = false`) and [`Tiff::to_bytes_with_pixels_parallel`]
+    /// (`parallel = true`): serializes the scene's images, writes the header +
+    /// IFD chain, forks each raster into the layout's tiles and writes them
+    /// through a concrete [`TiffImageSink`](ptiff_core::io::backend::tiff::TiffImageSink).
+    ///
+    /// For tiled + compressed images the CPU-bound tile encoding is
+    /// parallelized via `write_compressed_tiles_parallel`; other layouts use
+    /// the sequential `write_tile` path. The on-disk byte layout is
+    /// deterministic and identical between the two modes.
+    ///
+    /// A single-image scene goes through the single-image planner
+    /// ([`plan_tiff_write`](ptiff_core::io::backend::tiff::plan_tiff_write)),
+    /// which supports tiled + compressed — the multi-image planner
+    /// ([`plan_tiff_write_multi`](ptiff_core::io::backend::tiff::plan_tiff_write_multi))
+    /// does not. Multi-image scenes cannot combine tiled + compressed images
+    /// (matching the core).
+    fn write_pixels_to_writer(
+        scene: &Scene,
+        rasters: &[&[u8]],
+        writer: &mut ptiff_core::io::MemoryBinaryWriter,
+        mode: WriteMode,
+    ) -> Result<()> {
+        use ptiff_core::id::TileId;
+        use ptiff_core::io::backend::tiff::header::write_tiff_header;
+        use ptiff_core::io::backend::tiff::ifd_writer::write_tiff_ifd;
+        use ptiff_core::io::backend::tiff::plan_tiff_write;
+        use ptiff_core::io::backend::tiff::plan_tiff_write_multi;
+        use ptiff_core::io::backend::tiff::tiff_ifd_byte_size;
+        use ptiff_core::io::backend::tiff::TiffImageSink;
+        use ptiff_core::io::BinaryWriter as _;
+        use ptiff_core::io::ImageSink as _;
+        use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileRegion};
+
+        let root = SceneSerializer.serialize(scene)?;
+        let children: Vec<ptiff_core::io::StorageModel> = root.children().to_vec();
+        if rasters.len() != children.len() {
+            return Err(Error::invalid_argument(format!(
+                "Tiff::to_bytes_with_pixels: expected {} raster(s) for {} image(s), got {}",
+                children.len(),
+                children.len(),
+                rasters.len()
+            )));
+        }
+
+        // Use the single-image planner for one image (supports tiled +
+        // compressed), the multi-image planner otherwise.
+        let plans: Vec<ptiff_core::io::backend::tiff::TiffWritePlan> = if children.len() == 1 {
+            vec![plan_tiff_write(&children[0])?]
+        } else {
+            plan_tiff_write_multi(&children)?.images
+        };
+        let is_big = plans.first().map(|p| p.is_big_tiff).unwrap_or(false);
+        let header_size: u64 = if is_big { 16 } else { 8 };
+
+        // Header + IFD chain, each IFD linked to the next; last links to 0.
+        write_tiff_header(writer, header_size, is_big)?;
+        let mut cursor = header_size;
+        for (i, plan) in plans.iter().enumerate() {
+            let ifd_size = tiff_ifd_byte_size(&plan.entries, is_big);
+            let next = if i + 1 < plans.len() {
+                cursor + ifd_size
+            } else {
+                0
+            };
+            write_tiff_ifd(writer, plan.entries.clone(), is_big, next)?;
+            cursor += ifd_size;
+        }
+
+        for (image_index, raster) in rasters.iter().enumerate() {
+            let image = scene.image_at(image_index)?;
+            let bps = image.pixel_type().bytes_per_sample() as u64;
+            let channels = u64::from(image.channel_count());
+
+            // Concrete sink (parallel encoding requires the inherent
+            // `write_compressed_tiles_parallel`, which a boxed `Box<dyn
+            // ImageSink>` does not expose).
+            let plan = plans.get(image_index).ok_or_else(|| {
+                Error::out_of_range("Tiff::write_pixels_to_writer: image out of range")
+            })?;
+            let data_offset = plan.directory.tile_byte_ranges.first().ok_or_else(|| {
+                Error::invalid_argument("Tiff::write_pixels_to_writer: image has no byte ranges")
+            })?;
+            writer.seek(data_offset.offset)?;
+            let mut sink = TiffImageSink::new(writer, plan.directory.clone());
+            let layout = *sink.layout();
+            let tile_w = u64::from(layout.tile_size.width);
+            let tile_h = u64::from(layout.tile_size.height);
+            let tile_bytes = tile_w * tile_h * channels * bps;
+            let columns = u64::from(layout.columns(0));
+            let rows = u64::from(layout.rows(0));
+            let expected = rows * columns * tile_bytes;
+            if raster.len() as u64 != expected {
+                let msg = format!(
+                    "Tiff::to_bytes_with_pixels: image {image_index} needs {expected} pixel bytes ({}x{} grid of {}x{} tiles x {} samples), got {}",
+                    layout.columns(0), layout.rows(0),
+                    layout.tile_size.width, layout.tile_size.height, channels * bps, raster.len()
+                );
+                return Err(Error::invalid_argument(msg));
+            }
+
+            // Tiled + compressed => optional parallel encoding; otherwise
+            // sequential write_tile. The parallel arm is only compiled when
+            // the `parallel` feature is on; the sequential arm is always
+            // available and produces the exact same byte layout.
+            let tile_usize = tile_bytes as usize;
+            let mut offset = 0usize;
+            match mode {
+                WriteMode::Sequential => {
+                    for row in 0..rows {
+                        for column in 0..columns {
+                            let start = offset;
+                            let end = start + tile_usize;
+                            let tile = Tile::new(
+                                TileId::new(0),
+                                TileIndex::new(column as u32, row as u32, 0),
+                                TileRegion::new(
+                                    (column as u32) * layout.tile_size.width,
+                                    (row as u32) * layout.tile_size.height,
+                                    TileExtent::new(
+                                        layout.tile_size.width,
+                                        layout.tile_size.height,
+                                    ),
+                                ),
+                                &raster[start..end],
+                            );
+                            sink.write_tile(&tile)?;
+                            offset = end;
+                        }
+                    }
+                }
+                #[cfg(feature = "parallel")]
+                WriteMode::Parallel => {
+                    let compressed_tiled = image.tile_info().is_some()
+                        && image.compression().is_some()
+                        && image.compression() != Some(ptiff_core::CompressionKind::None);
+                    if compressed_tiled {
+                        // Hand the CPU-bound encoding to the Rayon pool
+                        // (deterministic byte layout; the write stays
+                        // sequential). Small tile sets fall back internally.
+                        let mut raw_tiles: Vec<Vec<u8>> =
+                            Vec::with_capacity((rows * columns) as usize);
+                        for _row in 0..rows {
+                            for _column in 0..columns {
+                                let start = offset;
+                                let end = start + tile_usize;
+                                raw_tiles.push(raster[start..end].to_vec());
+                                offset = end;
+                            }
+                        }
+                        sink.write_compressed_tiles_parallel(&raw_tiles)?;
+                    } else {
+                        for row in 0..rows {
+                            for column in 0..columns {
+                                let start = offset;
+                                let end = start + tile_usize;
+                                let tile = Tile::new(
+                                    TileId::new(0),
+                                    TileIndex::new(column as u32, row as u32, 0),
+                                    TileRegion::new(
+                                        (column as u32) * layout.tile_size.width,
+                                        (row as u32) * layout.tile_size.height,
+                                        TileExtent::new(
+                                            layout.tile_size.width,
+                                            layout.tile_size.height,
+                                        ),
+                                    ),
+                                    &raster[start..end],
+                                );
+                                sink.write_tile(&tile)?;
+                                offset = end;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Parallel counterpart to [`Tiff::to_bytes_with_pixels`]: encodes each
+    /// image's tile payloads through the shared Rayon pool when the image is
+    /// tiled + compressed, and writes the header + IFD chain plus every
+    /// raster. The emitted bytes are **byte-identical** to
+    /// [`Tiff::to_bytes_with_pixels`] and round-trip through
+    /// [`Tiff::read_image_pixels`] / [`Tiff::read_image_pixels_parallel`].
+    ///
+    /// Only compiled with the `parallel` feature.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Tiff::to_bytes_with_pixels`].
+    #[cfg(feature = "parallel")]
+    pub fn to_bytes_with_pixels_parallel(scene: &Scene, rasters: &[&[u8]]) -> Result<Vec<u8>> {
+        use ptiff_core::io::MemoryBinaryWriter;
+
+        let mut writer = MemoryBinaryWriter::new();
+        Self::write_pixels_to_writer(scene, rasters, &mut writer, WriteMode::Parallel)?;
+        Ok(writer.take_buffer())
+    }
+
     /// Decodes a single tile (or strip) of the `image_index`-th image.
     ///
     /// `column`/`row` address the tile within the image's tile grid (top-left
@@ -257,72 +564,14 @@ impl Tiff {
     /// match its image's pixel grid, or the scene cannot be represented (see
     /// [`Tiff::to_bytes`]).
     pub fn to_bytes_with_pixels(scene: &Scene, rasters: &[&[u8]]) -> Result<Vec<u8>> {
-        use ptiff_core::id::TileId;
-        use ptiff_core::io::StorageModel;
-        use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileRegion};
+        use ptiff_core::io::MemoryBinaryWriter;
 
-        // Serialize the scene into one storage model per image (metadata only).
-        let root = SceneSerializer.serialize(scene)?;
-        let children: Vec<StorageModel> = root.children().to_vec();
-        if rasters.len() != children.len() {
-            return Err(Error::invalid_argument(format!(
-                "Tiff::to_bytes_with_pixels: expected {} raster(s) for {} image(s), got {}",
-                children.len(),
-                children.len(),
-                rasters.len()
-            )));
-        }
-
-        // Header + full IFD chain; pixel data is back-patched into the data
-        // regions through per-image sinks below.
-        let mut writer = ptiff_core::io::MemoryBinaryWriter::new();
-        TiffBackend.serialize_model_list(&children, &mut writer)?;
-
-        for (image_index, raster) in rasters.iter().enumerate() {
-            let image = scene.image_at(image_index)?;
-            let bps = image.pixel_type().bytes_per_sample() as u64;
-            let channels = u64::from(image.channel_count());
-
-            let mut sink = TiffBackend.open_image_sink_at(&mut writer, &children, image_index)?;
-            let layout = *sink.layout();
-            let tile_w = u64::from(layout.tile_size.width);
-            let tile_h = u64::from(layout.tile_size.height);
-            let tile_bytes = tile_w * tile_h * channels * bps;
-            let columns = u64::from(layout.columns(0));
-            let rows = u64::from(layout.rows(0));
-            let expected = rows * columns * tile_bytes;
-            if raster.len() as u64 != expected {
-                let msg = format!(
-                    "Tiff::to_bytes_with_pixels: image {} needs {} pixel bytes ({}x{} grid of {}x{} tiles x {} samples), got {}",
-                    image_index, expected, layout.columns(0), layout.rows(0),
-                    layout.tile_size.width, layout.tile_size.height, channels * bps, raster.len()
-                );
-                return Err(Error::invalid_argument(msg));
-            }
-
-            // Fork the raster into the layout's tiles, row-major (tile row,
-            // then tile column — matching `read_image_pixels`' order).
-            let mut offset = 0usize;
-            for row in 0..rows {
-                for column in 0..columns {
-                    let start = offset;
-                    let end = start + tile_bytes as usize;
-                    let tile = Tile::new(
-                        TileId::new(0),
-                        TileIndex::new(column as u32, row as u32, 0),
-                        TileRegion::new(
-                            (column as u32) * layout.tile_size.width,
-                            (row as u32) * layout.tile_size.height,
-                            TileExtent::new(layout.tile_size.width, layout.tile_size.height),
-                        ),
-                        &raster[start..end],
-                    );
-                    sink.write_tile(&tile)?;
-                    offset = end;
-                }
-            }
-        }
-
+        // Shared kernel: writes header + IFD chain and every image's tiles
+        // through a concrete sink (so single-image tiled + compressed scenes
+        // are supported and the output is byte-identical to the parallel
+        // variant). Sequential mode always uses the sequential write_tile path.
+        let mut writer = MemoryBinaryWriter::new();
+        Self::write_pixels_to_writer(scene, rasters, &mut writer, WriteMode::Sequential)?;
         Ok(writer.take_buffer())
     }
 }
@@ -656,5 +905,104 @@ mod tests {
         assert_eq!(crs.planet().ellipsoid(), Ellipsoid::UNSPECIFIED);
         assert_eq!(crs.frame_override(), Some(Frame::SPACECRAFT));
         assert_eq!(crs.projection().kind(), ProjectionKind::Stereographic);
+    }
+
+    // --- Phase 5: parallel facade (feature = "parallel") --------------
+
+    /// Builds a tiled + LZW scene whose full-tile raster holds deterministic
+    /// banded data (compressible so LZW + differencing exercise the codec).
+    #[cfg(feature = "parallel")]
+    fn tiled_lzw_scene(width: u32, height: u32, tile: u32, rows_bands: u32) -> (Scene, Vec<u8>) {
+        use ptiff_core::TileInfo;
+
+        let mut scene = Scene::new();
+        let mut desc = ImageDescriptor::new(width, height);
+        desc.channel_count = 1;
+        desc.tile_info = Some(TileInfo::new(tile, tile));
+        desc.compression = Some(CompressionKind::Lzw);
+        scene.add_image(desc).expect("add image");
+
+        // Raster is ceil(w/tile) x ceil(h/tile) full-size (padded) tiles.
+        let cols = width.div_ceil(tile) as usize;
+        let rows = height.div_ceil(tile) as usize;
+        let tile_bytes = (tile * tile) as usize;
+        let raster: Vec<u8> = (0..(rows * cols * tile_bytes) as u32)
+            .map(|i| ((i / (tile * rows_bands)) % 17) as u8)
+            .collect();
+        (scene, raster)
+    }
+
+    #[test]
+    #[cfg(feature = "parallel")]
+    fn parallel_write_equals_sequential_write_bytes() {
+        // A scene large enough to cross the parallelize threshold (>= 8 tiles).
+        let (scene, raster) = tiled_lzw_scene(64, 48, 16, 3); // 4 x 3 = 12 tiles
+
+        let seq = Tiff::to_bytes_with_pixels(&scene, &[raster.as_slice()]).expect("sequential");
+        let par =
+            Tiff::to_bytes_with_pixels_parallel(&scene, &[raster.as_slice()]).expect("parallel");
+
+        assert_eq!(
+            seq, par,
+            "parallel write must be byte-identical to sequential write"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "parallel")]
+    fn parallel_read_equals_sequential_read() {
+        let (scene, raster) = tiled_lzw_scene(64, 48, 16, 3); // 12 tiles
+        let bytes = Tiff::to_bytes_with_pixels(&scene, &[raster.as_slice()]).expect("write");
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+
+        let seq = tiff.read_image_pixels(0).expect("sequential read");
+        let par = tiff.read_image_pixels_parallel(0).expect("parallel read");
+
+        assert_eq!(par, seq, "parallel read must equal sequential read");
+        assert_eq!(par, raster, "decoded raster must match what was written");
+
+        // Per-tile parallel read returns the same ordered tile set as the
+        // concatenated sequential read.
+        let tiles = tiff.read_all_tiles_parallel(0).expect("parallel tiles");
+        let concatenated: Vec<u8> = tiles.into_iter().flatten().collect();
+        assert_eq!(concatenated, raster);
+    }
+
+    #[test]
+    #[cfg(feature = "parallel")]
+    fn parallel_write_then_parallel_read_round_trips() {
+        let (scene, raster) = tiled_lzw_scene(80, 64, 16, 4); // 5 x 4 = 20 tiles
+        let par = Tiff::to_bytes_with_pixels_parallel(&scene, &[raster.as_slice()])
+            .expect("parallel write");
+        let tiff = Tiff::from_bytes(&par).expect("parse");
+
+        assert_eq!(
+            tiff.read_image_pixels_parallel(0).expect("parallel read"),
+            raster,
+            "parallel write -> parallel read must round-trip the raster"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "parallel")]
+    fn parallel_read_out_of_range_is_an_error() {
+        let (scene, raster) = tiled_lzw_scene(32, 32, 16, 2); // 2 x 2
+        let bytes = Tiff::to_bytes_with_pixels(&scene, &[raster.as_slice()]).expect("write");
+        let tiff = Tiff::from_bytes(&bytes).expect("parse");
+
+        assert!(tiff.read_all_tiles_parallel(0).is_ok());
+        assert!(tiff.read_all_tiles_parallel(1).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "parallel")]
+    fn parallel_write_small_tile_set_falls_back_to_sequential() {
+        // Below the parallelize threshold (8 tiles) the parallel write must
+        // still produce the same bytes (sequential fallback inside the core).
+        let (scene, raster) = tiled_lzw_scene(32, 32, 16, 2); // 2 x 2 = 4 tiles
+        let seq = Tiff::to_bytes_with_pixels(&scene, &[raster.as_slice()]).expect("sequential");
+        let par =
+            Tiff::to_bytes_with_pixels_parallel(&scene, &[raster.as_slice()]).expect("parallel");
+        assert_eq!(seq, par);
     }
 }

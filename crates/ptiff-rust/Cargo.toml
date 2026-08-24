@@ -24,6 +24,12 @@ default = []
 # Remote (HTTP range) reading of a PTIFF over the network. Turns the core's
 # `http-range-reader` (ureq) on and exposes `RemoteTiff::open_remote`.
 remote = ["ptiff-core/http-range-reader"]
+# Rayon-based parallel tile compression/decompression (Phase 5). Turns the
+# core's `parallel` feature on and exposes `Tiff::read_all_tiles_parallel`,
+# `Tiff::read_image_pixels_parallel` and `Tiff::to_bytes_with_pixels_parallel`
+# on the idiomatic facade. Deterministic: parallel output is byte-identical to
+# the sequential APIs.
+parallel = ["ptiff-core/parallel"]
 
 [dependencies]
 # The single maintained core. The idiomatic crate deliberately re-exports the
