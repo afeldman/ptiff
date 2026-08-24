@@ -15,7 +15,8 @@
 # The gem is bundler-managed (see Gemfile / ptiff.gemspec): add it to a
 # Gemfile with `gem "ptiff", path: "..."` and `bundle install`.
 
-require_relative "ptiff.bundle"
+require "rbconfig"
+require_relative "ptiff.#{RbConfig::CONFIG.fetch("DLEXT")}"
 require_relative "ptiff/version"
 require_relative "ptiff/tile"
 require_relative "ptiff/camera"
