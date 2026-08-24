@@ -55,4 +55,9 @@ jobs:
 
       - name: Test (Octave suite)
         working-directory: bindings/octave
-        run: octave --quiet --no-gui --eval "addpath('lib','test'); run(fullfile('test','run_tests_octave.m'));"
+        # Absolute paths (pwd == bindings/octave via working-directory) are
+        # required: `run` re-resolves the script's directory relative to the
+        # file being run, so the relative "lib"/"test" addpaths get resolved
+        # against bindings/octave/test and fail with "load_path: No such
+        # file or directory". The Makefile's `test` target does the same.
+        run: octave --quiet --no-gui --eval "addpath('$(pwd)/lib'); addpath('$(pwd)/test'); run(fullfile('$(pwd)/test','run_tests_octave.m'));"

@@ -77,8 +77,8 @@ make -C crates/ptiff-c/tests/c test         # erwartet "ALL OK"
 Einzelexamples:
 
 ```bash
-cargo run -p ptiff --example write_local_sample -- /tmp/sample.tif
-cargo run -p ptiff --example read_local_sample  -- /tmp/sample.tif
+cargo run -p ptiff --example write_local_sample -- ./sample.tif
+cargo run -p ptiff --example read_local_sample  -- ./sample.tif
 ```
 
 ## License

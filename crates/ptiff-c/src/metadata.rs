@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn open_path_reports_error_for_missing_file() {
         let mut d = ptiff_image_descriptor::c_default();
-        let path = std::ffi::CString::new("/nonexistent/definitely_missing.tif").unwrap();
+        let path = std::ffi::CString::new("./definitely_missing.tif").unwrap();
         // Safety: valid path + valid desc; the file does not exist.
         let rc = ptiff_open_path(path.as_ptr(), &mut d as *mut ptiff_image_descriptor);
         // A missing path surfaces as NOT_FOUND (matching the C++ oracle /
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn open_path_fields_missing_file_is_not_found() {
-        let path_c = std::ffi::CString::new("/nonexistent/definitely_missing.tif").unwrap();
+        let path_c = std::ffi::CString::new("./definitely_missing.tif").unwrap();
         let mut out: *mut ptiff_field = std::ptr::null_mut();
         let mut out_count: c_int = 0;
         let rc = ptiff_open_path_fields(

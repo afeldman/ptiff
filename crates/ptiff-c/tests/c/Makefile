@@ -13,6 +13,8 @@ LIBDIR       := $(realpath ../../../../target/release)
 BIN          := abiltest
 SRC          := ptiff_c_abiltest.c
 
+OUT_TIF      := ptiff_c_abiltest_out.tif
+
 CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra -std=c11
 LDFLAGS ?= -lpthread -ldl -lm

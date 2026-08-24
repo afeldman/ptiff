@@ -792,9 +792,7 @@ mod tests {
         // untiled -> INVALID_ARGUMENT per header; always returns null
         d.has_tile_info = 0;
         let sink = ptiff_sink_create(
-            std::ffi::CString::new("/tmp/never_used.tif")
-                .unwrap()
-                .as_ptr(),
+            std::ffi::CString::new("./never_used.tif").unwrap().as_ptr(),
             &d as *const ptiff_image_descriptor,
         );
         assert!(sink.is_null());

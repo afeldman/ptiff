@@ -64,8 +64,8 @@ Die Python-Bindung findet `libptiff_c` standardmäßig im Rust-Build-Output
 
 ```bash
 cd bindings/mcp
-PTIFF_C_LIB_DIR=/pfad/zu/<repo>/target/release \
-PTIFF_LIB_DIR=/pfad/zu/<repo>/target/release \
+PTIFF_C_LIB_DIR=../../target/release \
+PTIFF_LIB_DIR=../../target/release \
 PYTHONPATH=src:../python/src \
 .venv/bin/python -m ptiff_mcp.server
 ```
