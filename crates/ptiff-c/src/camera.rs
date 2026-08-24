@@ -156,6 +156,10 @@ pub fn camera_from_c(cam: &ptiff_camera) -> Camera {
 /// Reads a NUL-terminated (or blank-padded) `[c_char; 64]` timestamp into a `String`.
 fn read_timestamp(buf: &[c_char; 64]) -> String {
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    // `c_char` is signed (i8) on x86_64/Windows/macOS but unsigned (u8) on
+    // aarch64 Linux, so this cast is a real conversion on some targets and a
+    // no-op on others -- clippy only sees the latter on the aarch64 CI runner.
+    #[allow(clippy::unnecessary_cast)]
     let bytes: Vec<u8> = buf[..end].iter().map(|&b| b as u8).collect();
     String::from_utf8_lossy(&bytes).into_owned()
 }

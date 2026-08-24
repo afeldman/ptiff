@@ -400,6 +400,44 @@ mod tests {
         assert_eq!(decoded, payload);
     }
 
+    /// Six-band multispectral round trip (Mercury spectrographic-camera use
+    /// case, samplesPerPixel > 3 -- not RGB, so ExtraSamples must be emitted
+    /// for the non-baseline bands and the reader must accept spp up to 512).
+    #[test]
+    fn e2e_six_band_multispectral_round_trip() {
+        let width = 4u32;
+        let height = 4u32;
+        let samples_per_pixel = 6u32;
+        let mut model = strip_model(width, height, "None", "None");
+        model.set_field("samplesPerPixel", samples_per_pixel.to_string());
+        let payload: Vec<u8> = (0..(width * height * samples_per_pixel) as usize)
+            .map(|i| (i % 251) as u8)
+            .collect();
+
+        let file = write_file(&model, &payload);
+        let decoded = read_pixel(&file);
+        assert_eq!(decoded, payload);
+
+        let mut r = MemoryBinaryReader::from_slice(&file);
+        let header = read_tiff_header(&mut r).unwrap();
+        let ifd = read_tiff_ifd(
+            &mut r,
+            header.first_ifd_offset,
+            Endian::Little,
+            header.is_big_tiff,
+        )
+        .unwrap();
+        let directory = interpret_tiff_ifd(&ifd).unwrap();
+        assert_eq!(directory.samples_per_pixel, samples_per_pixel);
+        // BlackIsZero baseline is 1 sample; the remaining 5 are unspecified
+        // extra (scientific/spectral) bands per TIFF 6.0 ExtraSamples = 0.
+        let extra = ifd
+            .tag(crate::io::backend::tiff::TagId::ExtraSamples.as_u16())
+            .unwrap()
+            .to_vec();
+        assert_eq!(extra, vec![0u64; 5]);
+    }
+
     #[test]
     fn e2e_lzw_with_predictor_round_trip() {
         let width = 16u32;
