@@ -10,7 +10,7 @@
 #   make python     build the Python extension (python/_ptiff.so)
 #   make go         scaffold the Go module (go/ptiff.go, ptiff_wrap.c, go.mod,
 #                   cgo_flags.go) ready for `go test ./...` in go/
-#   make ruby       build the Ruby extension (ruby/ptiff.bundle)
+#   make ruby       build the Ruby extension (ruby/ptiff.$(DLEXT))
 #   make octave     build the Octave module (octave/lib/ptiff.oct)
 #   make test       build then run all four round-trip (and feature) tests
 #   make clean      remove generated outputs
@@ -39,10 +39,11 @@ C_LIB_DIR := ../../target/release
 # Python's package root (bindings/python/src/) is flat, matching what
 # `swig -python` itself emits (a top-level ptiff.py + _ptiff.so, no package
 # subdirectory). Ruby's is bindings/ruby/lib/ (Ruby convention: `require
-# "ptiff"` resolves ptiff.bundle off $LOAD_PATH/RUBYLIB, same as any other
-# lib/ file) -- SWIG -ruby emits only ptiff_wrap.c/ptiff.bundle, no separate
-# .rb stub, so lib/ptiff/version.rb (hand-authored, gem version metadata
-# only) is the sole survivor of the old Fiddle wrapper.
+# "ptiff"` resolves the platform-native shared extension (`ptiff.bundle` on
+# macOS, `ptiff.so` on Linux) off $LOAD_PATH/RUBYLIB, same as any other lib/
+# file) -- SWIG -ruby emits only ptiff_wrap.c plus that compiled extension, no
+# separate .rb stub, so lib/ptiff/version.rb (hand-authored, gem version
+# metadata only) is the sole survivor of the old Fiddle wrapper.
 PY_DIR  := ../python/src/ptiff
 GO_DIR  := ../go/ptiff
 RB_DIR  := ../ruby/lib
@@ -76,6 +77,7 @@ endif
 PYINC := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_paths()['include'])")
 RBHDR1 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyhdrdir"]')
 RBHDR2 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyarchhdrdir"]')
+RBDLEXT := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["DLEXT"]')
 
 # ---- Platform strings for OS-portable linker flags ----
 # `-undefined dynamic_lookup` lets a Python/Ruby extension resolve its host
@@ -147,11 +149,11 @@ go: $(GO_DIR)/ptiff.go $(GO_DIR)/ptiff_wrap.c $(GO_MODROOT)go.mod $(GO_DIR)/cgo_
 $(RB_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -ruby -outdir $(RB_DIR) -o $(RB_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
-$(RB_DIR)/ptiff.bundle: $(RB_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared $(UNDEF_FLAG) \
+$(RB_DIR)/ptiff.$(RBDLEXT): $(RB_DIR)/ptiff_wrap.c
+	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared -undefined dynamic_lookup \
 		$(RB_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS)
 
-ruby: $(RB_DIR)/ptiff.bundle staticlib
+ruby: $(RB_DIR)/ptiff.$(RBDLEXT)
 
 # ============================================================
 # Octave
@@ -200,7 +202,7 @@ clean:
 	rm -rf $(PY_DIR)/ptiff.py $(PY_DIR)/ptiff_wrap.c $(PY_DIR)/_ptiff.so $(PY_DIR)/__pycache__ $(PY_TEST_DIR)/roundtrip_python.tif
 	rm -rf $(GO_DIR)/ptiff.go $(GO_DIR)/ptiff_wrap.c $(GO_DIR)/cgo_flags.go $(GO_DIR)/roundtrip_go.tif
 	rm -rf $(GO_MODROOT)go.sum
-	rm -rf $(RB_DIR)/ptiff_wrap.c $(RB_DIR)/ptiff.bundle $(RB_TEST_DIR)/roundtrip_ruby.tif
+	rm -rf $(RB_DIR)/ptiff_wrap.c $(RB_DIR)/ptiff.bundle $(RB_DIR)/ptiff.so $(RB_TEST_DIR)/roundtrip_ruby.tif
 	rm -rf $(OC_DIR)/ptiff_wrap.c $(OC_DIR)/ptiff_wrap.cpp $(OC_DIR)/ptiff.oct
 
 .PHONY: all python go ruby octave test clean staticlib

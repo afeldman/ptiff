@@ -107,6 +107,16 @@ impl Serializer for SceneSerializer {
                 }
             }
 
+            // Generic PTIFF extension metadata (spice 65001, layers 65004,
+            // provenance 65005, and any unknown `ptiff.*` keys). The keys are
+            // fully-qualified `ptiff.<domain>.<key>` and have already been
+            // validated to not collide with the reserved camera/CRS domains, so
+            // every record emits exactly one storage-model field and one TIFF
+            // byte (the same keys the backend's `append_ptiff_tags` reads).
+            for (k, v) in image.metadata() {
+                child.set_field(k.clone(), v.clone());
+            }
+
             root.add_child(child);
         }
 

@@ -76,10 +76,13 @@ pub fn camera_fields(camera: &Camera) -> Vec<(String, String)> {
 /// Reconstructs a [`Camera`] from any `ptiff.camera.*` fields on `node`.
 ///
 /// Returns `Ok(None)` when the node carries no camera fields (the domain is
-/// absent), `Ok(Some(camera))` when at least one field is present and valid,
-/// and an error when a present field is malformed (e.g. a non-numeric
-/// focal length). Unknown keys are ignored so future writers' extra fields are
-/// not mistaken for errors.
+/// absent) **or** when the domain is present but incomplete for typed
+/// reconstruction (a foreign/future writer's partial field set — gracefully
+/// skipped per RFC-7002 §3.3/§4.4 rather than failing the file). Returns
+/// `Ok(Some(camera))` when a complete valid domain is present, and an error
+/// only when a *present* field is malformed (e.g. a non-numeric focal length).
+/// Unknown keys are ignored so future writers' extra fields are not mistaken
+/// for errors.
 pub fn camera_from_model(node: &StorageModel) -> Result<Option<Camera>> {
     let present = domain_present(node, CAMERA_PREFIX);
     if !present {
@@ -90,24 +93,42 @@ pub fn camera_from_model(node: &StorageModel) -> Result<Option<Camera>> {
         node.field(&format!("{CAMERA_PREFIX}{key}"))
             .map_err(|_| Error::invalid_argument("SceneDeserializer: missing ptiff.camera field"))
     };
-    let f64_field = |key: &str| -> Result<f64> {
-        node.field(&format!("{CAMERA_PREFIX}{key}"))
-            .map_err(|_| Error::invalid_argument("SceneDeserializer: missing ptiff.camera field"))?
-            .parse()
-            .map_err(|_| {
-                Error::invalid_argument("SceneDeserializer: non-numeric ptiff.camera field")
-            })
+    let f64_field = |key: &str| -> Result<Option<f64>> {
+        let raw = node.field(&format!("{CAMERA_PREFIX}{key}"));
+        let raw = match raw {
+            Ok(v) => v,
+            Err(_) => return Ok(None), // missing required field => partial domain => skip
+        };
+        match raw.parse() {
+            Ok(v) => Ok(Some(v)),
+            Err(_) => Err(Error::invalid_argument(
+                "SceneDeserializer: non-numeric ptiff.camera field",
+            )),
+        }
     };
 
-    let model = field("model")?.to_string();
-    let timestamp = field("timestamp").unwrap_or("").to_string();
+    // A present-but-incomplete camera domain (e.g. a foreign writer carrying
+    // only `ptiff.camera.model` without the required intrinsics) must not fail
+    // the file: RFC-7002 §3.3 / §4.4 require readers to tolerate a file with
+    // any subset of extension data. We gracefully skip typed reconstruction
+    // (return `Ok(None)`); the caller preserves the raw `ptiff.camera.*` fields
+    // in the generic metadata map so nothing is lost.
+    let Ok(model) = field("model").map(|m| m.to_string()) else {
+        return Ok(None);
+    };
+    let timestamp = field("timestamp").map(str::to_string).unwrap_or_default();
 
-    let intrinsics = crate::geometry::Intrinsics::new(
+    let intrinsics = match (
         f64_field("focal_length_x")?,
         f64_field("focal_length_y")?,
         f64_field("principal_x")?,
         f64_field("principal_y")?,
-    );
+    ) {
+        (Some(fx), Some(fy), Some(px), Some(py)) => {
+            crate::geometry::Intrinsics::new(fx, fy, px, py)
+        }
+        _ => return Ok(None), // incomplete intrinsics => partial domain => skip
+    };
     // Extrinsics are optional: a camera file/field-set may carry only the
     // intrinsics (model + focal + principal point), which the oracle fixture
     // does. When the rotation/position group is *absent* we default to the
@@ -127,18 +148,26 @@ pub fn camera_from_model(node: &StorageModel) -> Result<Option<Camera>> {
     .all(|k| node.field(&format!("{CAMERA_PREFIX}{k}")).is_ok());
 
     let extrinsics = if has_extrinsics {
+        let (rw, rx, ry, rz) = (
+            f64_field("rotation_w")?,
+            f64_field("rotation_x")?,
+            f64_field("rotation_y")?,
+            f64_field("rotation_z")?,
+        );
+        let (px, py, pz) = (
+            f64_field("position_x")?,
+            f64_field("position_y")?,
+            f64_field("position_z")?,
+        );
+        let (rw, rx, ry, rz, px, py, pz) = match (rw, rx, ry, rz, px, py, pz) {
+            (Some(rw), Some(rx), Some(ry), Some(rz), Some(px), Some(py), Some(pz)) => {
+                (rw, rx, ry, rz, px, py, pz)
+            }
+            _ => return Ok(None), // partial extrinsics group => skip
+        };
         crate::geometry::Extrinsics::new(
-            crate::geometry::Quaternion::new(
-                f64_field("rotation_w")?,
-                f64_field("rotation_x")?,
-                f64_field("rotation_y")?,
-                f64_field("rotation_z")?,
-            ),
-            crate::geometry::Vec3::new(
-                f64_field("position_x")?,
-                f64_field("position_y")?,
-                f64_field("position_z")?,
-            ),
+            crate::geometry::Quaternion::new(rw, rx, ry, rz),
+            crate::geometry::Vec3::new(px, py, pz),
         )
     } else {
         crate::geometry::Extrinsics::default()
@@ -203,8 +232,10 @@ pub fn crs_fields(crs: &CoordinateReferenceSystem) -> Vec<(String, String)> {
 ///    for backward compatibility with files written by the old writer.
 ///
 /// The registered schema is prioritised when present. A domain the file
-/// doesn't carry stays `None`; a malformed numeric field is an error (mirrors
-/// [`camera_from_model`]).
+/// doesn't carry stays `None`; a present-but-incomplete domain is skipped
+/// gracefully (`Ok(None)`, per RFC-7002 §3.3/§4.4 tolerance) so the caller
+/// preserves the raw fields; a malformed *present* numeric field is an error
+/// (mirrors [`camera_from_model`]).
 pub fn crs_from_model(node: &StorageModel) -> Result<Option<CoordinateReferenceSystem>> {
     if !domain_present(node, CRS_PREFIX) {
         return Ok(None);
@@ -218,33 +249,50 @@ pub fn crs_from_model(node: &StorageModel) -> Result<Option<CoordinateReferenceS
     }
 
     // Extended schema: rich planet fields.
-    let field = |key: &str| -> Result<&str> {
-        node.field(&format!("{CRS_PREFIX}{key}"))
-            .map_err(|_| Error::invalid_argument("SceneDeserializer: missing ptiff.crs field"))
+    // A present-but-incomplete domain (missing any required extended-schema
+    // field) is skipped gracefully (RFC-7002 §3.3/§4.4 tolerance) rather than
+    // failing the file; only a malformed *present* numeric value is an error.
+    let field = |key: &str| -> Result<Option<String>> {
+        Ok(node
+            .field(&format!("{CRS_PREFIX}{key}"))
+            .ok()
+            .map(str::to_string))
     };
-    let f64_field = |key: &str| -> Result<f64> {
-        node.field(&format!("{CRS_PREFIX}{key}"))
-            .map_err(|_| Error::invalid_argument("SceneDeserializer: missing ptiff.crs field"))?
-            .parse()
-            .map_err(|_| Error::invalid_argument("SceneDeserializer: non-numeric ptiff.crs field"))
+    let f64_field = |key: &str| -> Result<Option<f64>> {
+        match node.field(&format!("{CRS_PREFIX}{key}")) {
+            Ok(raw) => raw.parse().map(Some).map_err(|_| {
+                Error::invalid_argument("SceneDeserializer: non-numeric ptiff.crs field")
+            }),
+            Err(_) => Ok(None),
+        }
     };
 
-    let name = field("planet_name")?.to_string();
-    let iau_id = field("planet_iau_id")?.to_string();
-    let ellipsoid = Ellipsoid::new(
+    let (Some(name), Some(iau_id)) = (field("planet_name")?, field("planet_iau_id")?) else {
+        return Ok(None);
+    };
+    let ellipsoid = match (
         f64_field("planet_semi_major_m")?,
         f64_field("planet_semi_minor_m")?,
-    );
+    ) {
+        (Some(a), Some(b)) => Ellipsoid::new(a, b),
+        _ => return Ok(None),
+    };
 
     // A known frame id round-trips via the `'static` constants; an unknown id
     // is treated as absent (see `frame_from_id`). The planet's canonical
     // reference frame falls back to a known constant derived from the IAU id,
     // else "UNSPECIFIED".
-    let frame_override = field("frame").ok().and_then(frame_from_id);
+    let frame_override = field("frame")
+        .ok()
+        .flatten()
+        .and_then(|f| frame_from_id(&f));
     let reference_frame = frame_from_id(&iau_id).unwrap_or(Frame::new("UNSPECIFIED"));
     let planet = Planet::new(name, iau_id, ellipsoid, reference_frame);
 
-    let kind = projection_kind_from_str(field("projection")?)?;
+    let Some(kind_str) = field("projection")? else {
+        return Ok(None);
+    };
+    let kind = projection_kind_from_str(&kind_str)?;
     let mut projection = Projection::new(kind);
     collect_projection_params(node, &mut projection);
 

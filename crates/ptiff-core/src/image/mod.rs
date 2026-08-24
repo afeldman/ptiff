@@ -93,6 +93,24 @@ impl Image {
     pub const fn crs(&self) -> Option<&crate::CoordinateReferenceSystem> {
         self.descriptor.crs.as_ref()
     }
+
+    /// Returns the generic `ptiff.<domain>.<key>` extension metadata
+    /// (RFC-7002), stored in ascending key order. This covers the SPICE
+    /// (65001), scientific-layers (65004) and provenance (65005) domains, plus
+    /// any unknown/future `ptiff.*` keys carried by the file. The
+    /// camera/CRS domains are *not* included here — they are exposed via
+    /// [`Image::camera`](Self::camera) / [`Image::crs`](Self::crs).
+    #[must_use]
+    pub fn metadata(&self) -> &std::collections::BTreeMap<String, String> {
+        &self.descriptor.metadata
+    }
+
+    /// Returns the value of one generic `ptiff.<domain>.<key>` extension
+    /// metadata record, if present.
+    #[must_use]
+    pub fn metadata_value(&self, key: &str) -> Option<&str> {
+        self.descriptor.metadata.get(key).map(String::as_str)
+    }
 }
 
 impl From<ImageDescriptor> for Image {

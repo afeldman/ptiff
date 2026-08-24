@@ -54,6 +54,22 @@ pub struct ImageDescriptor {
     /// [`crate::geometry::Frame`] holds a `'static` identifier.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub crs: Option<CoordinateReferenceSystem>,
+    /// Optional generic `ptiff.<domain>.<key>` extension metadata (RFC-7002),
+    /// for the domains NOT covered by the typed [`Self::camera`] (65002) /
+    /// [`Self::crs`] (65003) fields — namely SPICE (65001), scientific layers
+    /// (65004), provenance (65005) and any unknown/future `ptiff.*` keys. Keys
+    /// are fully-qualified storage-model keys (e.g. `"ptiff.spice.frame"`).
+    ///
+    /// The `ptiff.camera.*` / `ptiff.crs.*` keys are reserved for the typed
+    /// fields above and MUST NOT be present here: those two domains are the
+    /// single source of truth and are round-tripped exclusively through
+    /// `camera` / `crs`. Entries are stored in ascending key order.
+    ///
+    /// Excluded from the serde path for the same reason as the other extension
+    /// fields; the extension domains round-trip through the `ptiff.*`
+    /// storage-model fields and TIFF tags.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub metadata: std::collections::BTreeMap<String, String>,
 }
 
 impl ImageDescriptor {
@@ -71,6 +87,7 @@ impl ImageDescriptor {
             compression: None,
             camera: None,
             crs: None,
+            metadata: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -156,6 +173,24 @@ impl ImageDescriptorBuilder {
         self
     }
 
+    /// Sets one generic `ptiff.<domain>.<key>` extension-metadata record
+    /// (RFC-7002). The key must be fully-qualified
+    /// (e.g. `"ptiff.spice.frame"`) and must NOT start with `"ptiff.camera."`
+    /// or `"ptiff.crs."` — those two domains are carried by [`Self::camera`] /
+    /// [`Self::crs`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `key` is a reserved `ptiff.camera.*` / `ptiff.crs.*` key, or
+    /// if it does not start with the `ptiff.` prefix.
+    #[must_use]
+    pub fn metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let key = key.into();
+        assert_extension_key(&key);
+        self.descriptor.metadata.insert(key, value.into());
+        self
+    }
+
     /// Consumes the builder and returns the configured [`ImageDescriptor`].
     #[must_use]
     pub fn build(self) -> ImageDescriptor {
@@ -166,6 +201,41 @@ impl ImageDescriptorBuilder {
 impl Default for ImageDescriptor {
     fn default() -> Self {
         Self::new(0, 0)
+    }
+}
+
+/// Validates a fully-qualified `ptiff.<domain>.<key>` extension-metadata key.
+///
+/// Returns a descriptive error message for the reserved `ptiff.camera.*` /
+/// `ptiff.crs.*` keys (which are carried by the typed fields on
+/// [`ImageDescriptor`]) or for a key that is not in the `ptiff.<domain>.<key>`
+/// shape.
+pub fn validate_extension_key(key: &str) -> Result<(), String> {
+    let pfx = "ptiff.";
+    if !key.starts_with(pfx) {
+        return Err(format!(
+            "metadata key must be fully qualified (must start with 'ptiff.'): got '{key}'"
+        ));
+    }
+    if key.starts_with("ptiff.camera.") || key.starts_with("ptiff.crs.") {
+        return Err(format!(
+            "metadata key '{key}' is reserved for the typed camera/CRS fields; use              ImageDescriptor::camera / ImageDescriptor::crs instead"
+        ));
+    }
+    // Require at least `ptiff.<domain>.` (non-empty domain and key).
+    let rest = &key[pfx.len()..];
+    match rest.find('.') {
+        Some(idx) if idx > 0 && idx + 1 < rest.len() => Ok(()),
+        _ => Err(format!(
+            "metadata key must be of the shape 'ptiff.<domain>.<key>': got '{key}'"
+        )),
+    }
+}
+
+/// Panics on an invalid extension-metadata key; used by the builder setter.
+fn assert_extension_key(key: &str) {
+    if let Err(msg) = validate_extension_key(key) {
+        panic!("ImageDescriptor::metadata: {msg}");
     }
 }
 
@@ -233,5 +303,50 @@ mod tests {
         assert_eq!(d.channel_count, 1);
         assert_eq!(d.tile_info, None);
         assert_eq!(d.compression, None);
+    }
+
+    #[test]
+    fn builder_metadata_accumulates_and_is_sorted() {
+        let d = ImageDescriptorBuilder::new(16, 16)
+            .metadata("ptiff.provenance.software", "libptiff")
+            .metadata("ptiff.spice.frame", "IAU_MOON")
+            .build();
+        // The map stores keys in ascending byte order.
+        let keys: Vec<&String> = d.metadata.keys().collect();
+        assert_eq!(
+            keys,
+            vec![
+                &"ptiff.provenance.software".to_string(),
+                &"ptiff.spice.frame".to_string()
+            ]
+        );
+        assert_eq!(
+            d.metadata.get("ptiff.spice.frame").map(String::as_str),
+            Some("IAU_MOON")
+        );
+        assert_eq!(
+            d.metadata
+                .get("ptiff.provenance.software")
+                .map(String::as_str),
+            Some("libptiff")
+        );
+    }
+
+    #[test]
+    fn validate_extension_key_rules() {
+        // Valid fully-qualified keys.
+        assert!(validate_extension_key("ptiff.spice.frame").is_ok());
+        assert!(validate_extension_key("ptiff.provenance.software").is_ok());
+        assert!(validate_extension_key("ptiff.layers.dem").is_ok());
+        // Reserved typed domains are rejected.
+        assert!(validate_extension_key("ptiff.camera.model").is_err());
+        assert!(validate_extension_key("ptiff.crs.planet_name").is_err());
+        // Non-ptiff / malformed keys are rejected.
+        assert!(validate_extension_key("spice.frame").is_err());
+        assert!(validate_extension_key("ptiff.").is_err());
+        assert!(validate_extension_key("ptiff.spice").is_err());
+        // Empty domain or empty key is rejected.
+        assert!(validate_extension_key("ptiff..frame").is_err());
+        assert!(validate_extension_key("ptiff.spice.").is_err());
     }
 }
