@@ -8,8 +8,7 @@ name: Ruby bindings
 # OS/compiler matrix as the C++, Go and Python binding jobs.
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   ruby-bindings:

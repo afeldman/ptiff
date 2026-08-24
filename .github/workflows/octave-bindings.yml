@@ -9,8 +9,7 @@ name: Octave bindings
 # (ships mkoctfile).
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   octave-bindings:

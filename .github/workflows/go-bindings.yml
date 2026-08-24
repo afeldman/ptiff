@@ -7,8 +7,7 @@ name: Go bindings
 # `go test` runs the suite.
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   go-build:
