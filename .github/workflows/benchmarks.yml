@@ -11,9 +11,9 @@ name: Benchmarks
 # wall-clock figures (those need a quiet dedicated host, as documented in
 # benchmarks/README.md).
 #
-# Runs on ubuntu-latest only: Octave (mkoctfile) and the SWIG matrix are
-# cheapest and most reliable there; the suite itself is OS-agnostic and can be
-# re-run locally on macOS/Windows.
+# Runs on ubuntu-latest only: the Octave (mkoctfile) MEX binding and the SWIG
+# matrix are cheapest and most reliable there; the suite itself is OS-agnostic
+# and can be re-run locally on macOS/Windows.
 
 on:
   push:
@@ -50,7 +50,7 @@ jobs:
       - name: Install build toolchain + languages (Linux)
         run: |
           sudo apt-get update
-          # octave-dev provides mkoctfile (needed by bindings/swig/Makefile)
+          # octave-dev provides mkoctfile (needed by bindings/octave/mex/Makefile)
           sudo apt-get install -y swig golang-go ruby octave octave-dev pkg-config
           # Rust via rustup in a later step (dtolnay/rust-toolchain).
 
@@ -70,17 +70,14 @@ jobs:
 
       # --- Build every language binding against the freshly built C ABI ---
       # (bindings/swig/Makefile links the Rust-built libptiff_c by default)
-      - name: Build SWIG Python binding
-        run: make -C bindings/swig python
-
       - name: Build SWIG Ruby binding
         run: make -C bindings/swig ruby
 
       - name: Build SWIG Go binding
         run: make -C bindings/swig go
 
-      - name: Build SWIG Octave binding
-        run: make -C bindings/swig octave
+      - name: Build Octave MEX binding
+        run: make -C bindings/octave/mex build
 
       - name: Build Rust binding + CLI
         run: cargo build -p ptiff-cli --release

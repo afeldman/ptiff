@@ -30,8 +30,13 @@ indent_style = tab
 [*.{rb,ruby}]
 indent_size = 2
 
-# Octave/Scilab (SWIG bindings + benchmarks) use a 2-space indent.
+# Octave/Scilab (bindings + benchmarks) use a 2-space indent.
 [*.m]
+indent_size = 2
+
+# The hand-written Octave MEX adapter C++ (.oct source) follows the same
+# 2-space style as the surrounding Octave binding `.m` wrappers.
+[bindings/octave/mex/*.cpp]
 indent_size = 2
 
 # SWIG interface files (bindings/swig/*.i) conventionally use a 2-space

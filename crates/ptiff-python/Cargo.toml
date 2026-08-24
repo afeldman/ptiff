@@ -13,9 +13,9 @@
 #         tile = img.read_tile(column=1, row=0)   # np.ndarray
 #
 # The module name is `ptiff_pyo3` (not `ptiff`) so it does not clash with the
-# legacy SWIG `ptiff` package (bindings/python) that remains as the fallback
-# until SWIG is deprecated (Plan §9 DoD); the PyO3 surface is laid out so the
-# final `import ptiff` can adopt it unchanged once SWIG is removed.
+# legacy SWIG `ptiff` package (bindings/python). The PyO3 surface is laid out so
+# the final `import ptiff` can adopt it unchanged. The legacy binding has been
+# removed; only the module-name separation remains.
 #
 # This crate is deliberately NOT a workspace member (it is `exclude`d in the
 # root Cargo.toml): a plain `cargo build --workspace` must never need a Python

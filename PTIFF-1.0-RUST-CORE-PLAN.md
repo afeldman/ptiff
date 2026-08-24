@@ -891,53 +891,65 @@ auf `uint8/uint16/uint32/float32/float64`.
 
 # 10. Octave Strategy
 
-## 10.1 Bestehende Lösung
+## 10.1 Aktueller Stand (MEX-only)
 
-Die Octave-Bindung (`bindings/octave/`) ist ein **SWIG-`-octave`-Modul** über das C-ABI. Der
-SWIG-Octave-Runtime (`octave_swig_ref`, `octave_value`-Typsystem, `mkoctfile`) ist C++, daher
-wird der Octave-Wrapper als C++ erzeugt, bindet aber nur die `extern "C"`-Oberfläche von
-`libptiff_c`. Die `typemaps.i`-SWIGOCTAVE-Regeln akzeptieren `uint8`-Arrays/Strings für
-Buffer und geben den gelesenen Puffer als zusätzlichen `uint8`-Output-Wert zurück (Octave
-kopiert bei Zuweisung, kein In-place-Mutate).
+Die Octave-Bindung (`bindings/octave/`) ist ausschließlich ein **handgeschriebener C++-MEX-
+Adapter** (`bindings/octave/mex/ptiff_octave.cpp`) über das C-ABI. Er wird mit `mkoctfile`
+(aus GNU Octave, ≥8) zu einem `ptiff_octave.oct`-Modul kompiliert, das direkt die
+`extern "C"`-Oberfläche von `libptiff_c` ruft — **kein SWIG**. Eine dünne `.m`-API-Schicht
+(`ptiff_open.m`, `ptiff_source_info.m`, `ptiff_read_tile.m`, `ptiff_create.m`,
+`ptiff_write_tile.m`, `ptiff_sink_close.m`, `ptiff_version.m`, `ptiff_info.m`,
+`ptiff_metadata.m`, `ptiff_logger_*.m`, …) abonniert den einzelnen `ptiff_octave`-Einstiegspunkt.
 
-Der vorgesehene Pfad `Octave → MEX → C ABI → Rust Core` ist also bereits aktiv: SWIG-Octave
-erzeugt einen MEX-Wrapper über `ptiff_*`.
+> **Historie.** Der ursprüngliche Plan nannte SWIG-`-octave` (siehe unten, 10.2–10.4) und
+> empfahl einen eigenen MEX-Adapter als Ziel. Am 2026-08-24 wurde das SWIG-Octave-Modul
+> (`bindings/octave/lib` + `bindings/octave/test`) **entfernt**; der handgeschriebene
+> C++-MEX-Adapter ist jetzt die **einzige** Octave-Bindung. SWIG-Octave-Referenzen in
+> `bindings/swig` (Makefile-`octave`-Target, `OC_DIR`, `SWIGOCTAVE`-typemaps, CI-Schritte,
+> Benchmarks) wurden entsprechend bereinigt.
 
-## 10.2 Analyse der MEX-Details
+Der vorgesehene Pfad `Octave → MEX → C ABI → Rust Core` ist also aktiv und der einzige Weg.
 
-- **C vs. C++ MEX:** SWIG-Octave nutzt C++ (`mkoctfile`), was die Octave-Primitive
+## 10.2 MEX-Details
+
+- **C vs. C++ MEX:** Der Adapter ist C++ (`mkoctfile`), was die Octave-Primitive
   (`octave_value_list`, `octave_idx_type`) sauber indexiert. Die C-ABI bleibt rein C, die MEX
   ist die C++-Hülle.
 - **Array-Conversion:** `uint8`-Row-Arrays werden hin- und zurückkopiert; für größere
   Tile-Buffer ist das akzeptabel, aber **kein zero-copy** (Octave kopiert bei Zuweisung).
-- **Fehlerbehandlung:** C-ABI-Fehlercodes werden als `err_out`-Out-Parameter gemappt; Octave
-  erhält `[res, err]`-Rückgabewerte.
-- **Packaging:** Octave-Packages via `pkg` / `mkoctfile`; ein Octave-Package (`.m` +
-  `_ptiff.oct`) ist sinnvoll.
+- **Ressourcen-Handles:** Ein prozessglobales `uint64 → Resource`-Register (`registry()`)
+  hält offene Source/Sink-Handles; `ptiff_close`/`ptiff_sink_close` bzw.
+  `ptiff_octave('clear')` räumen auf.
+- **Fehlerbehandlung:** Die C-ABI-Fehlercodes werden via `check_rc(...)` in Octave-`error()`-
+  Objekte mit `ptiff:*`-Context übersetzt.
+- **Packaging:** Octave-Packages via `pkg` / `mkoctfile`; ein Octave-Package (`.m` + `_ptiff.oct`)
+  ist sinnvoll.
 - **Plattform:** Linux/macOS/Windows über mkoctfile; Status variiert (Windows-Octave weniger
   getestet als Linux).
 
 ## 10.3 Entscheidung: eigener `ptiff-octave`-Adapter?
 
-**Ja, ein eigener dünner `ptiff-octave`-Adapter zusätzlich zur SWIG-Bindung ist sinnvoll**, wenn
-man eine idiomatische Octave-API will (z. B. `ptiff.open`, `img.read_tile`, Matrizen-I/O auf
-`uint8`-Arrays). Der Adapter ruft die C-ABI (nicht den Rust-Kern direkt), so dass Octave die
-gleiche stabile ABI wie alle Sprachen nutzt.
+**Umgesetzt.** Der handgeschriebene C++-MEX-Adapter `ptiff_octave.cpp` plus die `.m`-API-
+Schicht (`ptiff_open.m`, `ptiff_read_tile.m`, `ptiff_create.m`, …) ist die idiomatische
+Octave-API (`ptiff.open`, `img.read_tile`, Matrizen-I/O auf `uint8`-Arrays). Er ruft die C-ABI
+(nicht den Rust-Kern direkt), so dass Octave die gleiche stabile ABI wie alle Sprachen nutzt.
 
-- **Empfohlen:** `bindings/octave/` erweitert um einen schlanken, handgeschriebenen C++-MEX-
-  Adapter `ptiff_octave.cpp` (der die C-ABI aufruft) plus eine `.m`-API-Schicht
-  (`ptiff_open.m`, `ptiff_image.m`, `ptiff_read_tile.m` …). Das SWIG-Modul bleibt als
-  Low-Level-Rückfall.
 - **Zero-copy:** Octave erlaubt kein echtes zero-copy über die MEX-Grenze; die Puffer kopieren
   wir, dokumentieren dies aber. Für typische Tile-Größen (256×256×…) ist das ok.
 - **Fehlerbehandlung:** MEX wirft bei Fehlercodes ein Octave-`error()`-Objekt mit
   `ptiff.*`-Kontext.
+- Kein SWIG-Octave-Low-Level-Rückfall mehr — der Adapter deckt die volle C-ABI-Oberfläche ab
+  (Version, ABI, Backends, Open/Close/Tiles, Create/Write, Info, Metadata, Camera, Logger).
 
 ## 10.4 Empfehlung
 
-`Octave → MEX (C++-Adapter) → C ABI → Rust Core` ist die saubere Zielarchitektur. Der
-bestehende SWIG-Octave-Pfad bleibt, bis der eigene `ptiff-octave`-Adapter Feature-Parität
-erreicht. Beide nutzen dieselbe C-ABI → kein doppelter Kern.
+`Octave → MEX (C++-Adapter) → C ABI → Rust Core` ist die saubere Zielarchitektur und die
+einzige implementierte Octave-Bindung (seit 2026-08-24; SWIG-Octave entfernt). Build + Test:
+
+```bash
+make -C bindings/octave/mex build
+make -C bindings/octave/mex test      # test_ptiff_mex_*.m Suite
+```
 
 ---
 
@@ -1335,7 +1347,7 @@ verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace -
 | 7 | **C-ABI (`ptiff-c`)** | ✅ **abgeschlossen (2026-08-24)** | der **einzige harte Blocker** für „libptiff löschen“ ist geschlossen. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **33 Unit-Tests grün** → 38 unit + 2 integration (flache Feld-Sicht, s. u.). **C-ABI-Fähigkeitstest gegen echtes C-Programm ✅** (`crates/ptiff-c/tests/c/ptiff_c_abiltest.c` gegen `staticlib`). **Logger ✅:** `ptiff_logger_*` forwarden jetzt auf den dependency-freien Core-Logger (set/level/log, Level-Ordering = C-Header). **Camera ✅:** `ptiff_open_path_camera` (read) + `ptiff_sink_create_camera` (write) über das strukturierte Camera-Domain; dafür die `ptiff.camera.*`-Feldnamen im Core-Marshal auf den C-ABI/Oracle-Kontrakt (`focal_length_x`, `rotation_*`, `position_*`) ausgerichtet (vorher `focal_px`/`rot_*`/`pos_*` — schematische Divergenz zum C++-Oracle geschlossen, Golden-Digest regeneriert). **Flache Feld-Sicht ✅ (2026-08-24):** `ptiff_open_path_fields` + `ptiff_fields_free` + `ptiff_field` implementiert (`crates/ptiff-c/src/metadata.rs`): re-derive der formatneutralen `StorageModel` über `TiffBackend::deserialize_model` (C++-Oracle-Vertrag), liefert alle `ptiff.<domain>.<name>`-Felder aus Tags 65001-65005 lexikographisch; 5 neue Unit-Tests (Null-Arg/Empty/NotFound/Roundtrip/Free) + 2 Integrationstests gegen den **C++-Oracle-Fixture** `scripts/samples/ptiff_interop_fixture.tif` grün (exakt die vom Go/Python/Ruby-Binding erwarteten `ptiff.camera.*`/`ptiff.spice.frame`-Werte). **38 Unit + 2 Integration + 1 C-Fähigkeitstest grün.** **R4-Bindings-Kompatibilitäts-Nachweis ✅ (2026-08-24):** Go/Python/Ruby tatsächlich gegen das Rust-`libptiff_c` laufen lassen — **Go 25/25, Python alle, Ruby alle bis auf 1 erwartete Version-Diff** (`test_runtime_version_fields` pinnt hart 0.3.0 = C++-Oracle-Version; Rust-ABI meldet korrekt 1.0.0; Schema funktioniert, runtime==compile). Dafür drei echte Rust-Gaps geschlossen: `ptiff_sink_create("")` leerer Pfad → NULL; `camera_from_model` Extrinsics optional (intrinsics-only OEM); `crs_from_model` akzeptiert RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`) aus dem Oracle-Fixture. Reproduzierbar via `CARGO_TARGET_DIR=/tmp/...` + `libptiff_c.pc` + `make {go,python,ruby}`. **Octave-Binding ✅ (2026-08-24, R4-Erweiterung):** `ptiff.oct` über SWIG gegen das Rust-`libptiff_c` neu gebaut (rpath → `target/debug`, sauberer Workflow ohne `/tmp`-Override) — **alle 8 Octave-Tests grün** (`run_tests_octave`): backend/error/image/logger/roundtrip/sink/version/wrapper; `test_wrapper` deckt die idiomatische Schicht (`Metadata`/`Camera`/`Image`) über den Oracle-Fixture ab und `test_sink` verifiziert den R4-Fix (Empty-Path→NULL); `test_version` prüft nur runtime==compile (kein hart kodierter Oracle-Version-Check), läuft daher gegen Rust-1.0.0 grün. **CRS-Writer RFC-0004 ✅ (2026-08-24):** `crs_fields` emittiert jetzt genau das normative RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`, `reference_frame` = effektives Frame), statt des Extended-Schemas (`planet_name`/`iau_id`/ellipsoid/`frame`/`param.*`) — geschlossene schematische Divergenz zum Oracle-Fixture; dokumentiert lossy (Name wird vom NAIF-`body` re-deriviert, Ellipsoid/Projektionsparameter werden nicht vom RFC-Schema getragen → UNSPECIFIED/unset); Reader liest weiterhin beide Schemata (Legacy-Extended rückwärtskompatibel). 3 neue Marshal-Tests (RFC-0004-Emissions-Konformanz, effektives Frame, Legacy-Extended-Read) + Byte-Roundtrip-Integrationstest angepasst. **498 Workspace-Tests grün, clippy + fmt clean.** Damit ist Löschen von `libptiff` deutlich entriskt (nicht mehr „vier tote Sprachbindings“). **Phase-7-Abschluss (2026-08-24):** Gap `PTIFF_ABI_VERSION` (§7.5) geschlossen — monotone Break-Counter-Konstante (`u32 = 1`) via cbindgen als `#define PTIFF_ABI_VERSION 1` ins Header exportiert (item_types += `constants`), Unit-Test + C-Fähigkeitstest (`#if PTIFF_ABI_VERSION >= 1`-Guard). Go-Bindings (20 Tests) + Ruby-Bindings (22 runs/86 assertions) re-verifiziert unverändert gegen Rust-`libptiff_c` grün. **39 Unit + 2 Oracle-Integration grün; Workspace-Wide ohne Regression; clippy + fmt clean.** |
 | 8 | C++-Wrapper (`ptiff-cpp`) | ✅ **abgeschlossen (2026-08-24)** | `bindings/cpp/` — moderner, **header-only** C++-Wrapper über `libptiff_c` (C++23: `std::expected`, RAII, `std::optional`, `std::source_location`), der die alten API-Namen über die C-ABI reproduziert: `Image`/`Scene`/`Reader`/`Writer`/`Result<T>`/`Error`/`ErrorCode`/`ImageDescriptor`/`PixelType`/`CompressionKind`/`TileInfo`/`Camera`/`ImageId`/Version. `detail/c_abi.hpp` marshallt den C-ABI-Slice (Layout/Enum-Werte gepinnt) self-contained. **Test (`test_ptiff_cpp`):** Version, Error-Code-Mapping, Image/Scene, voller Writer→Reader-Pixel-Roundtrip (pattern-verifiziert), strukturierter Camera-Write+Read, Negativpfade (NotFound/OutOfRange) → `ptiff_cpp: ALL OK` gegen Rust-`libptiff_c`. `make test` grün; CI (`cpp-bindings.yml`) in `ci.yml` verdrahtet. DoD Teil 2 „C++-Referenz läuft weiter“ entfällt (libptiff gelöscht, Phase 13); **API-Vertrag** unter gleichen Namen reproduziert. |
 | 9 | Python (PyO3) | ✅ **abgeschlossen (2026-08-24)** | `crates/ptiff-python` — **PyO3-Binding (Option B) über den Rust-Kern direkt** (kein SWIG/ctypes über die C-ABI): PyO3 0.29 + numpy 0.29 (rust-numpy), maturin-Packaging; sagt das idiomatische `ptiff`-Crate (→ `ptiff-core`). **NumPy-Tile-API:** `Image.read_tile(col,row)` → echtes `numpy.ndarray` (Shape `(tile_height, tile_width, channel_count)`, Sample-dtype aus dem File). **Full-Facade:** `open`/`Document` (Context-Manager) + `Image` (Width/Height/Channels/PixelType/TileGrid/read_tile → ndarray), `Camera` (structured read via `doc.camera(i)` + write via `create_image(camera=...)`, K/[R|t]/P-Matrizen), `Metadata` (read-only descriptor + generische `ptiff.*`-Felder = PDS-Layer), `Logger` (set_level/level/log + PTIFF_LOG_*-Konstanten), Version/`backend_names`/`abi_version`/`PTIFF_PIXEL_*`/`PTIFF_COMPRESSION_*`-Konstanten, `Sink`/`create_image`/`write_tile`/`close`-Write-Pfad über `Tiff::to_bytes_with_pixels`. **Tests:** 19 pytest = Feature-Parität zu SWIG (Version/Backend/Constant-Ordering/Logger-Image-Source-Sink-Metadata-Camera) + e2e Write→Read-Roundtrip inkl. uint16 + NumPy dtype/shape; 4 Rust-Unit-Tests ohne Python-Runtime. **Verifikation:** `maturin build --release` grün, `maturin develop` + pytest 19/19 grün; `cargo build/clippy/test --workspace` grün — ptiff-python ist als eigenständiges Crate (eigenes Cargo.lock) per `[workspace]`-Marker & root-`exclude` ausgelagert, damit ein purer Workspace-Build nie eine Python-Dev-Installation braucht; `extension-module` aktiviert nur maturin via pyproject. fmt clean. **CI:** `python-bindings-pyo3.yml` (maturin develop + pytest auf ubuntu-24.04/macos-latest) in `ci.yml`-Phase 2 + docs-build-needs verdrahtet. **Namenswahl:** PyO3-Modul heißt `ptiff_pyo3` (nicht `ptiff`), um die Kollision mit dem SWIG-`ptiff`-Paket (`bindings/python`) zu vermeiden, das bis zum Deprecation (Plan §9 DoD) der temporäre Rückfall bleibt; das PyO3-Oberflächen-Layout (open/Image/Camera/Metadata/Logger) ist so gehalten, dass es später unverändert als `ptiff`-Import übernommen werden kann. |
-| 10 | Octave (MEX über C-ABI) | ❌ | nicht begonnen |
+| 10 | Octave (MEX über C-ABI) | ✅ **abgeschlossen (2026-08-24)** | `bindings/octave/mex/` — handgeschriebener C++-MEX-Adapter (`ptiff_octave.cpp`, `mkoctfile`) + dünne `.m`-API (`ptiff_open/ptiff_source_info/ptiff_read_tile/ptiff_create/ptiff_write_tile/ptiff_sink_close/ptiff_info/ptiff_metadata/ptiff_logger_*`); features: Version/ABI/Backends, Open/Close/Tiles, Create/Write/Read-Back, Info, Metadata, Camera (intrinsics/extrinsics/projection), Logger. **SWIG-Octave entfernt** (`bindings/octave/lib`+`test/`, `bindings/swig`-`octave`-Target, CI- und Benchmark-Schritte) — MEX ist die einzige Octave-Bindung. 7x `test_ptiff_mex_*.m` + `run_ptiff_mex_tests.m` grün via `make -C bindings/octave/mex test`; CI `octave-bindings.yml` baut/testet MEX |
 | 11 | CLI auf `ptiff-core` | ✅ | `ptiff-cli/` läuft über das idiomatische `ptiff`-Crate direkt auf `ptiff-core` (`Tiff::open`/`read_image_pixels`/`tile_layout`/`to_bytes_with_pixels`); Reports Version über `ptiff::{APP_VERSION, VERSION_STR}`. Keine C-ABI/C++-Abhängigkeit mehr. 9 Unit + 8 Integrationstests grün |
 | 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | 🚧 **punktuell, nicht systematisch** | keine dedizierte Cross-Validation-Benchmark-Suite wie in §5/§17.0 vorgesehen; was existiert: golden-digest-Tests (vor der Löschung eingefroren) + R4-Bindings-Tests (Go/Python/Ruby/Octave) gegen ein eingefrorenes C++-Oracle-Fixture (`scripts/samples/ptiff_interop_fixture.tif`). Da `libptiff` inzwischen gelöscht ist, ist ein Nachholen der ursprünglich geplanten systematischen Cross-Validation **nicht mehr möglich**, außer durch Wiederherstellen von `libptiff` aus der Git-Historie |
 | 13 | PTIFF 1.0 (C++ archivieren) | ✅ **außer der Reihe erreicht** | `libptiff` in Commit `3fa458d` gelöscht (nicht nur archiviert), Workspace auf `1.0.0` gesetzt, Tag `v1.0.0-alpha.1` existiert. **Voraussetzung „Phase 12 vor 13" wurde nicht eingehalten** (s. Update-Hinweis oben) — Phase 5 (Parallelisierung, inzwischen ✅, s. Phase-5-Zeile) ebenfalls nicht vor 13 nachgeholt, entgegen der Reihenfolge-Empfehlung unten |
@@ -1528,14 +1540,20 @@ mit dem SWIG-`ptiff`-Paket (`bindings/python`), das bis zum Deprecation (DoD) de
 Rückfall bleibt; die PyO3-Oberfläche ist so geschnitten, dass sie später unverändert als `ptiff`
 übernommen werden kann.
 
-## Phase 10 – Octave (MEX via C-ABI)
-- **Ziel:** eigener `ptiff-octave`-Adapter (C++-MEX + `.m`-API) über ptiff-c; SWIG-Octave bleibt
-  Rückfall.
+## Phase 10 – Octave (MEX via C-ABI) ✅
+- **Status:** ✅ abgeschlossen (2026-08-24). Der handgeschriebene C++-MEX-Adapter
+  (`bindings/octave/mex/ptiff_octave.cpp`, gebaut mit `mkoctfile`) + dünne `.m`-API
+  (`ptiff_open/ptiff_source_info/ptiff_read_tile/ptiff_create/ptiff_write_tile/ptiff_sink_close/
+  ptiff_info/ptiff_metadata/ptiff_logger_*`) ist die **einzige** Octave-Bindung. Das SWIG-Octave-
+  Modul (`bindings/octave/lib` + `test/`) wurde **entfernt**; `bindings/swig`-Makefile-`octave`-
+  Target, `OC_DIR`, CI-Schritte und Benchmark-Pfade sind bereinigt (§10 oben).
+- **Ziel:** eigener `ptiff-octave`-Adapter (C++-MEX + `.m`-API) über ptiff-c; SWIG-Octave war
+  ursprünglich als Rückfall vorgesehen, ist aber zugunsten des MEX-Adapters entfernt.
 - **Betroffen:** `bindings/octave/`.
 - **Abhängigkeiten:** Phase 7.
-- **Tests:** Octave-Roundtrip + Feature-Paritätstest zur SWIG-Bindung.
+- **Tests:** 7x `test_ptiff_mex_*.m` + `run_ptiff_mex_tests.m` grün via `make -C bindings/octave/mex test`.
 - **Risiko:** Plattform (Windows-Octave).
-- **DoD:** `ptiff-octave` Feature-Parität; beide nutzen dieselbe ABI.
+- **DoD:** `ptiff-octave`-MEX-Adapter Feature-Parität erreicht; nutzt dieselbe ABI.
 
 ## Phase 11 – CLI
 - **Ziel:** `ptiff-cli` auf `ptiff-core` umstellen (statt nur über bindings/rust FFI), CLI-

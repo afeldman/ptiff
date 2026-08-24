@@ -1,10 +1,10 @@
 """PTIFF runtime access layer for the MCP server.
 
 Thin, dependency-light wrapper over the idiomatic ``ptiff`` object layer
-(bindings/python/src/ptiff): Metadata / Camera / Image / Tile. The SWIG raw
-C-ABI surface stays behind the object layer; the MCP uses only the promoted
-Python objects and the metadata they expose (structured camera calibration and
-PTIFF extension fields included).
+(Metadata / Camera / Image / Tile). The raw C-ABI surface stays behind the
+object layer; the MCP uses only the promoted Python objects and the metadata
+they expose (structured camera calibration and PTIFF extension fields
+included).
 """
 
 from __future__ import annotations

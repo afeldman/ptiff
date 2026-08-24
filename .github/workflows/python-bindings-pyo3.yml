@@ -1,10 +1,9 @@
 name: Python bindings (ptiff-python / PyO3)
 
-# Builds and tests the new PyO3 Python binding (crates/ptiff-python, Plan §9
-# Option B): a maturin-driven extension module over the Rust core (ptiff →
+# Builds and tests the current Python binding (crates/ptiff-python, Plan §9
+# Option B): a maturin-driven PyO3 extension module over the Rust core (ptiff →
 # ptiff-core), with a NumPy-integrated tile API. The legacy SWIG Python module
-# (bindings/python) is tested separately in python-bindings.yml and remains the
-# fallback until deprecated.
+# (bindings/python) has been removed, so this is the only Python binding.
 
 on:
   workflow_call:

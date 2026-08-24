@@ -1,18 +1,19 @@
 # Multi-language SWIG build for the libptiff C ABI (bindings/swig).
 #
-# One ptiff.i drives FOUR SWIG targets with per-language buffer/out-param
-# typemaps (typemaps.i, guarded by SWIGPYTHON / SWIGGO / SWIGRUBY /
-# SWIGOCTAVE). Output goes into per-language subdirs so the generated
-# `ptiff_wrap.c` files don't collide.
+# One ptiff.i drives TWO SWIG targets (Go + Ruby) with per-language
+# buffer/out-param typemaps (typemaps.i, guarded by SWIGGO / SWIGRUBY). Output
+# goes into per-language subdirs so the generated `ptiff_wrap.c` files don't
+# collide. The Python binding is no longer built from SWIG (PyO3, crates/
+# ptiff-python), and the Octave binding is now the hand-written MEX adapter
+# (bindings/octave/mex/).
 #
 # Targets:
-#   make            build all four (python + go + ruby + octave)
-#   make python     build the Python extension (python/_ptiff.so)
+#   make            build both (go + ruby) -- the Octave binding is now the
+#                   hand-written MEX adapter (bindings/octave/mex/), not SWIG
 #   make go         scaffold the Go module (go/ptiff.go, ptiff_wrap.c, go.mod,
 #                   cgo_flags.go) ready for `go test ./...` in go/
 #   make ruby       build the Ruby extension (ruby/ptiff.$(DLEXT))
-#   make octave     build the Octave module (octave/lib/ptiff.oct)
-#   make test       build then run all four round-trip (and feature) tests
+#   make test       build then run both round-trip (and feature) tests
 #   make clean      remove generated outputs
 #
 # The C ABI now comes from the Rust core: cbindgen (crates/ptiff-c/build.rs)
@@ -25,27 +26,22 @@ RUBY      ?= ruby
 GO        ?= go
 SWIG      ?= swig
 CC        ?= cc
-OCTAVE    ?= octave
-MKOCTFILE ?= mkoctfile
 
 # Paths into the Rust workspace `target/` (both resolved from bindings/swig/).
 C_ABI_DIR := ../../target
 GEN_DIR := real_inc
 C_LIB_DIR := ../../target/release
 
-# Per-language output dirs. PY_DIR, GO_DIR and RB_DIR are PROMOTED, official
-# locations (see the "alles in SWIG" migration notes in README.md) --
-# Python's package root (bindings/python/src/) is flat, matching what
-# `swig -python` itself emits (a top-level ptiff.py + _ptiff.so, no package
-# subdirectory). Ruby's is bindings/ruby/lib/ (Ruby convention: `require
-# "ptiff"` resolves the platform-native shared extension (`ptiff.bundle` on
-# macOS, `ptiff.so` on Linux) off $LOAD_PATH/RUBYLIB, same as any other lib/
-# file) -- SWIG -ruby emits only ptiff_wrap.c plus that compiled extension, no
-# separate .rb stub, so lib/ptiff/version.rb (hand-authored, gem version
-# metadata only) is the sole survivor of the old Fiddle wrapper.
+# Per-language output dirs. GO_DIR and RB_DIR are PROMOTED, official
+# locations (see the "alles in SWIG" migration notes in README.md). Ruby's
+# binding is bindings/ruby/lib/ (Ruby convention: `require "ptiff"` resolves
+# the platform-native shared extension (`ptiff.bundle` on macOS, `ptiff.so` on
+# Linux) off $LOAD_PATH/RUBYLIB, same as any other lib/ file) -- SWIG -ruby
+# emits only ptiff_wrap.c plus that compiled extension, no separate .rb stub,
+# so lib/ptiff/version.rb (hand-authored, gem version metadata only) is the
+# sole survivor of the old Fiddle wrapper.
 GO_DIR  := ../go/ptiff
 RB_DIR  := ../ruby/lib
-OC_DIR  := ../octave/lib
 GO_MODULE := github.com/crater/ptiff-go
 
 PKGCONF := $(shell command -v pkg-config)
@@ -142,49 +138,24 @@ $(RB_DIR)/ptiff.$(RBDLEXT): $(RB_DIR)/ptiff_wrap.c
 ruby: $(RB_DIR)/ptiff.$(RBDLEXT)
 
 # ============================================================
-# Octave
-# ============================================================
-# mkoctfile drives its own compiler; pass the -L / -l flags separately
-# (mkoctfile chokes on a combined "-L<path> -l<name>" single argv). SWIG
-# generates C++ for Octave (the octave_swig_ref runtime and octave_value API
-# are C++), so we compile the wrapper as .cpp via mkoctfile. LIB_DIR and
-# LIBC_CFLAGS come from the resolution block above.
-OC_LIBDIR := $(LIB_DIR)
-OC_LDIR   := -L$(LIB_DIR)
-OC_LIB    := -lptiff_c
-
-$(OC_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
-	$(SWIG) -octave -outdir $(OC_DIR) -o $(OC_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
-
-$(OC_DIR)/ptiff.oct: $(OC_DIR)/ptiff_wrap.c
-	cp $(OC_DIR)/ptiff_wrap.c $(OC_DIR)/ptiff_wrap.cpp
-	$(MKOCTFILE) $(OC_DIR)/ptiff_wrap.cpp $(LIBC_CFLAGS) $(OC_LDIR) $(OC_LIB) -Wl,-rpath,$(OC_LIBDIR) -o $@
-
-octave: $(OC_DIR)/ptiff.oct staticlib
-
-# ============================================================
 # Aggregate
 # ============================================================
-all: go ruby octave
+all: go ruby
 
-# Python's, Ruby's and Octave's promoted tests live in bindings/{python,ruby,
-# octave}/test/, separate from the promoted package dirs (PY_DIR/RB_DIR/
-# OC_DIR) -- PYTHONPATH/RUBYLIB/OCTAVE_PATH point the test run at the
+# Ruby's promoted tests live in bindings/ruby/test/, separate from the
+# promoted package dir (RB_DIR) -- RUBYLIB points the test run at the
 # generated module.
 RB_TEST_DIR := ../ruby/test
-OC_TEST_DIR := ../octave/test
 
 test: all
 	cd $(GO_DIR) && $(GO) test ./...
 	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) test_roundtrip.rb
 	cd $(RB_TEST_DIR) && RUBYLIB=$(abspath $(RB_DIR)) $(RUBY) -e 'Dir.glob("test_{version,logger,backend,error,image,sink}.rb").each { |f| require_relative f }'
-	$(OCTAVE) --quiet --no-gui --eval "addpath('$(abspath $(OC_DIR))'); addpath('$(abspath $(OC_TEST_DIR))'); run(fullfile('$(abspath $(OC_TEST_DIR))','run_tests_octave.m'));"
 
 clean:
 	rm -rf $(GEN_DIR)
 	rm -rf $(GO_DIR)/ptiff.go $(GO_DIR)/ptiff_wrap.c $(GO_DIR)/cgo_flags.go $(GO_DIR)/roundtrip_go.tif
 	rm -rf $(GO_MODROOT)go.sum
 	rm -rf $(RB_DIR)/ptiff_wrap.c $(RB_DIR)/ptiff.bundle $(RB_DIR)/ptiff.so $(RB_TEST_DIR)/roundtrip_ruby.tif
-	rm -rf $(OC_DIR)/ptiff_wrap.c $(OC_DIR)/ptiff_wrap.cpp $(OC_DIR)/ptiff.oct
 
-.PHONY: all go ruby octave test clean staticlib
+.PHONY: all go ruby test clean staticlib

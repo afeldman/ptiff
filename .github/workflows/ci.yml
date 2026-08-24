@@ -62,11 +62,6 @@ jobs:
     needs: [rust-core, rust-cli]
     uses: ./.github/workflows/octave-bindings.yml
 
-  bindings-python:
-    name: Phase 2 · Python bindings
-    needs: [rust-core, rust-cli]
-    uses: ./.github/workflows/python-bindings.yml
-
   bindings-ruby:
     name: Phase 2 · Ruby bindings
     needs: [rust-core, rust-cli]
@@ -90,7 +85,6 @@ jobs:
     needs:
       - bindings-go
       - bindings-octave
-      - bindings-python
       - bindings-python-pyo3
       - bindings-ruby
       - bindings-cpp

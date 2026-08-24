@@ -16,7 +16,7 @@ benchmarks/
 │   ├── bench_python.py        # SWIG Python binding benchmark
 │   ├── bench_ruby.rb          # SWIG Ruby binding benchmark
 │   ├── bench_go.go            # SWIG Go binding benchmark  (+ benchmarks/go.mod)
-│   ├── bench_octave.m         # SWIG Octave binding benchmark
+│   ├── bench_octave.m         # Octave MEX binding benchmark
 │   ├── bench_cli.py           # ptiff CLI end-to-end (fresh subprocess) benchmark
 │   └── summary.py             # folds per-language JSONs into summary.md/.csv
 ├── rust_bench/                # Rust binding benchmark crate (Cargo project)
@@ -82,9 +82,10 @@ From `benchmarks/`:
 BENCH_REPEATS=10 BENCH_ITERS=25 ./run_benchmarks.sh   # shorter/faster run
 ```
 
-The script needs the four SWIG bindings built (`make -C bindings/swig
-python|ruby|go|octave`) against the Rust-built C ABI (`cargo build -p ptiff-c
---release` → `target/release/libptiff_c.*`). The `cli` step builds the CLI
+The script needs the language bindings built against the Rust-built C ABI
+(`cargo build -p ptiff-c --release` → `target/release/libptiff_c.*`): the SWIG
+bindings via `make -C bindings/swig go|ruby`, the Octave MEX binding via
+`make -C bindings/octave/mex build`. The `cli` step builds the CLI
 (`crates/ptiff-cli`) automatically if needed. No pkg-config or installed prefix
 is used — the SWIG Go `cgo_flags.go`, the rpaths and the Rust workspace resolve
 `libptiff_c` / `ptiff` from `target/release` / the cargo workspace directly.
@@ -114,10 +115,10 @@ numbers, run locally on a quiet machine with the default knobs (as above).
   metadata-opens (`ptiff::open_path`) — flagged in the summary, not pixel
   decodes. Its `write_all_tiles_ms` is comparable to the other languages'.
 * **Octave is consistently the slowest on tile I/O** (roughly 2× on
-  `read_uint8_512`, ~2.2× on `read_f32_512`): each SWIG call crosses the Octave
-  interpreter, which is more expensive than CPython/CRuby/cgo for a hot tile
-  loop. Go and Rust are the fastest on write; Go is marginally the fastest on
-  tile reads here.
+  `read_uint8_512`, ~2.2× on `read_f32_512`): each MEX call crosses the Octave
+  interpreter / `.oct` boundary, which is more expensive than CPython/CRuby/cgo
+  for a hot tile loop. Go and Rust are the fastest on write; Go is marginally
+  the fastest on tile reads here.
 * The **CLI rows** are an order of magnitude larger than the in-process rows
   (≈7 ms vs <1 ms): they measure full process *lifetime* — spawn, dylib load,
   parse, print — which dominates any single `ptiff info`. The `nac` vs `uint8`

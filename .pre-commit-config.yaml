@@ -78,7 +78,7 @@ repos:
         types: [cmake]
 
   # ---------------------------------------------------------------------------
-  # Python (bindings/python + bindings/mcp), excludes SWIG-generated files
+  # Python (bindings/mcp), excludes SWIG-generated files
   # ---------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.0
