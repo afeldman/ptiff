@@ -181,7 +181,7 @@ pub extern "C" fn ptiff_open_path_fields(
                 });
             }
             let array_ptr = array.as_mut_ptr();
-            std::mem::forget(array);    // ownership transfers to the caller
+            std::mem::forget(array); // ownership transfers to the caller
                                         // Safety: out/out_count validated non-null; array_ptr is a heap
                                         // allocation freed only via ptiff_fields_free.
             unsafe {
@@ -388,7 +388,7 @@ mod tests {
             .collect();
 
         // Lexicographic order by key.
-        let expected = vec![
+        let expected = [
             ("ptiff.camera.focal_length_x", "700.0"),
             ("ptiff.camera.focal_length_y", "700.0"),
             ("ptiff.camera.model", "pinhole"),

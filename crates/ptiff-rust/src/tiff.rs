@@ -648,12 +648,12 @@ mod tests {
         assert_eq!(camera.timestamp(), "2026-08-21T12:34:56.000Z");
 
         let crs = image.crs().expect("crs round-tripped");
+        // RFC-0004 carries body / projection / reference_frame only: the name
+        // is re-derived from the NAIF body id, and the ellipsoid (not part of
+        // the registered schema) is deliberately lossy → UNSPECIFIED.
         assert_eq!(crs.planet().name(), "Moon");
         assert_eq!(crs.planet().iau_identifier(), "301");
-        assert_eq!(
-            crs.planet().ellipsoid(),
-            Ellipsoid::new(1_737_400.0, 1_735_700.0)
-        );
+        assert_eq!(crs.planet().ellipsoid(), Ellipsoid::UNSPECIFIED);
         assert_eq!(crs.frame_override(), Some(Frame::SPACECRAFT));
         assert_eq!(crs.projection().kind(), ProjectionKind::Stereographic);
     }
