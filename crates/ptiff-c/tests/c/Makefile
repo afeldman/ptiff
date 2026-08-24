@@ -17,7 +17,14 @@ OUT_TIF      := ptiff_c_abiltest_out.tif
 
 CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra -std=c11
+# libdl doesn't exist on Windows (dlopen-equivalents ship in the CRT/kernel32
+# already); MinGW's ld fails outright with "cannot find -ldl" if it's listed.
+UNAME_S := $(shell uname -s 2>/dev/null)
+ifneq (,$(findstring MINGW,$(UNAME_S))$(findstring MSYS,$(UNAME_S)))
+LDFLAGS ?= -lpthread -lm
+else
 LDFLAGS ?= -lpthread -ldl -lm
+endif
 
 .PHONY: all build run staticlib clean
 
@@ -32,8 +39,12 @@ $(BIN): $(SRC) Makefile
 	@test -f $(HEADERS)/ptiff_c.h || (echo "ptiff_c.h fehlt — läuft cargo build (generiert ihn)"; cd ../../../.. && cargo build -p ptiff-c)
 	$(CC) $(CFLAGS) -I$(HEADERS) $(SRC) -L$(LIBDIR) -lptiff_c $(LDFLAGS) -o $@
 
+# The `libptiff_c` shared object/DLL sits in $(LIBDIR), not next to the
+# binary, so the dynamic loader needs to be pointed at it explicitly:
+# LD_LIBRARY_PATH (Linux), DYLD_LIBRARY_PATH (macOS, harmless if unused),
+# PATH (Windows, which resolves DLLs via PATH, not rpath).
 run: $(BIN)
-	./$(BIN)
+	LD_LIBRARY_PATH="$(LIBDIR):$$LD_LIBRARY_PATH" DYLD_LIBRARY_PATH="$(LIBDIR):$$DYLD_LIBRARY_PATH" PATH="$(LIBDIR):$$PATH" ./$(BIN)
 
 clean:
 	rm -f $(BIN) $(OUT_TIF) $(CAMERA_TIF)
