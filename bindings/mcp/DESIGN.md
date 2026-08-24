@@ -15,23 +15,26 @@ direkt zu fassen.
 
 Der MCP-Server ist **kein Kernteil von `libptiff`**. Er ist eine zusätzliche
 Anwendungs-Ebene, die ausschließlich über die vorhandene, sprachneutrale
-C-ABI-Veneer `libptiff_c` auf die Bibliothek zugreift — konkret über die
-SWIG-Python-Bindings (`bindings/python`). So gilt:
+C-ABI `libptiff_c` auf die Bibliothek zugreift — konkret über die
+SWIG-Python-Bindings (`bindings/python`). Diese C-ABI wird jetzt vom
+Rust-Crate [`crates/ptiff-c`](../../crates/ptiff-c) gebaut
+(`cargo build -p ptiff-c --release` → `target/release/libptiff_c.*`, Header
+`target/ptiff_c.h`). So gilt:
 
-- Keine Änderung an `bindings/c`, `bindings/swig` oder `libptiff` selbst.
+- Keine Änderung an `crates/ptiff-c`, `bindings/swig` oder `libptiff` selbst.
 - Der Server lebt in `bindings/mcp/`, analog zu den bestehenden Sprachanbindungen.
 - Neuer fachlicher Bedarf (z. B. ein zusätzliches Feld) wird zuerst als Feature
   der C-ABI + Python-Bindung umgesetzt, danach als MCP-Tool.
 
 ```
-                    libptiff (C++23)
-                         │
-                 bindings/c → libptiff_c  (extern "C" Veneer)
-                         │
+    crates/ptiff-rust + ptiff-core (idiomatischer Rust-Core)
+         │
+ crates/ptiff-c → libptiff_c  (Rust-extern-"C"-C-ABI)   ←  cargo build -p ptiff-c
+         │
        bindings/python (SWIG, promoted)  ← ptiff module
-                         │
+         │
              bindings/mcp (dieser Server)
-                         │
+         │
                      MCP-Client / LLM
 ```
 
@@ -41,13 +44,15 @@ SWIG-Python-Bindings (`bindings/python`). So gilt:
 - Abhängigkeiten: das offizielle `mcp`-Paket (≥ 2.0) + `numpy` (für
   Pixel-Sampling). Die Bindbar `ptiff` wird aus `bindings/python/src` geladen.
 - Wie die übrigen Bindings findet der Server `libptiff_c` über die
-  Umgebungsvariablen `PTIFF_C_LIB_DIR` / `PTIFF_LIB_DIR` oder pkg-config
-  (siehe `bindings/python/README.md` → "Prerequisites").
+  Umgebungsvariablen `PTIFF_C_LIB_DIR` / `PTIFF_LIB_DIR` oder den
+  Rust-Build-Output `target/release` (siehe `bindings/python/README.md` →
+  "Prerequisites"). `cargo build -p ptiff-c --release` erzeugt beides.
 - Transport: **stdio** (der einfachste Weg für lokale MCP-Clients). Start:
 
   ```bash
   cd bindings/mcp
-  PTIFF_C_LIB_DIR=/pfad/.../bindings/c PTIFF_LIB_DIR=/pfad/.../libptiff \
+  PTIFF_C_LIB_DIR=/pfad/zu/<repo>/target/release PTIFF_LIB_DIR=/pfad/zu/<repo>/target/release \
+  PYTHONPATH=src:../python/src \
   .venv/bin/python -m ptiff_mcp.server
   ```
 

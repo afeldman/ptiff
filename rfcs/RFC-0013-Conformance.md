@@ -44,8 +44,8 @@ in `conformance/levels.md`:
 Higher levels (camera, CRS, SPICE, stereo, photometry, mesh, AI) are reserved for the
 corresponding extension RFCs and land in the suite as those RFCs are ratified.
 
-Executable tests live in `libptiff/tests/conformance/`, the tracing matrix in
-`conformance/matrix.md`. Keywords use RFC 2119 / RFC 8174 per RFC-0001 §10.
+Executable tests live in `crates/ptiff-core/tests/` (Rust integration tests), the tracing
+matrix in `conformance/matrix.md`. Keywords use RFC 2119 / RFC 8174 per RFC-0001 §10.
 
 ---
 
@@ -74,4 +74,4 @@ claimed level.
 - `RFC-0001-Core.md` — §10 (terminology), §17 item 11, non-goal NG5.
 - `RFC-7002` — tag-allocation basis for Level 1.
 - Reference implementation: `conformance/levels.md`, `conformance/matrix.md`,
-  `libptiff/tests/conformance/`.
+  `crates/ptiff-core/tests/`.

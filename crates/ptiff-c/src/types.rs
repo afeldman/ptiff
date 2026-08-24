@@ -1,9 +1,9 @@
 //! FFI-safe value types shared by the C-ABI surface and the Core-type
 //! marshalling helpers.
 //!
-//! These mirror the structs in `bindings/c/ptiff_image_bridge.h` exactly
-//! (`#[repr(C)]`) because they cross the ABI boundary by value. They are
-//! deliberately C-shaped (plain fields, no lifetimes) so every FFI runtime
+//! These #[repr(C)] structs are emitted into `target/ptiff_c.h` by cbindgen
+//! because they cross the ABI boundary by value. They are deliberately
+//! C-shaped (plain fields, no lifetimes) so every FFI runtime
 //! reads them with the same layout as the C header describes.
 
 #![allow(non_camel_case_types)]

@@ -1,4 +1,4 @@
-//! Camera C ABI (`bindings/c/ptiff_camera.h`).
+//! Camera C ABI (emitted into `target/ptiff_c.h` by cbindgen from this crate).
 //!
 //! The `ptiff_camera` struct is a structured view of the `ptiff.camera.*`
 //! extension fields: pinhole intrinsics, extrinsics (rotation quaternion +
@@ -9,7 +9,7 @@
 //! (`ptiff_core::geometry::Camera`) and round-trips it through the PTIFF tags
 //! 65002/65003 via `geometry::marshal`. On top of that, [`ptiff_open_path_camera`]
 //! decodes the full structured `ptiff_camera` from a file (matching the C++
-//! oracle in `bindings/c/ptiff_image_bridge.cpp`), and
+//! oracle the original `bindings/c` veneer implemented), and
 //! `ptiff_sink_create_camera` (in `pixel_bridge.rs`) attaches it to a write.
 
 use ptiff_core::{Camera, Extrinsics, Intrinsics, Quaternion, Vec3};
@@ -20,8 +20,13 @@ use crate::error::{ptiff_error_code, to_c_error};
 
 /// Mirror of the C `ptiff_camera` struct (`ptiff_camera.h`).
 ///
-/// All matrices are row-major `double`s; `projection = K * [R|t]` (3×4). The
-/// `has_*` flags are `0` when the corresponding field group is absent.
+/// A structured view of the `ptiff.camera.*` extension fields: the pinhole
+/// intrinsics (fx, fy, cx, cy), the extrinsics (rotation quaternion + world
+/// translation), the ISO-8601 observation timestamp, and the three derived
+/// matrices. All matrices are row-major `double`s. `has_intrinsics` /
+/// `has_extrinsics` are `0` when the corresponding field group is absent from
+/// the file; `projection` is set whenever both groups are present.
+/// `timestamp` is an empty string when unset.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct ptiff_camera {
@@ -44,8 +49,10 @@ pub struct ptiff_camera {
     pub extrinsics: [f64; 12],
     // projection: P = K * [R|t]
     pub projection: [f64; 12],
-    // ISO-8601 UTC observation timestamp
-    pub timestamp: [u8; 64],
+    // ISO-8601 UTC observation timestamp (a NUL-terminated char buffer;
+    // cbindgen emits `char[64]`, the ABI shape every foreign runtime assigns
+    // as a plain string).
+    pub timestamp: [c_char; 64],
 }
 
 impl ptiff_camera {
@@ -69,7 +76,7 @@ impl ptiff_camera {
             position_z: 0.0,
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
-            timestamp: [0u8; 64],
+            timestamp: [0 as c_char; 64],
         }
     }
 }
@@ -111,7 +118,10 @@ fn camera_to_c(cam: &Camera) -> ptiff_camera {
     // Timestamp (truncate safely into the fixed buffer, NUL-terminated).
     let ts = cam.timestamp().as_bytes();
     let n = ts.len().min(out.timestamp.len() - 1);
-    out.timestamp[..n].copy_from_slice(&ts[..n]);
+    for (i, b) in ts[..n].iter().enumerate() {
+        out.timestamp[i] = (*b) as c_char;
+    }
+    // out.timestamp[n..] stays zero (from c_default), i.e. a trailing NUL.
 
     out
 }
@@ -143,19 +153,20 @@ pub fn camera_from_c(cam: &ptiff_camera) -> Camera {
     )
 }
 
-/// Reads a NUL-terminated (or blank-padded) `[u8; 64]` timestamp into a `String`.
-fn read_timestamp(buf: &[u8; 64]) -> String {
+/// Reads a NUL-terminated (or blank-padded) `[c_char; 64]` timestamp into a `String`.
+fn read_timestamp(buf: &[c_char; 64]) -> String {
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8_lossy(&buf[..end]).into_owned()
+    let bytes: Vec<u8> = buf[..end].iter().map(|&b| b as u8).collect();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// Reads the structured camera calibration decoded from the `ptiff.camera.*`
 /// extension fields of the file at `path`.
 ///
-/// Matches the C++ oracle: returns `0` on success and fills `*out` (with the
-/// `has_*` flags set when the camera domain is present, otherwise an all-zero
-/// struct), and a negative `ptiff_error_code` on failure (missing/invalid file,
-/// leaving `*out` untouched).
+/// Returns `0` on success and fills `*out` (with the `has_*` flags set when
+/// the camera domain is present, otherwise an all-zero struct), and a negative
+/// `ptiff_error_code` on failure (missing/invalid file, leaving `*out`
+/// untouched).
 ///
 /// # Safety
 ///

@@ -1,6 +1,0 @@
-@PACKAGE_INIT@
-
-# Pull in the exported ptiff_c target (and any ptiff dependency it needs).
-include("${CMAKE_CURRENT_LIST_DIR}/ptiff_cTargets.cmake")
-
-check_required_components(ptiff_c)

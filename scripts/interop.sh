@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # P-1 (documents/paper/ACTION_PLAN.md): interoperability + overhead experiment.
 #
-# 1. Builds gen_interop_fixture (PTIFF_BUILD_INTEROP_SCRIPTS) and generates real,
-#    complete fixtures (TIFF/PDS4/ISIS3, with and without the 5 PTIFF private
-#    tags / equivalent metadata) plus GeoTIFF(+GDAL_METADATA) and TIFF+sidecar
-#    variants for a size/overhead comparison.
+# 1. Generates fixtures via the Rust example `write_ptiff_fixture`
+#    (PTIFF TIFF with/without the 5 PTIFF private tags) plus GeoTIFF
+#    (+GDAL_METADATA) and TIFF+sidecar variants for a size/overhead
+#    comparison.
 # 2. Reads the PTIFF fixture with tiffinfo, gdalinfo, ImageMagick identify,
 #    macOS sips, Python Pillow and OpenCV -- logs expected vs. actual.
 # 3. Prints a size/overhead table and a decode-time sample (gdalinfo, median
@@ -18,7 +18,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUILD_DIR=build/Debug
 SAMPLES=scripts/samples
 RESULTS=scripts/results
 mkdir -p "$SAMPLES" "$RESULTS"
@@ -27,19 +26,15 @@ LOG="$RESULTS/interop.log"
 
 log() { echo "$@" | tee -a "$LOG"; }
 
-log "== Build gen_interop_fixture =="
-cmake --preset conan-debug -DPTIFF_BUILD_INTEROP_SCRIPTS=ON >>"$LOG" 2>&1
-cmake --build --preset conan-debug --target gen_interop_fixture >>"$LOG" 2>&1
-GEN="$BUILD_DIR/scripts/gen_interop_fixture"
-
-log ""
-log "== Generate fixtures (128x128, tiled single-tile, gradient pixels) =="
-for b in tiff pds4 isis; do
-    "$GEN" "$b" "$SAMPLES/fixture_${b}_meta.bin" 128 128 | tee -a "$LOG"
-done
-for b in tiff pds4 isis; do
-    "$GEN" "$b" "$SAMPLES/fixture_${b}_nometa.bin" 128 128 --no-ptiff-fields | tee -a "$LOG"
-done
+log "== Generate PTIFF fixtures via the idiomatic Rust example =="
+# The C++ gen_interop_fixture was removed with libptiff (2026-08-24); the PTIFF
+# fixtures are now written by the Rust example `write_ptiff_fixture` (a 64x64
+# tiled TIFF with/without the camera/CRS private tags).
+RUST_EX="cargo run -q -p ptiff --example write_ptiff_fixture --"
+$RUST_EX "$SAMPLES/fixture_tiff_meta.bin" with-tags | tee -a "$LOG"
+$RUST_EX "$SAMPLES/fixture_tiff_nometa.bin" plain | tee -a "$LOG"
+# PDS4/ISIS3/GeoTIFF fixture generation (backends not exposed by the idiomatic
+# crate) is a deferred paper follow-up; the GDAL cross-check below is skipped.
 
 log ""
 log "== GeoTIFF (+GDAL_METADATA) and TIFF+sidecar variants =="
@@ -106,27 +101,37 @@ print('cv2 OK' if img is not None else 'cv2 FAILED', None if img is None else im
 " >>"$LOG" 2>&1 || log "  FAILED"
 
 log ""
-log "== Cross-check: can GDAL open our PDS4/ISIS backend output at all? =="
-if gdalinfo "$SAMPLES/fixture_pds4_meta.bin" >>"$LOG" 2>&1; then
-  log "pds4: opened"
+log "== Cross-check: can GDAL open the (deferred) PDS4/ISIS output? =="
+# The PDS4/ISIS fixture writers (backend-specific, C++) were removed with
+# libptiff; regenerating them from Rust is a deferred paper follow-up. The
+# GDAL cross-check below therefore runs only if a fixture already exists.
+if [ -f "$SAMPLES/fixture_pds4_meta.bin" ]; then
+  if gdalinfo "$SAMPLES/fixture_pds4_meta.bin" >>"$LOG" 2>&1; then
+    log "pds4: opened"
+  else
+    log "pds4: GDAL refused (expected -- minimal, non-standard label schema, see paper)"
+  fi
 else
-  log "pds4: GDAL refused (expected -- minimal, non-standard label schema, see paper)"
+  log "pds4: skipped (fixture writer deferred to Rust)"
 fi
-if gdalinfo "$SAMPLES/fixture_isis_meta.bin" >>"$LOG" 2>&1; then
-  log "isis: opened"
+if [ -f "$SAMPLES/fixture_isis_meta.bin" ]; then
+  if gdalinfo "$SAMPLES/fixture_isis_meta.bin" >>"$LOG" 2>&1; then
+    log "isis: opened"
+  else
+    log "isis: GDAL refused (expected -- minimal, non-standard label schema, see paper)"
+  fi
 else
-  log "isis: GDAL refused (expected -- minimal, non-standard label schema, see paper)"
+  log "isis: skipped (fixture writer deferred to Rust)"
 fi
 
 log ""
-log "== Size/overhead table (128x128 UInt8, identical logical metadata) =="
+log "== Size/overhead table (64x64 UInt8, identical logical metadata) =="
 printf "%-30s %10s %10s %10s\n" "Variant" "no-meta(B)" "meta(B)" "overhead(B)" | tee -a "$LOG"
 size() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
-for pair in "PTIFF (tiff):fixture_tiff" "PDS4+RAW:fixture_pds4" "ISIS3-CUB:fixture_isis"; do
-    label="${pair%%:*}"; base="${pair##*:}"
-    n=$(size "$SAMPLES/${base}_nometa.bin"); m=$(size "$SAMPLES/${base}_meta.bin")
-    printf "%-30s %10s %10s %10s\n" "$label" "$n" "$m" "$((m - n))" | tee -a "$LOG"
-done
+pair="PTIFF (tiff):fixture_tiff"
+label="${pair%%:*}"; base="${pair##*:}"
+n=$(size "$SAMPLES/${base}_nometa.bin"); m=$(size "$SAMPLES/${base}_meta.bin")
+printf "%-30s %10s %10s %10s\n" "$label" "$n" "$m" "$((m - n))" | tee -a "$LOG"
 n=$(size "$SAMPLES/fixture_geotiff_nometa.tif"); m=$(size "$SAMPLES/fixture_geotiff_meta.tif")
 printf "%-30s %10s %10s %10s\n" "GeoTIFF (GDAL_METADATA)" "$n" "$m" "$((m - n))" | tee -a "$LOG"
 sc=$(size "$SAMPLES/fixture_sidecar_meta.json")

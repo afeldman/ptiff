@@ -19,6 +19,12 @@ documentation.workspace = true
 rust-version.workspace = true
 description = "Idiomatic Rust API over the PTIFF 1.0 core (planetary image standard)"
 
+[features]
+default = []
+# Remote (HTTP range) reading of a PTIFF over the network. Turns the core's
+# `http-range-reader` (ureq) on and exposes `RemoteTiff::open_remote`.
+remote = ["ptiff-core/http-range-reader"]
+
 [dependencies]
 # The single maintained core. The idiomatic crate deliberately re-exports the
 # core's domain types and adds ergonomic high-level entry points on top.

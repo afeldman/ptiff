@@ -1,14 +1,16 @@
 name: Release
 
-# Builds tagged releases of libptiff as native OS packages and publishes them as
-# a GitHub Release, and re-triggers the Pages + docs build for the tag.
+# Builds tagged releases of the PTIFF Rust library as native OS packages and
+# publishes them as a GitHub Release, and re-triggers the Pages + docs build
+# for the tag.
 #
-#   Linux (ubuntu-latest):  clang + Ninja -> CPack DEB + RPM
-#   macOS (macos-latest):   AppleClang + Ninja -> pkgbuild .pkg
+#   Linux (ubuntu-latest):  Rust + Ninja -> CPack DEB + RPM
+#   macOS (macos-latest):   Rust + Ninja -> CPack productbuild .pkg
 #
-# Each package carries the shared libptiff / libptiff_c libraries, their public
-# headers, the CMake/pkg-config metadata and the Rust `ptiff` CLI (built against
-# the same installed prefix).
+# Each package carries the Rust `ptiff` CLI (crates/ptiff-cli, a pure-Rust
+# workspace binary over ptiff-core) and the C ABI `libptiff_c` (crates/ptiff-c:
+# shared + static lib, cbindgen header, pkg-config). There is no C++ library:
+# `cargo` is the build, CMake only wraps the install + CPack packaging.
 
 on:
   push:
@@ -25,161 +27,67 @@ jobs:
         include:
           - os: ubuntu-latest
             label: Linux
-            generator: Ninja
             packages: deb+rpm
           - os: macos-latest
             label: macOS
-            generator: Ninja
             packages: pkg
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
 
-    env:
-      # Prefer clang (the project's preferred compiler) on both platforms.
-      CC: clang
-      CXX: clang++
-      CTEST_OUTPUT_ON_FAILURE: "1"
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Conan
-        run: pip install conan
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install system tools + packagers
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
-            # clang (the preferred compiler), ninja (generator), rpm/dpkg/patchelf
-            # for CPack DEB/RPM packaging and rpath rewriting.
-            #
-            # Use clang-19: clang 18 + libstdc++ 13 (Ubuntu 24.04) can't expose
-            # std::expected in C++23 because __cpp_concepts stays below 202002L,
-            # which empty-checks the libstdc++ <expected> header. clang 19
-            # reports __cpp_concepts >= 202002L, so <expected> works.
-            sudo apt-get install -y clang-19 ninja-build rpm dpkg patchelf
-            # Route `clang`/`clang++` (used by CC/CXX env + conan detection) to
-            # the clang-19 toolchain.
-            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
-            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+            # ninja+cmake (CMake generator), rpm/dpkg+patchelf (CPack DEB/RPM
+            # packaging) and the C ABI build tools for the pkg-config installer.
+            sudo apt-get install -y ninja-build cmake rpm dpkg patchelf
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install ninja || brew link ninja
+            brew install ninja cmake || brew link ninja cmake
           fi
 
-      - name: Configure Conan (clang profile)
-        # Ensure the Conan host profile uses the same clang toolchain that
-        # compiles the C/C++ sources, so deps and the project share an ABI.
-        # On Linux the default profile uses gcc; switch it to clang with sed.
-        run: |
-          conan profile detect --force
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            VER="$(clang -dumpversion | cut -d. -f1)"
-            sed -i "s/^compiler=.*/compiler=clang/"        ~/.conan2/profiles/default
-            sed -i "s/^compiler.version=.*/compiler.version=$VER/" ~/.conan2/profiles/default
-            sed -i "s/^compiler.libcxx=.*/compiler.libcxx=libstdc++11/" ~/.conan2/profiles/default
-            sed -i "s/^compiler.cppstd=.*/compiler.cppstd=23/" ~/.conan2/profiles/default
-          fi
-          conan profile show
+      # Build the C ABI first (the CMake install references the lib + header
+      # that `cargo build -p ptiff-c --release` produces). The CLI is built
+      # next via the `ptiff_cli` CMake target after configure.
+      - name: Build C ABI (libptiff_c, Rust)
+        run: cargo build -p ptiff-c --release
 
-      - name: Install dependencies (Conan, Release)
-        run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23
-
-      - name: Configure (Release, Ninja, clang, shared + C bindings + CLI)
+      - name: Configure (CMake packaging wrapper, Release)
         run: >
           cmake -G Ninja -B build-rel/build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build-rel/build/Release/generators/conan_toolchain.cmake
           -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_SHARED_LIBS=ON
-          -DPTIFF_BUILD_C_BINDINGS=ON
+          -DPTIFF_BUILD_C_ABI=ON
           -DPTIFF_BUILD_CLI=ON
-          # Tests are covered by build.yml (static-lib hosts). Packaging uses
-          # shared libs where WHOLE_ARCHIVE test linking needs extra libs, so
-          # keep the package build lean and build-only.
-          -DPTIFF_BUILD_TESTS=OFF
           -DPTIFF_BUILD_DOCS=OFF
 
-      - name: Build libraries + tests (Release)
-        run: cmake --build build-rel/build --config Release -j 2
-
-      - name: Install libraries to staging prefix
-        # C/C++ libs, headers and metadata only; the CLI is built next and folded
-        # in by a second install once its binary exists (see InstallPtiffCli.cmake).
-        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
-
-      - name: Build ptiff CLI against the staged prefix
-        # CMake's ptiff_cli target runs `cargo build --release`, resolving
-        # libptiff_c from the staged prefix via its relocatable pkg-config file.
-        # CARGO_TARGET_DIR is set inside CMakeLists so the binary lands at
-        # build-rel/build/ptiff-cli/target/release/ptiff (the install-script path).
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/staging/lib/pkgconfig
+      - name: Build ptiff CLI (Rust, workspace crate)
         run: cmake --build build-rel/build --target ptiff_cli --config Release
 
-      - name: Fix install rpath for the packaged CLI
-        # The CLI embeds an absolute rpath to the CI staging prefix (used to build
-        # it). For the OS packages it must be relocatable and point at the final
-        # install layout (bin/ + ../lib). Nix re-patches rpath on its own, so this
-        # only affects the CPack (deb/rpm) and pkgbuild (macOS .pkg) outputs.
-        shell: bash
-        run: |
-          PTIFF_BIN="${{ github.workspace }}/build-rel/build/ptiff-cli/target/release/ptiff"
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            # /usr/bin -> /usr/lib = $ORIGIN/../lib
-            patchelf --set-rpath '$ORIGIN/../lib' "$PTIFF_BIN"
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            # /usr/local/bin -> /usr/local/lib = @loader_path/../lib. The recorded
-            # rpath is the relocatable pcfiledir expansion from the staged
-            # libptiff_c.pc, so capture and replace it verbatim.
-            RPATH=$(otool -l "$PTIFF_BIN" | awk '/LC_RPATH/ {getline; getline; print $2; exit}')
-            install_name_tool -rpath "$RPATH" '@loader_path/../lib' "$PTIFF_BIN"
-          fi
-
-      - name: Re-install to staging (now with CLI)
+      - name: Install to staging prefix (CLI + C ABI + header + pkg-config)
         run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
 
       - name: Smoke test the packaged CLI
         shell: bash
         run: |
           "${{ github.workspace }}/staging/bin/ptiff" version
-          "${{ github.workspace }}/staging/bin/ptiff" backends
+          "${{ github.workspace }}/staging/bin/ptiff" --help >/dev/null
 
-      - name: Build Linux packages (CPack deb + rpm)
-        if: runner.os == 'Linux'
+      - name: Build native packages (CPack deb + rpm on Linux, .pkg on macOS)
         working-directory: build-rel/build
         run: cpack -C Release
-
-      - name: Build macOS package (pkgbuild .pkg)
-        # CPack's productbuild generator can emit a bare Distribution skeleton
-        # without embedding the component payload, so build the flat .pkg
-        # directly with pkgbuild from the complete staging tree.
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          cd "${{ github.workspace }}"
-          VERSION="${GITHUB_REF_NAME#v}"
-          pkgbuild \
-            --root staging \
-            --install-location /usr/local \
-            --identifier org.ptiff.libptiff \
-            --version "$VERSION" \
-            libptiff-$VERSION-macOS.pkg
-          mkdir -p dist
-          mv libptiff-0.4.2-macOS.pkg dist/
 
       - name: Collect artifacts
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${{ github.workspace }}/dist"
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            cp build-rel/build/*.deb build-rel/build/*.rpm "${{ github.workspace }}/dist/"
-          fi
+          cp build-rel/build/*.deb build-rel/build/*.rpm build-rel/build/*.pkg "${{ github.workspace }}/dist/" 2>/dev/null || true
           cd "${{ github.workspace }}/dist"
           ls -la
           shasum -a 256 * > SHA256SUMS
@@ -187,7 +95,7 @@ jobs:
       - name: Upload packages (artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: libptiff-${{ matrix.label }}
+          name: ptiff-${{ matrix.label }}
           path: ${{ github.workspace }}/dist/
 
       - name: Publish GitHub Release

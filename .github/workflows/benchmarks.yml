@@ -1,10 +1,10 @@
 name: Benchmarks
 
 # Runs the cross-language benchmark suite (benchmarks/run_benchmarks.sh) on
-# every push/PR as a regression check: it builds libptiff_c + all language
-# bindings, then measures read/write throughput across Python/Ruby/Go/Octave/
-# Rust and the ptiff CLI. Median times are saved as a workflow artifact so you
-# can diff cycles or PRs.
+# every push/PR as a regression check: it builds libptiff_c (Rust, crates/ptiff-c)
+# + all language bindings, then measures read/write throughput across
+# Python/Ruby/Go/Octave/Rust and the ptiff CLI. Median times are saved as a
+# workflow artifact so you can diff cycles or PRs.
 #
 # Numbers on CI are intentionally coarse (reduced BENCH_REPEATS/BENCH_ITERS +
 # Release build) -- the point is a *stable ordering + trend*, not precise
@@ -31,15 +31,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Conan
-        run: pip install conan
-
-      - name: Configure Conan profile
-        run: conan profile detect --force
-
-      - name: Install dependencies (Conan, Release)
-        run: conan install . --output-folder=build --build=missing -s build_type=Release
-
       - name: Install build toolchain + languages (Linux)
         run: |
           sudo apt-get update
@@ -54,58 +45,35 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Release + shared libs + C ABI: the benchmark measures binding overhead
-      # over a properly optimized libptiff_c, not debug symbols.
-      - name: Configure (Release, shared lib, C bindings)
-        run: >
-          cmake -B build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_SHARED_LIBS=ON
-          -DPTIFF_BUILD_C_BINDINGS=ON
-          -DPTIFF_BUILD_TESTS=OFF
-
-      - name: Build libptiff_c
-        run: cmake --build build --target ptiff_c --config Release --parallel 2
-
-      # Install the shared libraries to a prefix so Go/Rust (and the CLI) can
-      # resolve libptiff_c via pkg-config, exactly like run_benchmarks.sh does
-      # with its `install-shared` default.
-      - name: Install libptiff_c + libptiff to a prefix
-        run: cmake --install build --prefix ${{ github.workspace }}/ptiff-install --config Release
+      # Release libptiff_c: the benchmark measures binding overhead over a
+      # properly optimized libptiff_c, not debug symbols. Built by the Rust
+      # crate crates/ptiff-c into target/release/.
+      - name: Build libptiff_c (Rust)
+        run: cargo build -p ptiff-c --release
 
       # --- Build every language binding against the freshly built C ABI ---
+      # (bindings/swig/Makefile links the Rust-built libptiff_c by default)
       - name: Build SWIG Python binding
-        env:
-          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
         run: make -C bindings/swig python
 
       - name: Build SWIG Ruby binding
-        env:
-          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
         run: make -C bindings/swig ruby
 
       - name: Build SWIG Go binding
-        env:
-          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
         run: make -C bindings/swig go
 
       - name: Build SWIG Octave binding
-        env:
-          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
         run: make -C bindings/swig octave
 
       - name: Build Rust binding + CLI
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/ptiff-install/lib/pkgconfig
-        run: cargo build --manifest-path ptiff-cli/Cargo.toml --release
+        run: cargo build -p ptiff-cli --release
 
       # Run the suite (Python/Ruby/Go/Octave/Rust/CLI). Reduced knobs keep CI
       # fast while still exercising every binding and the summary pipeline.
+      # run_benchmarks.sh resolves libptiff_c from target/release; no prefix.
       - name: Run benchmark suite
         working-directory: benchmarks
         env:
-          PTIFF_PREFIX: ${{ github.workspace }}/ptiff-install
           BENCH_REPEATS: "5"
           BENCH_ITERS: "10"
         run: ./run_benchmarks.sh python ruby go octave rust cli

@@ -14,7 +14,7 @@ format, and the core image metadata model.
 
 - `rfcs/RFC-0001-Core.md` — motivation, goals, design principles, terminology.
 - `rfcs/RFC-0002-GeoTIFF.md` — relationship to / interop with GeoTIFF.
-- `libptiff/src/io/backend/tiff/` — reference implementation of the encoding.
+- `crates/ptiff-core/src/io/backend/tiff/` — reference implementation of the encoding.
 
 ## Extension domains
 

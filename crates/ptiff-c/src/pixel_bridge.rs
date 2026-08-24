@@ -1,5 +1,5 @@
-//! `ptiff_source_*` / `ptiff_sink_*` handle surface
-//! (`bindings/c/ptiff_pixel_bridge.h`).
+//! `ptiff_source_*` / `ptiff_sink_*` handle surface (emitted into
+//! `target/ptiff_c.h` by cbindgen from this crate).
 //!
 //! Two opaque handles cross the ABI here:
 //!
@@ -12,8 +12,8 @@
 //!   memory and flushes it to a file on close via
 //!   [`ptiff::Tiff::to_bytes_with_pixels`].
 //!
-//! The surface follows the C++ `libptiff_c` contract: every fallible op returns
-//! a negative `ptiff_error_code` and `0` on success; opaque handles are
+//! The surface follows the PTIFF C ABI contract: every fallible op returns a
+//! negative `ptiff_error_code` and `0` on success; opaque handles are
 //! heap-owned and destroyed with their `_close` counterpart (`NULL` = no-op).
 
 use crate::error::to_c_error;
@@ -104,9 +104,11 @@ impl PtiffSource {
     }
 }
 
-/// Creates a read-only source over the first image of the TIFF/BigTIFF file at
-/// `path`. On failure returns `NULL` and, when `err_out` is non-null, sets
-/// `*err_out` to a negative ptiff error code.
+/// Opens the primary image in the TIFF/BigTIFF file at `path` for pixel
+/// reading. Returns a heap-owned handle on success, or `NULL` on failure —
+/// when `err_out` is non-NULL, `*err_out` is then set to a negative error
+/// code. `path` must be non-NULL. The returned handle owns the underlying
+/// file reader; release it with [`ptiff_source_close`].
 ///
 /// # Safety
 ///
@@ -172,36 +174,46 @@ pub extern "C" fn ptiff_source_descriptor(
     0
 }
 
-/// Tile grid columns at level 0. `NULL` source -> 0.
+/// Tile grid columns at level 0. For a non-tiled (single-strip or striped)
+/// image the whole image is exposed as a single tile: columns = 1. Returns 0
+/// for a `NULL` source.
 #[no_mangle]
 pub extern "C" fn ptiff_source_tile_columns(source: *const PtiffSource) -> u32 {
     let Some(src) = src(source) else { return 0 };
     grid_dims(&src.layout, 0).0
 }
 
-/// Tile grid rows at level 0. `NULL` source -> 0.
+/// Tile grid rows at level 0. For a non-tiled (single-strip or striped)
+/// image every strip is exposed as a tile: rows = 1 for a single spanning
+/// strip, or more for a multi-strip image. Returns 0 for a `NULL` source.
 #[no_mangle]
 pub extern "C" fn ptiff_source_tile_rows(source: *const PtiffSource) -> u32 {
     let Some(src) = src(source) else { return 0 };
     grid_dims(&src.layout, 0).1
 }
 
-/// Byte size of one decoded tile's pixel data (every tile incl. edge tiles is
-/// this many bytes). `NULL` source -> 0.
+/// Byte size of one decoded tile's pixel data. Every tile (including edge
+/// tiles/strips, which TIFF pads to a uniform size) is exactly this many
+/// bytes. Returns 0 for a `NULL` source.
 #[no_mangle]
 pub extern "C" fn ptiff_source_tile_byte_size(source: *const PtiffSource) -> usize {
     let Some(src) = src(source) else { return 0 };
     src.tile_bytes
 }
 
-/// Reads tile `(column, row)` into `buffer` (at least
-/// [`ptiff_source_tile_byte_size`] bytes; `buffer_size` is checked). On success
-/// returns 0 and sets `*bytes_read` to the number of bytes written.
+/// Reads tile `(column, row)` at level 0 — decompressed, with any predictor
+/// already undone — into `buffer`. `buffer` must be at least
+/// [`ptiff_source_tile_byte_size`] bytes; `buffer_size` is checked against that
+/// requirement and `PTIFF_ERROR_INVALID_ARGUMENT` is returned if it is too
+/// small. On success returns 0 and sets `*bytes_read` to the number of bytes
+/// written (always [`ptiff_source_tile_byte_size`]). On failure returns a
+/// negative error code and leaves `*bytes_read` untouched.
 ///
 /// # Safety
 ///
 /// `source`, `buffer` and `bytes_read` must be valid live pointers; `buffer`
-/// must point to at least `buffer_size` writable bytes.
+/// must point to at least `buffer_size` writable bytes; `bytes_read` must
+/// point to a writable `usize`.
 #[no_mangle]
 pub extern "C" fn ptiff_source_read_tile(
     source: *const PtiffSource,
@@ -325,13 +337,35 @@ impl PtiffSink {
     }
 }
 
-/// Creates the TIFF file at `path` for writing a single tiled image described
-/// by `desc`, returning a heap-owned handle positioned for tile writes. Returns
-/// `NULL` on failure (see [`ptiff_sink_create_camera`] docs / header).
+/// Creates the TIFF/BigTIFF file at `path` for writing a single image
+/// described by `desc`, returning a heap-owned handle positioned for tile
+/// writes. The header + IFD directory are written immediately (so the file is
+/// valid on success); tiles are then written with [`ptiff_sink_write_tile`] in
+/// any order, and the handle must be closed with [`ptiff_sink_close`] to flush
+/// the underlying writer.
+///
+/// The image must be tiled (`desc->has_tile_info`) — TIFF tile I/O requires a
+/// tile layout. Pixel type must be UInt8/UInt16/UInt32/Float32 (Float64 is not
+/// a supported TIFF sample type) and `channel_count` must be 1 or 3; both are
+/// rejected with `PTIFF_ERROR_INVALID_ARGUMENT` otherwise.
+///
+/// Returns `NULL` on failure. `path` and `desc` must be non-NULL.
+///
+/// Usage:
+/// ```ignore
+/// ptiff_image_descriptor d{};            // zero-initialised
+/// d.width = 64; d.height = 32;
+/// d.pixel_type = PTIFF_PIXEL_UINT16; d.channel_count = 1;
+/// d.has_tile_info = 1; d.tile_info = {64, 32};
+/// ptiff_sink* s = ptiff_sink_create("out.tif", &d);
+/// // ... ptiff_sink_write_tile(s, c, r, buf, n) ...
+/// ptiff_sink_close(s);
+/// ```
 ///
 /// # Safety
 ///
-/// `path` and `desc` must be valid non-null pointers for the duration of the call.
+/// `path` and `desc` must be valid non-null pointers for the duration of the
+/// call; `desc` must be a fully initialised descriptor.
 #[no_mangle]
 pub extern "C" fn ptiff_sink_create(
     path: *const c_char,
@@ -357,15 +391,19 @@ pub extern "C" fn ptiff_sink_create(
 }
 
 /// Same as [`ptiff_sink_create`], but additionally persists the structured
-/// camera calibration attached to the written image.
+/// camera calibration `ptiff.camera.*` into the file's metadata (private tag
+/// 65002). The camera's intrinsics (fx/fy/cx/cy), extrinsics (rotation
+/// quaternion + world translation) and ISO-8601 timestamp are written as
+/// metadata fields, so a later [`ptiff_open_path_camera`] on the file returns
+/// the same calibration. `camera` must be non-NULL; pass `NULL` to fall back
+/// to [`ptiff_sink_create`] (no camera metadata).
 ///
-/// Returns a heap-owned sink on success, `NULL` on failure (null/unsupported
-/// arguments, matching `ptiff_sink_create`).
+/// Returns `NULL` on failure (same rules as [`ptiff_sink_create`]).
 ///
 /// # Safety
 ///
 /// `path`, `desc` and `camera` must be valid non-null pointers for the duration
-/// of the call (the header documents all three as required).
+/// of the call (all three are required).
 #[no_mangle]
 pub extern "C" fn ptiff_sink_create_camera(
     path: *const c_char,
@@ -393,30 +431,37 @@ pub extern "C" fn ptiff_sink_create_camera(
     }
 }
 
-/// Tile grid columns of the sink's image. `NULL` sink -> 0.
+/// Tile grid columns of the sink's image (its layout), at level 0. Returns 0
+/// for a `NULL` sink.
 #[no_mangle]
 pub extern "C" fn ptiff_sink_tile_columns(sink: *const PtiffSink) -> u32 {
     let Some(s) = sink_handle(sink) else { return 0 };
     s.columns
 }
 
-/// Tile grid rows of the sink's image. `NULL` sink -> 0.
+/// Tile grid rows of the sink's image (its layout), at level 0. Returns 0
+/// for a `NULL` sink.
 #[no_mangle]
 pub extern "C" fn ptiff_sink_tile_rows(sink: *const PtiffSink) -> u32 {
     let Some(s) = sink_handle(sink) else { return 0 };
     s.rows
 }
 
-/// Byte size of one written tile. `NULL` sink -> 0.
+/// Byte size of one written tile's pixel data. Every tile (including edge
+/// tiles, which TIFF pads to a uniform size) is exactly this many bytes.
+/// Returns 0 for a `NULL` sink.
 #[no_mangle]
 pub extern "C" fn ptiff_sink_tile_byte_size(sink: *const PtiffSink) -> usize {
     let Some(s) = sink_handle(sink) else { return 0 };
     s.tile_bytes
 }
 
-/// Writes one tile of pixel data. `buffer` must be exactly
-/// [`ptiff_sink_tile_byte_size`] bytes; the tile index must lie within the
-/// grid. Returns 0 on success.
+/// Writes one tile of pixel data. `buffer` is `buffer_size` bytes of raw,
+/// uncompressed sample data for tile `(column, row)` at level 0; it must be
+/// exactly [`ptiff_sink_tile_byte_size`] bytes (the sink checks that and
+/// returns `PTIFF_ERROR_INVALID_ARGUMENT` on a mismatch). The tile index must
+/// lie within the sink's grid, or `PTIFF_ERROR_OUT_OF_RANGE` is returned. On
+/// success returns 0; on failure returns a negative error code.
 ///
 /// # Safety
 ///
@@ -454,7 +499,9 @@ pub extern "C" fn ptiff_sink_write_tile(
     0
 }
 
-/// Flushes the sink (writing the file) and releases the handle. `NULL` no-op.
+/// Flushes the underlying writer (making the file complete and readable) and
+/// releases the handle returned by [`ptiff_sink_create`]. `NULL` is a no-op.
+/// The file is not valid for reading until [`ptiff_sink_close`] is called.
 ///
 /// # Safety
 ///
@@ -781,7 +828,7 @@ mod tests {
             position_z: 3.0,
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
-            timestamp: [0u8; 64],
+            timestamp: [0 as c_char; 64],
         };
 
         let sink = ptiff_sink_create_camera(
@@ -822,7 +869,7 @@ mod tests {
             position_z: 0.0,
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
-            timestamp: [0u8; 64],
+            timestamp: [0 as c_char; 64],
         };
         let rc = crate::camera::ptiff_open_path_camera(
             std::ffi::CString::new(path_s).unwrap().as_ptr(),
@@ -887,7 +934,7 @@ mod tests {
             position_z: 0.0,
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
-            timestamp: [0u8; 64],
+            timestamp: [0 as c_char; 64],
         };
         let rc = crate::camera::ptiff_open_path_camera(
             std::ffi::CString::new(path_s).unwrap().as_ptr(),

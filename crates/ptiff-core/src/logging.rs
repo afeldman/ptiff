@@ -1,11 +1,13 @@
 //! Minimal, dependency-free logging facility.
 //!
 //! The core ships a deliberately small logger that mirrors the C++ `ptiff::Logger`
-//! singleton surface (`bindings/c/ptiff_logger.h` / `libptiff/.../logging/logger.hpp`):
-//! a [`LogLevel`] enum with the exact C ordering and a process-wide current level.
+//! singleton surface (the enum ordering is a hard C-ABI contract; `ptiff-c`
+//! cbindgen-authorises it into `target/ptiff_c.h`): a [`LogLevel`] enum with
+//! the exact C ordering and a process-wide current level.
 //!
-//! The ordering constraint is a **C-ABI contract**: `bindings/c/ptiff_logger.h` and the
-//! `ptiff-c` mirror must agree that `TRACE == 0` … `OFF == 6`. Keep the variants in
+//! The ordering constraint is a **C-ABI contract**: the logger surface of
+//! `ptiff-c` (and the generated header) must agree that `TRACE == 0` … `OFF == 6`.
+//! Keep the variants in
 //! this order and do not renumber them.
 //!
 //! This module is dependency-free (`std` only) and `#![forbid(unsafe_code)]`-safe: the
@@ -19,7 +21,8 @@ use std::sync::atomic::{AtomicI32, Ordering};
 /// Log severity, mirroring the C `ptiff_log_level` ordering.
 ///
 /// **Do not reorder or renumber**: the numeric values are part of the C ABI
-/// (`bindings/c/ptiff_logger.h`), where `PTIFF_LOG_TRACE == 0` … `PTIFF_LOG_OFF == 6`.
+/// (see `ptiff-c`, cbindgen emits them into `target/ptiff_c.h`), where
+/// `PTIFF_LOG_TRACE == 0` … `PTIFF_LOG_OFF == 6`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum LogLevel {

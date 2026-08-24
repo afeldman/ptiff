@@ -35,7 +35,7 @@ interoperate with the GeoTIFF / GIS ecosystem. It is carried by the private tag 
 ## 2. Status
 
 Draft. The field schema is normative and matches the reference implementation
-(`scripts/gen_interop_fixture.cpp`). It builds on RFC-0002's relationship to GeoTIFF.
+(`crates/ptiff-rust/examples/write_ptiff_fixture.rs`). It builds on RFC-0002's relationship to GeoTIFF.
 
 ---
 
@@ -100,4 +100,4 @@ Per RFC-0002, PTIFF reuses GeoTIFF's CRS conventions where they apply to non-Ear
 - `RFC-7002` — payload codec, tag 65003.
 - `RFC-0003` — Camera domain (intrinsics/extrinsics mapping pixels to the surface).
 - Reference implementation: `specification/crs/georeferencing.md`,
-  `scripts/gen_interop_fixture.cpp`.
+  `crates/ptiff-rust/examples/write_ptiff_fixture.rs`.

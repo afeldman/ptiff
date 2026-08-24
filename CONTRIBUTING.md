@@ -9,13 +9,16 @@ Governance-Prozess; bitte lies die Dateien `GOVERNANCE.md` und
 ## Schnellstart
 
 ```bash
-# Build & Test (einmalige Einrichtung, siehe libptiff/README.md)
-conan profile detect --force
-conan install . --output-folder=build --build=missing
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-cmake --build build
-ctest --test-dir build --output-on-failure
+# Workspace vollständig bauen, testen und linten (siehe auch README.md)
+cargo build --workspace --all-features
+cargo test --workspace --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-features -- -D warnings
 ```
+
+Die Referenzimplementierung ist ein reiner Rust-Workspace
+(`ptiff-core` → `ptiff-rust` → `ptiff-cli` / `ptiff-c`); Cargo ist der reale
+Build. CMake/CPack dient nur noch als dünnes Packaging für die Rust-Artefakte.
 
 ## Art der Beiträge
 
@@ -24,9 +27,10 @@ ctest --test-dir build --output-on-failure
 | **Bugs & Verbesserungen** | Einen Bug melden oder einen Fix als Pull Request beisteuern. |
 | **TIFF/BigTIFF-Backend** | Lese-/Schreib-Unterstützung für echte TIFF/BigTIFF, Kompression (LZW/PackBits), Tile/Strip-Zugriff. |
 | **Weitere Backends** | PDS4, ISIS3 CUB, Zarr, OpenEXR, Memory, Cloud-Object-Storage. |
+| **C-ABI / Bindings** | `ptiff-c` (C-ABI über den Rust-Kern) und Go-/Python-/Ruby-/Octave-Bindings. |
 | **Spezifikation (RFCs)** | Neue oder geänderte RFCs für Extension-Domänen (camera, CRS, SPICE, stereo, …). |
 | **Tests & Konformität** | Unit-, Integrations-, Golden- und Konformitätstests. |
-| **Dokumentation** | `ARCHITECTURE.md`, Doxygen-Kommentare, Guides, Doku-Fixes. |
+| **Dokumentation** | `ARCHITECTURE.md`, `RUST-WORKSPACE.md`, rustdoc/-Doxygen-Kommentare, Guides, Doku-Fixes. |
 
 ## Ablauf bei Code-Änderungen
 
@@ -35,49 +39,50 @@ ctest --test-dir build --output-on-failure
 3. **Code schreiben** nach den Richtlinien unten.
 4. **Tests schreiben** — jede Änderung an Produktionscode braucht (mindestens) einen
    Test, der sie absichert.
-5. **Build & Tests lokal ausführen**, bis alles grün ist.
+5. **Build & Tests lokal ausführen**, bis alles grün ist (`cargo test`, `fmt`, `clippy`).
 6. **Pull Request** erstellen, der auf das zugehörige Issue verweist.
 
-## Coding-Richtlinien (C++ / `libptiff`)
+## Coding-Richtlinien (Rust)
 
-- **Sprache:** C++23; Code folgt `.clang-format` / `.clang-tidy` an der Repo-Wurzel
-  (automatisch durchgesetzt in CI). 100-Spalten-Limit, 4-Space-Einrückung.
-- **Fehlerbehandlung:** `Result<T> = std::expected<T, Error>` für erwartete
-  Fehler (Domain-Fehler); Ausnahmen nur für Vertragsverletzungen via
-  `PTIFF_PRECONDITION` (bug, kein Laufzeitpfad). Siehe `docs/CODING_GUIDELINES.md`.
-- **Öffentliche API:** Jede exportierte Klasse/Funktion ist `PTIFF_EXPORT`. Kein
-  Drittanbieter-Typ darf in einen öffentlichen Header leaken.
-- **Doku-Kommentare:** `///`-Kommentare auf jeder öffentlichen Klasse/Methode, die
-  das *Warum* erklären, nicht die Signatur wiederholen.
-- **Dateistruktur:** Ein Typ (oder kleine eng verwandte Gruppe) pro
-  Header/Source-Paar; kleine Dateien bevorzugt.
-- **Ownership:** Wachsende Domain-Typen sind move-only PIMPL via
-  `std::unique_ptr<Impl>`, ohne `shared_ptr` ohne echten geteilten Besitz.
-- **Conventions:** Dokumentation und Commit-Meldungen auf Englisch; Tests mit Catch2 v3.
-  Beiträge müssen die `///`-Doku aktualisieren (Doxygen wird aus den Kommentaren
-  generiert).
+- **Sprache / Stil:** stabiler Rust (MSRV 1.97); Code folgt `cargo fmt` (rustfmt)
+  und `cargo clippy` mit `-D warnings` (in CI durchgesetzt).
+- **Safety:** der Kern (`ptiff-core`, `ptiff-rust`) hat `#![forbid(unsafe_code)]`.
+  Unsafe ist nur dort erlaubt, wo es nötig ist (FFI in `ptiff-c`), und dann
+  minimal, kommentiert und an der Rust-Sicherheitsgrenze.
+- **Fehlerbehandlung:** jede fehlbare Operation gibt `Result<T, Error>` zurück
+  (Core-`Error`/`ErrorCode`); kein `unwrap`/`panic`/`expect` auf Laufzeitpfaden
+  in der Bibliothek, keine Panics bei missgebildetem Input.
+- **Öffentliche API:** öffentliche Symbole sind mit `pub`-Doku versehen und
+  dokumentieren das *Warum*, nicht nur die Signatur (`#![warn(missing_docs)]`).
+- **Dateistruktur / Module:** kleine, fokussierte Module; Domain-Typen im Kern,
+  C-ABI strikt im separaten `ptiff-c`-Crate (nicht im Kern).
+- **Conventions:** Dokumentation und Commit-Meldungen auf Englisch; Tests mit
+  `#[test]` (Unit-Tests inline in `src/`), `tests/`-Integrations-Crates und
+  `crates/ptiff-core/tests/golden.rs` für byte-exakte Golden-Digests.
 
 ## Spezifikations-Änderungen (RFCs)
 
 PTIFF ist ein Standard; normative Änderungen an der Spezifikation laufen über den
-**RFC-Prozess** (siehe `GOVERNANCE.md`). Reine Implementation-Änderungen an
-`libptiff` brauchen keinen RFC, solange sie die Standardsignatur nicht verändern.
-Neue Extension-Domänen oder Tag-Allokationen erfordern einen eigenen, unabhängig
-versionierten RFC.
+**RFC-Prozess** (siehe `GOVERNANCE.md`). Reine Implementierungs-Änderungen an der
+Rust-Referenzimplementierung brauchen keinen RFC, solange sie die Standardsignatur
+nicht verändern. Neue Extension-Domänen oder Tag-Allokationen erfordern einen
+eigenen, unabhängig versionierten RFC.
 
 ## Test-Ablauf
 
 | Ebene | Zweck |
 |-------|-------|
-| `tests/unit/` | Domain-/Wert-Typen und einzelne Komponenten. |
-| `tests/integration/` | Zusammenspiel mehrerer Komponenten. |
-| `tests/golden/` | Regressionsprüfung gegen bekannte "goldene" Dateien. |
-| `tests/conformance/` | Konformität zur PTIFF-Spezifikation. |
+| Unit-Tests (`src/**/*.rs` in jedem Crate) | Domain-/Wert-Typen und einzelne Komponenten. |
+| Integration `crates/*/tests/` | Zusammenspiel mehrerer Komponenten. |
+| Golden (`crates/ptiff-core/tests/golden.rs`) | Regressionsprüfung gegen bekannte "goldene" Byte-Digests. |
+| Property (`crates/ptiff-core/tests/property.rs`) | Eigenschaftsbasierte Tests (Roundtrips, Invarianzen). |
+| C-ABI (`crates/ptiff-c/tests/c`) | C-Akzeptanztest gegen den generierten `ptiff_c.h`-Header. |
 
 Einzelnen Test ausführen:
 
 ```bash
-ctest --test-dir build -R <regex> --output-on-failure
+cargo test -p ptiff-core --test golden          # z. B. Golden-Digests
+make -C crates/ptiff-c/tests/c test             # C-ABI "ALL OK"
 ```
 
 ## Kommunikation / Verhaltensregeln

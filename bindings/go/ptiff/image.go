@@ -131,10 +131,10 @@ func (img *Image) TileRows() uint {
 // TileByteSize returns the byte-payload size of a single tile (0 when untiled).
 func (img *Image) TileByteSize() int64 {
 	if img.src != nil {
-		return Ptiff_source_tile_byte_size(img.src)
+		return int64(Ptiff_source_tile_byte_size(img.src))
 	}
 	if img.sink != nil {
-		return Ptiff_sink_tile_byte_size(img.sink)
+		return int64(Ptiff_sink_tile_byte_size(img.sink))
 	}
 	return 0
 }
@@ -147,11 +147,11 @@ func (img *Image) ReadTile(column, row uint) (Tile, error) {
 	}
 	n := img.TileByteSize()
 	buf := make([]byte, int(n))
-	var bytesRead int64
+	var bytesRead uint
 	if rc := Ptiff_source_read_tile(img.src, column, row, buf, &bytesRead); rc != 0 {
 		return Tile{}, fmt.Errorf("ptiff_source_read_tile(%d,%d): error code %d", column, row, rc)
 	}
-	return NewTile(column, row, buf, bytesRead), nil
+	return NewTile(column, row, buf, int64(bytesRead)), nil
 }
 
 // WriteTile writes data to the tile at grid position (column, row). It requires
