@@ -5,8 +5,7 @@ name: ptiff-cli
 # builds and tests it directly.
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   cli-build:

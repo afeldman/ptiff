@@ -8,8 +8,7 @@ name: Python bindings
 # OS/compiler matrix as the C++ and Go binding jobs.
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   python-bindings:
@@ -57,8 +56,15 @@ jobs:
       # uv provisions/manages its own Python (which need not match the
       # system one setup-python installed) -- building against the wrong one
       # segfaults on import (confirmed locally: same failure mode).
+      #
+      # NOTE the `--project` path is relative to the make(-C) working
+      # directory, i.e. bindings/swig/ -- from there the uv project lives at
+      # ../python. (Passing the repo-root style "bindings/python" here would
+      # resolve to bindings/swig/bindings/python, which does not exist; newer
+      # uv treats that as a hard error and PYTHON fails, leaving PYINC empty --
+      # the compile then dies on "Python.h file not found".)
       - name: Regenerate SWIG Python module
-        run: make -C bindings/swig python PYTHON="uv run --project bindings/python python"
+        run: make -C bindings/swig python PYTHON="uv run --project ../python python"
 
       # src/ptiff.py is SWIG-generated (never hand-edited, regenerated above)
       # and is excluded via extend-exclude/mypy_path+follow_imports in

@@ -1,0 +1,107 @@
+name: CI
+
+# Central orchestrator for the PTIFF Rust workspace.
+#
+# This is the *single* pipeline for every push and pull request. It replaces
+# the previously parallel, independent workflows with a strict three-phase
+# sequence (Variante A -- reusable workflows + a dedicated orchestrator):
+#
+#   Phase 1  rust      : build + lint + test the whole Rust workspace
+#                        (ptiff-core, ptiff-rust, ptiff-cli, ptiff-c), incl.
+#                        the CLI and every workspace member. Nothing else
+#                        starts until this succeeds.
+#   Phase 2  bindings  : needs Phase 1 -- regenerate + test the SWIG bindings
+#                        (Go / Octave / Python / Ruby). Each binding still
+#                        builds its own libptiff_c locally in its crate.
+#   Phase 3  docs      : needs Phase 2 -- build + deploy the Doxygen
+#                        documentation to GitHub Pages. This phase only runs
+#                        when a *version number exists*, i.e. on a `v*` tag
+#                        (see the `if:` on `docs-build`).
+#
+# GitHub-specific constraints that shape this file:
+#   - `actions/deploy-pages` (the GitHub Pages deployment) is NOT permitted
+#     inside reusable workflows -- it requires the `pages:` environment and an
+#     `id-token` on the calling workflow. The deploy job therefore lives here,
+#     directly in this orchestrator, and consumes the artifact that the
+#     reusable `pages.yml` builds and uploads.
+#   - Each `uses:` job may call exactly one reusable workflow, so Phase 1 and
+#     Phase 2 are each split into one job per workflow file.
+#
+# `release.yml` (CPack packaging on v* tags) and `benchmarks.yml` keep their
+# own dedicated triggers and are intentionally NOT gated behind this pipeline.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------------------------------------
+  # Phase 1: build + lint + test the entire Rust workspace (core, CLI, ...
+  # ----------------------------------------------------------------------
+  rust-core:
+    name: Phase 1 · Rust core + workspace
+    uses: ./.github/workflows/build.yml
+
+  rust-cli:
+    name: Phase 1 · CLI
+    uses: ./.github/workflows/ptiff-cli.yml
+
+  # ----------------------------------------------------------------------
+  # Phase 2: language bindings (require Phase 1 to have succeeded)
+  # ----------------------------------------------------------------------
+  bindings-go:
+    name: Phase 2 · Go bindings
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/go-bindings.yml
+
+  bindings-octave:
+    name: Phase 2 · Octave bindings
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/octave-bindings.yml
+
+  bindings-python:
+    name: Phase 2 · Python bindings
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/python-bindings.yml
+
+  bindings-ruby:
+    name: Phase 2 · Ruby bindings
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/ruby-bindings.yml
+
+  # ----------------------------------------------------------------------
+  # Phase 3: documentation (only when a version number is present = v* tag)
+  # ----------------------------------------------------------------------
+  docs-build:
+    name: Phase 3 · Build documentation
+    needs:
+      - bindings-go
+      - bindings-octave
+      - bindings-python
+      - bindings-ruby
+    # Docs only run when a version tag (v*) is pushed; on plain branch pushes
+    # and pull requests no version number exists, so this phase is skipped.
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  docs-deploy:
+    name: Phase 3 · Deploy documentation to Pages
+    needs: docs-build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
