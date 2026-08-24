@@ -112,18 +112,41 @@ pub fn camera_from_model(node: &StorageModel) -> Result<Option<Camera>> {
         f64_field("principal_x")?,
         f64_field("principal_y")?,
     );
-    let rotation = crate::geometry::Quaternion::new(
-        f64_field("rotation_w")?,
-        f64_field("rotation_x")?,
-        f64_field("rotation_y")?,
-        f64_field("rotation_z")?,
-    );
-    let translation = crate::geometry::Vec3::new(
-        f64_field("position_x")?,
-        f64_field("position_y")?,
-        f64_field("position_z")?,
-    );
-    let extrinsics = crate::geometry::Extrinsics::new(rotation, translation);
+    // Extrinsics are optional: a camera file/field-set may carry only the
+    // intrinsics (model + focal + principal point), which the oracle fixture
+    // does. When the rotation/position group is *absent* we default to the
+    // identity pose (the `Camera` model always carries an `Extrinsics`, so
+    // absence is represented by identity); when *partially* present we require
+    // the full group (a partial group is malformed / out of spec).
+    let has_extrinsics = [
+        "rotation_w",
+        "rotation_x",
+        "rotation_y",
+        "rotation_z",
+        "position_x",
+        "position_y",
+        "position_z",
+    ]
+    .into_iter()
+    .all(|k| node.field(&format!("{CAMERA_PREFIX}{k}")).is_ok());
+
+    let extrinsics = if has_extrinsics {
+        crate::geometry::Extrinsics::new(
+            crate::geometry::Quaternion::new(
+                f64_field("rotation_w")?,
+                f64_field("rotation_x")?,
+                f64_field("rotation_y")?,
+                f64_field("rotation_z")?,
+            ),
+            crate::geometry::Vec3::new(
+                f64_field("position_x")?,
+                f64_field("position_y")?,
+                f64_field("position_z")?,
+            ),
+        )
+    } else {
+        crate::geometry::Extrinsics::default()
+    };
 
     Ok(Some(Camera::from_model(
         model, intrinsics, extrinsics, timestamp,
@@ -178,12 +201,31 @@ pub fn crs_fields(crs: &CoordinateReferenceSystem) -> Vec<(String, String)> {
 /// Reconstructs a [`CoordinateReferenceSystem`] from any `ptiff.crs.*` fields
 /// on `node`.
 ///
-/// Follows the same presence / error semantics as [`camera_from_model`].
+/// Accepts **both** CRS field schemas:
+///
+/// 1. the **registered** schema (RFC-0004 / `field-register.md`, what the
+///    C++ oracle writes): `ptiff.crs.body`, `ptiff.crs.projection`,
+///    `ptiff.crs.reference_frame`;
+/// 2. the **extended** schema emitted by this writer (`crs_fields`):
+///    `ptiff.crs.planet_name`, `planet_iau_id`, `planet_semi_major_m`,
+///    `planet_semi_minor_m`, `frame`, `projection`, `param.*`, which carries
+///    more of the internal `CoordinateReferenceSystem` state.
+///
+/// A domain the file doesn't carry stays `None`; a malformed numeric field is
+/// an error (mirrors [`camera_from_model`]).
 pub fn crs_from_model(node: &StorageModel) -> Result<Option<CoordinateReferenceSystem>> {
     if !domain_present(node, CRS_PREFIX) {
         return Ok(None);
     }
 
+    // The registered schema (RFC-0004) is prioritised when its fields are
+    // present; it carries no planet name / ellipsoid, so those are derived
+    // best-effort from the body id.
+    if let Ok(body) = node.field(&format!("{CRS_PREFIX}body")) {
+        return crs_from_registered_schema(node, body);
+    }
+
+    // Extended schema: rich planet fields.
     let field = |key: &str| -> Result<&str> {
         node.field(&format!("{CRS_PREFIX}{key}"))
             .map_err(|_| Error::invalid_argument("SceneDeserializer: missing ptiff.crs field"))
@@ -212,6 +254,78 @@ pub fn crs_from_model(node: &StorageModel) -> Result<Option<CoordinateReferenceS
 
     let kind = projection_kind_from_str(field("projection")?)?;
     let mut projection = Projection::new(kind);
+    collect_projection_params(node, &mut projection);
+
+    Ok(Some(CoordinateReferenceSystem::new(
+        planet,
+        frame_override,
+        projection,
+    )))
+}
+
+/// Reconstructs a [`CoordinateReferenceSystem`] from the registered RFC-0004
+/// fields (`body`, `projection`, `reference_frame`). The structured model
+/// carries a planet name + ellipsoid the registered schema does not; those are
+/// derived best-effort from the NAIF body id (unknown ids keep a blank name /
+/// UNSPECIFIED reference frame / UNSPECIFIED ellipsoid).
+fn crs_from_registered_schema(
+    node: &StorageModel,
+    body: &str,
+) -> Result<Option<CoordinateReferenceSystem>> {
+    let field = |key: &str| -> Result<&str> {
+        node.field(&format!("{CRS_PREFIX}{key}"))
+            .map_err(|_| Error::invalid_argument("SceneDeserializer: missing ptiff.crs field"))
+    };
+
+    let name = planet_name_from_body_id(body);
+
+    // The reference frame is a runtime string (e.g. "IAU_MOON_2000") that the
+    // static-`Frame` model cannot hold losslessly. Map a *known* static frame
+    // id (SPACECRAFT/CAMERA/browser body ids) when we can; otherwise fall back
+    // to a frame derived from the body id, else the UNSPECIFIED literal. The
+    // exact reference_frame string remains accessible losslessly through
+    // ptiff_open_path_fields (the flat field view), not the structured model.
+    let reference_frame = match field("reference_frame").ok().and_then(frame_from_id) {
+        Some(f) => f,
+        None => frame_from_id(body).unwrap_or(Frame::new("UNSPECIFIED")),
+    };
+    let frame_override = field("reference_frame").ok().and_then(frame_from_id);
+    let planet = Planet::new(
+        name,
+        body.to_string(),
+        Ellipsoid::UNSPECIFIED,
+        reference_frame,
+    );
+
+    let projection = match field("projection") {
+        Ok(kind_str) => Projection::new(projection_kind_from_str(kind_str)?),
+        Err(_) => Projection::new(ProjectionKind::Equirectangular),
+    };
+
+    Ok(Some(CoordinateReferenceSystem::new(
+        planet,
+        frame_override,
+        projection,
+    )))
+}
+
+/// Best-effort human-readable body name for a NAIF body id (per RFC-0004 the
+/// canonical form is the NAIF id itself).
+fn planet_name_from_body_id(id: &str) -> String {
+    match id {
+        "301" => "Moon".to_string(),
+        "399" => "Earth".to_string(),
+        "499" => "Mars".to_string(),
+        "599" => "Jupiter".to_string(),
+        "699" => "Saturn".to_string(),
+        "799" => "Uranus".to_string(),
+        "899" => "Neptune".to_string(),
+        _ => id.to_string(),
+    }
+}
+
+/// Copies any `ptiff.crs.param.<key>` numeric fields into `projection`.
+fn collect_projection_params(node: &StorageModel, projection: &mut Projection) {
     node.for_each_field(|key, value| {
         if let Some(param) = key.strip_prefix("ptiff.crs.param.") {
             if let Ok(v) = value.parse::<f64>() {
@@ -219,12 +333,6 @@ pub fn crs_from_model(node: &StorageModel) -> Result<Option<CoordinateReferenceS
             }
         }
     });
-
-    Ok(Some(CoordinateReferenceSystem::new(
-        planet,
-        frame_override,
-        projection,
-    )))
 }
 
 /// Maps a well-known frame id string back to the matching [`Frame`] constant.
@@ -331,6 +439,57 @@ mod tests {
             ),
         ]);
         assert!(camera_from_model(&model).is_err());
+    }
+
+    #[test]
+    fn camera_intrinsics_only_uses_identity_extrinsics() {
+        // An intrinsics-only camera (the oracle interop fixture shape: model +
+        // focal + principal, no rotation/position) must parse successfully
+        // with the identity pose, rather than erroring on the missing
+        // extrinsics group. (This lets ptiff_open_path read such a file.)
+        let model = model_with(vec![
+            ("ptiff.camera.model".to_string(), "pinhole".to_string()),
+            (
+                "ptiff.camera.focal_length_x".to_string(),
+                "700.0".to_string(),
+            ),
+            (
+                "ptiff.camera.focal_length_y".to_string(),
+                "700.0".to_string(),
+            ),
+            ("ptiff.camera.principal_x".to_string(), "64.0".to_string()),
+            ("ptiff.camera.principal_y".to_string(), "64.0".to_string()),
+        ]);
+        let camera = camera_from_model(&model).expect("parse").expect("present");
+        assert_eq!(camera.model_name(), "pinhole");
+        assert_eq!(
+            camera.intrinsics(),
+            crate::geometry::Intrinsics::new(700.0, 700.0, 64.0, 64.0)
+        );
+        // Absent extrinsics fall back to the identity pose.
+        assert_eq!(camera.extrinsics(), crate::geometry::Extrinsics::IDENTITY);
+    }
+
+    #[test]
+    fn crs_reads_registered_rfc_0004_schema() {
+        // The registered RFC-0004 / field-register CRS schema (what the C++
+        // oracle interop fixture writes): body / projection / reference_frame.
+        let model = model_with(vec![
+            ("ptiff.crs.body".to_string(), "301".to_string()),
+            (
+                "ptiff.crs.projection".to_string(),
+                "equirectangular".to_string(),
+            ),
+            (
+                "ptiff.crs.reference_frame".to_string(),
+                "IAU_MOON_2000".to_string(),
+            ),
+        ]);
+        let crs = crs_from_model(&model).expect("parse").expect("present");
+        // Body id drives the planet's IAU id / derived name.
+        assert_eq!(crs.planet().iau_identifier(), "301");
+        assert_eq!(crs.planet().name(), "Moon");
+        assert_eq!(crs.projection().kind(), ProjectionKind::Equirectangular);
     }
 
     #[test]

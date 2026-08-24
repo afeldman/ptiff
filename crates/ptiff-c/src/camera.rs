@@ -92,7 +92,11 @@ fn camera_to_c(cam: &Camera) -> ptiff_camera {
     out.intrinsics = cam.intrinsics_matrix();
 
     let e = cam.extrinsics();
-    out.has_extrinsics = 1;
+    // The oracle reports has_extrinsics = 0 when the file/field-set carried no
+    // extrinsic pose. Absence is represented in the domain model by the
+    // identity pose (camera_from_model defaults to it), so an identity
+    // extrinsics maps back to has_extrinsics = 0 on the ABI.
+    out.has_extrinsics = if e == Extrinsics::IDENTITY { 0 } else { 1 };
     out.rotation_w = e.rotation.w;
     out.rotation_x = e.rotation.x;
     out.rotation_y = e.rotation.y;
