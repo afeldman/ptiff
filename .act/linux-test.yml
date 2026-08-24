@@ -9,96 +9,49 @@ on: workflow_dispatch
 jobs:
   linux-package:
     runs-on: ubuntu-latest
-    env:
-      CC: clang
-      CXX: clang++
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Conan
-        run: pip install conan
-
+      # The C ABI and CLI are pure Rust; but the CMake packaging wrapper that
+      # produces the native packages needs ninja/cmake and the packagers.
+      # `release.yml` mirrors exactly this so `task act` reproduces CI.
       - name: Install system tools + packagers
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-19 ninja-build cmake rpm dpkg patchelf
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
-          clang --version | head -1
+          # ninja+cmake (CMake generator), rpm/dpkg+patchelf (CPack DEB/RPM
+          # packaging), kernel-modules for the rust-fslock dependency.
+          sudo apt-get install -y ninja-build cmake rpm dpkg patchelf
 
-      - name: Configure Conan (clang profile)
-        run: |
-          conan profile detect --force
-          VER="$(clang -dumpversion | cut -d. -f1)"
-          sed -i "s/^compiler=.*/compiler=clang/" ~/.conan2/profiles/default
-          sed -i "s/^compiler.version=.*/compiler.version=$VER/" ~/.conan2/profiles/default
-          sed -i "s/^compiler.libcxx=.*/compiler.libcxx=libstdc++11/" ~/.conan2/profiles/default
-          sed -i "s/^compiler.cppstd=.*/compiler.cppstd=23/" ~/.conan2/profiles/default
-          conan profile show
+      # CMake (configure) builds the C ABI libptiff_c via cargo into
+      # <build>/cargo-target/release/. This step is optional here: the CMake
+      # configure below already builds it, but matches release.yml exactly and
+      # surfaces Cargo build errors up front.
+      - name: Build C ABI (libptiff_c, Rust)
+        run: cargo build -p ptiff-c --release
 
-      - name: Install dependencies (Conan, Release)
-        run: conan install . --output-folder=build-rel --build=missing -s build_type=Release -s compiler.cppstd=23 -c tools.build:jobs=1
-
-      - name: Configure (Release, Ninja, clang, shared)
+      - name: Configure (CMake packaging wrapper, Release)
         run: >
           cmake -G Ninja -B build-rel/build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build-rel/build/Release/generators/conan_toolchain.cmake
           -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_SHARED_LIBS=ON
-          -DPTIFF_BUILD_C_BINDINGS=ON
+          -DPTIFF_BUILD_C_ABI=ON
           -DPTIFF_BUILD_CLI=ON
-          -DPTIFF_BUILD_TESTS=OFF
           -DPTIFF_BUILD_DOCS=OFF
 
-      - name: Build libraries (Release)
-        run: |
-          set +e
-          cmake --build build-rel/build --config Release -j 1 > build.log 2>&1
-          rc=$?
-          if [ $rc -ne 0 ]; then
-            echo "::error::cmake --build failed (rc=$rc) — letzte 60 Zeilen:"
-            tail -n 60 build.log
-            exit 1
-          fi
-          tail -n 5 build.log
+      - name: Build ptiff CLI (Rust, workspace crate)
+        run: cmake --build build-rel/build --target ptiff_cli --config Release
 
-      - name: Install libraries to staging prefix
-        run: |
-          set +e
-          cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging" > install.log 2>&1
-          rc=$?
-          if [ $rc -ne 0 ]; then echo "::error::cmake --install failed (rc=$rc)"; tail -n 40 install.log; exit 1; fi
-
-      - name: Build ptiff CLI against the staged prefix
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/staging/lib/pkgconfig
-        run: |
-          set +e
-          cmake --build build-rel/build --target ptiff_cli --config Release > cli.log 2>&1
-          rc=$?
-          if [ $rc -ne 0 ]; then echo "::error::ptiff cli build failed (rc=$rc)"; tail -n 40 cli.log; exit 1; fi
-
-      - name: Fix install rpath for the packaged CLI
-        run: |
-          PTIFF_BIN="${{ github.workspace }}/build-rel/build/ptiff-cli/target/release/ptiff"
-          patchelf --set-rpath '$ORIGIN/../lib' "$PTIFF_BIN"
-
-      - name: Re-install to staging (now with CLI)
-        run: |
-          set +e
-          cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging" > install2.log 2>&1
-          rc=$?
-          if [ $rc -ne 0 ]; then echo "::error::cmake --install (CLI) failed (rc=$rc)"; tail -n 40 install2.log; exit 1; fi
+      - name: Install to staging prefix (CLI + C ABI + header + pkg-config)
+        run: cmake --install build-rel/build --config Release --prefix "${{ github.workspace }}/staging"
 
       - name: Smoke test the packaged CLI
+        shell: bash
         run: |
           ls -la "${{ github.workspace }}/staging/bin/ptiff"
           "${{ github.workspace }}/staging/bin/ptiff" version
+          "${{ github.workspace }}/staging/bin/ptiff" --help >/dev/null
 
       - name: Build Linux packages (CPack deb + rpm)
         working-directory: build-rel/build
@@ -107,11 +60,12 @@ jobs:
           cpack -C Release > cpack.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then echo "::error::cpack failed (rc=$rc)"; tail -n 40 cpack.log; exit 1; fi
+          tail -n 5 cpack.log
           ls -la *.deb *.rpm
 
       - name: Inspect packages
         run: |
           echo "=== .deb ==="
-          dpkg -c build-rel/build/*.deb 2>/dev/null | grep -E "bin/ptiff|/lib/libptiff|pkgconfig|include" | head -20
+          dpkg -c build-rel/build/*.deb 2>/dev/null | grep -E "bin/ptiff|/lib/ptiff|libptiff|pkgconfig|include" | head -25
           echo "=== .rpm ==="
-          rpm -qlp build-rel/build/*.rpm 2>/dev/null | grep -E "bin/ptiff|libptiff" | head -20
+          rpm -qlp build-rel/build/*.rpm 2>/dev/null | grep -E "bin/ptiff|libptiff" | head -25

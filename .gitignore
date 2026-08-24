@@ -45,12 +45,9 @@ CTestTestfile.cmake
 cmake_install.cmake
 
 ##############################################
-# Conan
+# CMake user presets
 ##############################################
 
-.conan/
-conanbuild*
-conan.lock
 CMakeUserPresets.json
 
 ##############################################
@@ -58,10 +55,6 @@ CMakeUserPresets.json
 ##############################################
 
 staging/
-/libptiff-*.pkg
-/libptiff-*.deb
-/libptiff-*.rpm
-/libptiff-*.tar.gz
 /SHA256SUMS
 
 ##############################################

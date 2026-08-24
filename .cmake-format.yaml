@@ -1,5 +1,5 @@
 # cmake-format configuration for the ptiff (Planetary TIFF) project.
-# Matches the .editorconfig / .clang-format conventions (4-space indent).
+# Matches the .editorconfig conventions (4-space indent).
 
 based_on_style: llvm
 

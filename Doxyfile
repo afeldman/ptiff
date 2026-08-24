@@ -41,8 +41,6 @@ RECURSIVE              = YES
 
 # File patterns to scan for documentation
 FILE_PATTERNS          = *.h \
-                         *.hpp \
-                         *.hxx \
                          *.md \
                          *.dox
 
