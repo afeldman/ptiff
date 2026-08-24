@@ -13,8 +13,8 @@ name: Release
 #   Linux   ubuntu-24.04-arm    arm64  native  -> CPack DEB + RPM
 #   macOS   macos-13            x86_64 native  -> CPack productbuild .pkg
 #   macOS   macos-14            arm64  native  -> CPack productbuild .pkg
-#   Windows windows-2022        x86_64 native  -> CPack ZIP (+ NSIS if present)
-#   Windows windows-11-arm      arm64  native  -> CPack ZIP
+#   Windows windows-2022        x86_64 native  -> CPack ZIP + NSIS .exe
+#   Windows windows-11-arm      arm64  native  -> CPack ZIP + NSIS .exe
 #
 # Every job runs on hardware matching its target arch, so no cross-compilation
 # is needed: cargo builds for the native host and the CMake wrapper derives the
@@ -83,7 +83,12 @@ jobs:
             sudo apt-get install -y ninja-build cmake rpm dpkg patchelf
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew install ninja cmake || brew link ninja cmake
-          # Windows runners already ship cmake + ninja and CPack's ZIP generator.
+          else
+            # Windows runners already ship cmake + ninja and CPack's ZIP
+            # generator. Install NSIS (makensis) so the .exe installer is
+            # produced as well; CMake picks it up via find_program(makensis).
+            choco install nsis --yes --no-progress
+            echo "NSIS at: $(command -v makensis)"
           fi
 
       # Build the C ABI first (the CMake install references the lib + header
@@ -119,7 +124,7 @@ jobs:
           "$CLI" version
           "$CLI" --help >/dev/null
 
-      - name: Build native packages (CPack deb/rpm / pkg / zip)
+      - name: Build native packages (CPack deb/rpm / pkg / zip / nsis)
         working-directory: build-rel/build
         shell: bash
         run: cpack -C Release
@@ -130,9 +135,10 @@ jobs:
           set -euo pipefail
           mkdir -p "${{ github.workspace }}/dist"
           # CPack names packages ptiff-<version>-<OS>-<arch>.<ext>; copy every
-          # platform package matching this arch's build.
+          # platform package matching this arch's build (incl. the NSIS .exe).
           find build-rel/build -maxdepth 1 -type f \
-            \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.zip" \) \
+            \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" \
+            -o -name "*.zip" -o -name "*.exe" \) \
             -exec cp {} "${{ github.workspace }}/dist/" \;
           cd "${{ github.workspace }}/dist"
           ls -la
