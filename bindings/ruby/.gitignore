@@ -2,6 +2,7 @@
 # "alles in SWIG" migration notes in bindings/swig/README.md). Never commit:
 # regenerated via `make -C ../swig ruby`.
 lib/ptiff.bundle
+lib/ptiff.so
 lib/ptiff_wrap.c
 test/roundtrip_ruby.tif
 
