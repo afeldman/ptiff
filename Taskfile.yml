@@ -1,0 +1,200 @@
+# Taskfile — lokal bauen, testen und packen (Rust-first).
+#
+# PTIFF 1.0 ist komplett in Rust implementiert; `cargo` ist der echte Build.
+# CMake dient nur noch als schlanker Packaging-Wrapper (install + CPack um die
+# Rust-Artefakte libptiff_c + ptiff-CLI). Untergoawchen: der gesamte C++-Pfad
+# (Conan, clang, .cpp) wurde entfernt.
+#
+#   task --list        # alle Tasks anzeigen
+#   task build         # cargo build --release (Workspace)
+#   task test          # cargo test --workspace --all-features
+#   task pkg           # native Pakete (deb/rpm auf Linux, .pkg auf macOS)
+#   task act           # release-Paket-Test lokal via act (Linux) durchspielen
+
+version: "3"
+
+vars:
+  BUILD_DIR: "build-rel"
+  BUILD_TREE: "{{.BUILD_DIR}}/build"
+  STAGING: "staging"
+  DIST: "dist"
+
+  # act-Debugsteuerung: ACT_FLAGS über die Kommandozeile setzen,
+  # z.B. `ACT_FLAGS="-v" task act`.
+  ACT_FLAGS: "{{.ACT_FLAGS}}"
+  ACT_LOG: "act-out.log"
+
+  # Optionaler Rust-Ziel-Triple für Cross-Compile auf andere CPU-Architekturen
+  # ("small CPUs"/ARM). Leer = native Host. Beispiel:
+  #   task pkg:cross RUST_TARGET=aarch64-unknown-linux-gnu
+  RUST_TARGET: "{{.RUST_TARGET}}"
+
+  CONF_ARGS: >-
+    -G Ninja -B {{.BUILD_TREE}} -S .
+    -DCMAKE_BUILD_TYPE=Release
+    -DPTIFF_BUILD_C_ABI=ON
+    -DPTIFF_BUILD_CLI=ON
+    -DPTIFF_BUILD_DOCS=OFF
+
+  CONF_ARGS_CROSS: >-
+    {{.CONF_ARGS}} -DPTIFF_RUST_TARGET={{.RUST_TARGET}}
+
+tasks:
+  default:
+    desc: "Voller Build: cargo release + CMake-Staging-Install (libptiff_c + CLI)"
+    cmds:
+      - task: build
+      - task: configure
+      - task: install
+      - task: cli
+      - task: install
+
+  build:
+    desc: "cargo build --release (gesamtes Rust-Workspace: core, rust, cli, c-abi)"
+    cmds:
+      - cargo build --release --workspace
+
+  configure:
+    desc: "CMake konfigurieren (Release, C-ABI + CLI fuer Packaging)"
+    cmds:
+      - cmake {{.CONF_ARGS}}
+
+  install:
+    desc: "cmake --install nach {{.STAGING}} (Rust CLI + libptiff_c + Header + pkg-config)"
+    cmds:
+      - rm -rf {{.STAGING}}
+      - cmake --install {{.BUILD_TREE}} --config Release --prefix "$(pwd)/{{.STAGING}}"
+
+  cli:
+    desc: "ptiff-CLI (Rust) bauen ueber das CMake-target ptiff_cli"
+    cmds:
+      - cmake --build {{.BUILD_TREE}} --target ptiff_cli --config Release
+
+  smoke:
+    desc: "Staging-CLI testen (version + info + copy roundtrip)"
+    deps: [install]
+    cmds:
+      - |
+        "{{.STAGING}}/bin/ptiff" version
+        "{{.STAGING}}/bin/ptiff" --help >/dev/null
+
+  # ------------------------------------------------------------------ pkg
+  pkg:
+    desc: "Native Pakete bauen (Linux: cpack deb+rpm; macOS: pkgbuild .pkg)"
+    cmds:
+      - task: default
+      - task: smoke
+      - task: pkg:run
+
+  pkg:run:
+    desc: "Paket-Generator ausfuehren (CPack)"
+    cmds:
+      - |
+        (cd {{.BUILD_TREE}} && cpack -C Release)
+
+  # --------------------------------------------------------------- pkg:cross
+  pkg:cross:
+    desc: "Pakete für eine andere CPU-Arch (small CPU/ARM) cross-kompilieren. RUST_TARGET setzen, z.B. task pkg:cross RUST_TARGET=aarch64-unknown-linux-musl"
+    cmds:
+      - task: cross:setup
+      - task: cross:build
+      - task: pkg:cross:run
+
+  cross:setup:
+    desc: "Rust-Ziel-Triple installieren (rustup target add)"
+    internal: true
+    cmds:
+      - |
+        if [[ -z "{{.RUST_TARGET}}" ]]; then
+          echo "RUST_TARGET ist leer. Beispiel: task pkg:cross RUST_TARGET=aarch64-unknown-linux-musl"
+          exit 2
+        fi
+        rustup target add {{.RUST_TARGET}}
+
+  cross:build:
+    desc: "CMake konfigurieren + CLI bauen + installieren für {{.RUST_TARGET}}"
+    internal: true
+    deps: [configure-cross]
+    cmds:
+      - rm -rf {{.STAGING}}
+      - cmake --build {{.BUILD_TREE}} --target ptiff_cli --config Release
+      - cmake --install {{.BUILD_TREE}} --config Release --prefix "$(pwd)/{{.STAGING}}"
+
+  configure-cross:
+    desc: "CMake mit Cross-Target {{.RUST_TARGET}} konfigurieren"
+    internal: true
+    cmds:
+      - cmake {{.CONF_ARGS_CROSS}}
+
+  pkg:cross:run:
+    desc: "CPack für die Cross-Arch-Pakete ausführen"
+    internal: true
+    cmds:
+      - |
+        (cd {{.BUILD_TREE}} && cpack -C Release)
+        ls -la {{.BUILD_TREE}}/*.deb {{.BUILD_TREE}}/*.rpm {{.BUILD_TREE}}/*.pkg 2>/dev/null || true
+
+  # ------------------------------------------------------------------ test
+  test:
+    desc: "cargo test --workspace --all-features (Rust-Testsuite)"
+    cmds:
+      - cargo test --workspace --all-features
+
+  # ------------------------------------------------------------------ bindings
+  bindings:
+    desc: "SWIG/FFI-Bindings regenerieren + testen (Go + C-ABI)"
+    cmds:
+      - cargo build -p ptiff-c --release
+      - make -C bindings/swig go
+      - cd bindings/go && go test -count=1 ./ptiff
+
+  # ------------------------------------------------------------------ act
+  act:
+    desc: "Linux-Paketpfad lokal durchspielen (act; Docker-Socket noetig)"
+    cmds:
+      - task: act:cleanup
+      - act -W .act/linux-test.yml -j linux-package workflow_dispatch {{.ACT_FLAGS}} > {{.ACT_LOG}} 2>&1
+
+  act:file:debug:
+    desc: "Wie act, aber verbose (zeigt jeden Step inkl. Build-Kommando + Fehler)"
+    cmds:
+      - task: act:cleanup
+      - act -v -W .act/linux-test.yml -j linux-package workflow_dispatch > {{.ACT_LOG}} 2>&1
+
+  act:debug:
+    desc: "Wie act, aber verbose (zeigt jeden Step inkl. Build-Kommando + Fehler)"
+    cmds:
+      - task: act:cleanup
+      - act -v -W .act/linux-test.yml -j linux-package workflow_dispatch
+
+  act:log:
+    desc: "Letzten act-Lauf protokollieren (tail act-out.log)"
+    cmds:
+      - tail -n 80 {{.ACT_LOG}}
+
+  act:cleanup:
+    desc: "act-Artefakte vom letzten Test entfernen"
+    internal: true
+    cmds:
+      - rm -rf .tmp-act-dist
+
+  # ------------------------------------------------------------------ tools
+  tools:
+    desc: "Systemwerkzeuge installieren (Rust, ninja/cmake, swig, go, Packager)"
+    internal: true
+    cmds:
+      - |
+        OS="{{.OS}}"
+        if [[ "$OS" == "darwin" ]]; then
+          brew install ninja cmake || brew link ninja cmake
+        else
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake rpm dpkg swig golang
+        fi
+
+  clean:
+    desc: "Build-Artefakte entfernen (build-Verzeichnisse, staging, dist, target)"
+    cmds:
+      - rm -rf {{.BUILD_DIR}} {{.STAGING}} {{.DIST}} target
+      - rm -rf .tmp-act-dist
+      - cargo clean

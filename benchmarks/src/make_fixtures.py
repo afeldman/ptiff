@@ -15,9 +15,10 @@ Fixtures written into benchmarks/fixtures/ (gitignored):
     uint8_512.tif    512x512  UInt8    tile 128x128 -> 16 tiles
     f32_512.tif      512x512  Float32  tile 128x128 -> 16 tiles
 
-Pixel values are deterministic: UInt8 uses the same gradient formula as
-scripts/gen_interop_fixture.cpp ((x*3 + y*5) % 256) so it is reproducible and
-matches an existing interop fixture; Float32 uses a normalized ramp in [0,1].
+Pixel values are deterministic: UInt8 uses the same gradient formula
+`(x*3 + y*5) % 256` (as used by the historical C++ `gen_interop_fixture.cpp`,
+removed with libptiff) so it is reproducible and matches the interop fixtures;
+Float32 uses a normalized ramp in [0,1].
 
 Requires the Python binding on PYTHONPATH (bindings/python/src) -- build it with
 `make -C bindings/swig python` first.
@@ -62,7 +63,7 @@ def _write(path: Path, width: int, height: int, pixel_type: int, tile: int) -> i
 
     for c in range(cols):
         for r in range(rows):
-            if pixel_type == 0:  # UInt8 gradient (matches gen_interop_fixture)
+            if pixel_type == 0:  # UInt8 gradient (matches the interop fixtures)
                 pattern = bytes([(3 * (c * tile) + 5 * (r * tile)) % 256]) * bs
             elif pixel_type == 3:  # Float32 ramp in [0, 1]
                 base = (c * cols + r) / float(cols * rows)

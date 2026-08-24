@@ -2,7 +2,7 @@
 # examples/fetch_esa_nasa_data.py
 #
 # Downloads real ESA and NASA raster datasets (as Cloud-Optimized GeoTIFF /
-# BigTIFF) into examples/data/ so the C++ example can read them with libptiff.
+# BigTIFF) into examples/data/ so the Rust example can read them with `ptiff`.
 #
 # Sources (Microsoft Planetary Computer; all public, licensed for reuse):
 #
@@ -52,7 +52,7 @@ STAC_API = "https://planetarycomputer.microsoft.com/api/stac/v1"
 SAMPLES = {
     # ESA - Sentinel-2 L2A "visual" = true-colour RGB (10 m) COG GeoTIFF.
     # This is the iconic Copernicus/ESA product, and unlike the float32 DEM
-    # tiles (Predictor 3) it reads cleanly with libptiff.
+    # tiles (Predictor 3) it reads cleanly with `ptiff`.
     "sentinel-2": {
         "collection": "sentinel-2-l2a",
         "asset": "visual",
@@ -138,8 +138,7 @@ def download(sample: dict, data_dir: Path, *, force: bool = False) -> Path:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Download real ESA + NASA GeoTIFF samples for the libptiff "
-        "examples/ directory."
+        description="Download real ESA + NASA GeoTIFF samples for the examples/ directory."
     )
     ap.add_argument(
         "--collection",
@@ -176,9 +175,8 @@ def main() -> int:
         )
 
     print(
-        "\nNext step — build & run the libptiff reader example:\n"
-        "  cmake --build <build-dir> --target ptiff_example_read_esa_nasa_tiff\n"
-        "  <build-dir>/examples/ptiff_example_read_esa_nasa_tiff <path-to-sample>.tif"
+        "\nNext step — build & run the Rust reader example:\n"
+        "  cargo run -p ptiff --example read_esa_nasa_tiff -- <path-to-sample>.tif"
     )
     return 0
 

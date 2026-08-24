@@ -8,6 +8,23 @@ one path fix and a safe Python interpreter before you `make python`.
 > excluded from the assistant environment (`.gooseignore`), so it cannot be
 > edited or regenerated here.
 
+## The C ABI now comes from Rust (`target/`)
+
+Since 2026-08-24 the C ABI `libptiff_c` is produced by the Rust core
+(`crates/ptiff-c`), **not** by the deleted `bindings/c/` CMake build. cbindgen
+generates the single header `target/ptiff_c.h`, and Cargo builds the lib into
+`target/release/`. The SWIG `Makefile` reflects this:
+
+- `C_ABI_DIR := ../../target` (header dir for `-I`)
+- `C_LIB_DIR := ../../target/release` (lib dir for `-L` / `-l` / `-Wl,-rpath`)
+- a `staticlib:` target that runs `cargo build -p ptiff-c --release` if the lib
+  is missing from `target/release`
+- `cgo_flags.go` is generated with direct `-I`/`-L`/`-Wl,-rpath` pointing at
+  `target/release` (no pkg-config, no CMake)
+
+So the old `PTIFF_C_LIB_DIR=$PWD/../../build/bindings/c` override is gone;
+there are no `build/bindings/c` output paths anymore.
+
 ## What changed
 
 * Python is now a package rooted at `bindings/python/src/ptiff/` (lib = `ptiff/`
@@ -41,20 +58,23 @@ dir.)
 
 The `PYINC` variable is derived from `$(PYTHON)`, and `PYTHON ?= python3` is
 3.14 on this machine. Override it with the 3.13 interpreter from the Python
-project's venv:
+project's venv, and make sure the Rust-built C ABI is present:
 
 ```bash
 cd bindings/swig
+make staticlib   # builds target/release/libptiff_c.* via
+                 #   cargo build -p ptiff-c --release   (if missing)
 PYTHON="uv run --project ../python -p 3.13 python" \
-PTIFF_C_LIB_DIR=$PWD/../../build/bindings/c \
 make python
 ```
 
-* `PTIFF_C_LIB_DIR` points at the checked-in C build output (`build/bindings/c`
-  contains `libptiff_c.pc`), so SWIG links against the local lib rather than a
-  globally installed one.
-* Alternatively export `PKG_CONFIG_PATH=/abs/path/to/install-shared/lib/pkgconfig`
-  and drop `PTIFF_C_LIB_DIR`.
+* `make staticlib` (or `cargo build -p ptiff-c --release` from the repo root)
+  builds `libptiff_c` into `target/release/`, which the SWIG Makefile links
+  against by default (`LIB_DIR := ../../target/release`).
+* No `PTIFF_C_LIB_DIR` override is needed (and no `PKG_CONFIG_PATH`) — the
+  Makefile points straight at `target/release`; `PTIFF_C_LIB_DIR` is only there
+  as an escape hatch for pointing at a different directory that contains
+  `libptiff_c.{dylib,so,a}`.
 
 After a successful build you should see the package dir populated:
 
@@ -96,10 +116,11 @@ error, sink).
 The Go/Ruby/Octave outputs were already regenerated (with the new metadata
 surface) and their native files rebuild themselves from `ptiff.i` via the same
 Makefile; they are unaffected by the `PY_DIR` change (it only touches `$(PY_DIR)`).
-Re-run to be safe:
+Re-run to be safe (each target's `staticlib` dependency ensures the Rust-built
+lib in `target/release/` is present):
 
 ```bash
-PTIFF_C_LIB_DIR=$PWD/../../build/bindings/c make -C ../swig go
-PTIFF_C_LIB_DIR=$PWD/../../build/bindings/c make -C ../swig ruby
-PTIFF_C_LIB_DIR=$PWD/../../build/bindings/c make -C ../swig octave
+make -C ../swig go
+make -C ../swig ruby
+make -C ../swig octave
 ```

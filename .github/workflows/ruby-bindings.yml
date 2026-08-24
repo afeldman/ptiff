@@ -1,21 +1,23 @@
 name: Ruby bindings
 
-# Builds the standalone C ABI library (libptiff_c), regenerates the SWIG Ruby
-# extension (bindings/ruby/lib/ptiff.bundle -- promoted output, see the
+# Builds the standalone C ABI library (libptiff_c) via the Rust crate
+# crates/ptiff-c, regenerates the SWIG Ruby extension
+# (bindings/ruby/lib/ptiff.bundle -- promoted output, see the
 # "alles in SWIG" migration notes in bindings/swig/README.md), then tests
 # bindings/ruby against it via the gem's own Rakefile. Uses the same
 # OS/compiler matrix as the C++, Go and Python binding jobs.
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   ruby-bindings:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-24.04 (not ubuntu-latest) is pinned; the SWIG step installs
+        # 4.5.0 via pip (matching local/macOS). See the Install SWIG step.
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -25,35 +27,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Conan
-        run: pip install conan
-
-      - name: Configure Conan profile
-        run: conan profile detect --force
-
-      - name: Install dependencies (Conan)
-        run: conan install . --output-folder=build --build=missing -s build_type=Debug
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install SWIG (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y swig
+        # Pin to SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package),
+        # NOT the distro apt `swig` (Ubuntu 24.04 is only 4.2.0). This repo is
+        # developed and validated against SWIG 4.5.x (Homebrew locally, brew on
+        # macos-latest); generated code differs materially between 4.2 and 4.5
+        # (Go enum type names, the 3-arg SWIG_*_AppendOutput arity), so CI must
+        # use the same 4.5.0 as local/macOS to keep codegen identical.
+        run: pip install swig==4.5.0
 
       - name: Install SWIG (macOS)
         if: runner.os == 'macOS'
         run: brew install swig
 
-      - name: Configure (C++ + C ABI)
-        shell: bash
-        run: >
-          cmake -B build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Debug
-          -DPTIFF_BUILD_C_BINDINGS=ON
-          -DPTIFF_BUILD_TESTS=OFF
-          -DBUILD_SHARED_LIBS=ON
-
-      - name: Build libptiff_c
-        run: cmake --build build --target ptiff_c
+      # libptiff_c is built by the Rust crate crates/ptiff-c into
+      # target/release/ (bindings/swig/Makefile links there by default).
+      - name: Build libptiff_c (Rust)
+        run: cargo build -p ptiff-c --release
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -68,8 +62,6 @@ jobs:
       # build it (RbConfig::CONFIG["rubyhdrdir"]), matching the same
       # build-order constraint as the Python extension.
       - name: Regenerate SWIG Ruby module
-        env:
-          PTIFF_C_LIB_DIR: ${{ github.workspace }}/build/bindings/c
         run: make -C bindings/swig ruby
 
       - name: Test (rake)

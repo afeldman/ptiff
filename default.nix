@@ -1,86 +1,82 @@
 # -*- mode: nix -*-
 # Nix package definition for PTIFF (Planetary TIFF).
 #
-# Built with the user's preferred toolchain: the LLVM/clang stdenv (clangStdenv)
-# and Ninja. The C/C++ library, the C ABI binding (libptiff_c) and the Rust CLI
-# (ptiff-cli/pkg) are all installed into the standard Nix output layout. The
-# C++ backend dependencies (fmt, spdlog, pugixml, nlohmann_json, OpenEXR, zstd,
-# zlib, libdeflate, libjpeg-turbo, libcurl, cpp-httplib) come from nixpkgs, each
-# shipping the CMake CONFIG package the build's find_package() calls require.
+# PTIFF 1.0 is implemented entirely in Rust: `cargo` is the real build. The
+# package installs the Rust `ptiff` CLI (crates/ptiff-cli) and the C ABI
+# `libptiff_c` (crates/ptiff-c) plus its generated header, so FFI consumers
+# (Go/Python/Ruby/Octave SWIG bindings, or any C program) can link against it.
+# There is no C++ library any more, so none of the old C++ build inputs
+# (clang, fmt, spdlog, pugixml, OpenEXR, libcurl, ...) are needed.
+
 { pkgs ? import <nixpkgs> { }
-, version ? "0.4.2"
+, version ? "1.0.0"
 }:
 
-pkgs.clangStdenv.mkDerivation {
-  pname = "libptiff";
+let
+  # A small pkg-config file for the C ABI, rendered as a Nix string.
+  pcContent = pkgs.lib.concatStringsSep "\n" [
+    ("prefix=${"$"}{pcfiledir}/../..")
+    ("libdir=${"$"}{prefix}/lib")
+    ("includedir=${"$"}{prefix}/include")
+    ""
+    "Name: ptiff_c"
+    "Description: PTIFF 1.0 C ABI over the Rust core"
+    ("Version: ${version}")
+    ("Libs: -L${"$"}{libdir} -lptiff_c")
+    ("Cflags: -I${"$"}{includedir}")
+    ""
+  ];
+in
+pkgs.stdenv.mkDerivation {
+  pname = "ptiff";
   inherit version;
 
   src = pkgs.lib.cleanSource ./.;
 
-  # Clean-up a handful of generated/scratch artifacts that would otherwise be
-  # copied from the working tree into the Nix store.
-  postPatch = ''
-    rm -rf build build-rel build-debug target
-    rm -f ptiff-cli/target ptiff-cli/Cargo.lock
-  '';
-
   nativeBuildInputs = with pkgs; [
-    ninja
-    cmake
-    pkg-config
     rustc
     cargo
   ];
 
-  buildInputs = with pkgs; [
-    fmt
-    spdlog
-    catch2_3
-    pugixml
-    nlohmann_json
-    openexr
-    zstd
-    zlib
-    libdeflate
-    libjpeg-turbo
-    curl
-    cpp-httplib
-  ];
+  # Clean up generated/scratch artifacts that would otherwise be copied into
+  # the Nix store.
+  postPatch = ''
+    rm -rf build build-rel build-debug target
+  '';
 
-  dontFixup = false;
-
-  cmakeFlags = [
-    "-G Ninja"
-    "-DCMAKE_BUILD_TYPE=Release"
-    "-DBUILD_SHARED_LIBS=ON"
-    "-DPTIFF_BUILD_C_BINDINGS=ON"
-    "-DPTIFF_BUILD_CLI=ON"
-    "-DPTIFF_BUILD_TESTS=OFF"
-    "-DPTIFF_BUILD_DOCS=OFF"
-    "-DPTIFF_BUILD_EXAMPLES=OFF"
-    "-DPTIFF_BUILD_BENCHMARKS=OFF"
-  ];
-
-  # The Rust CLI links against an installed libptiff_c (pkg-config). Point it at
-  # the Nix output *before* install completes is not possible, so we rely on the
-  # default Nix configure/build/install cycle: cmake configures (the CLI target
-  # is NOT ALL, so it is not built during `cmake --build`), cpack is not run, and
-  # the CLI is built/installed explicitly afterwards against $out.
   buildPhase = ''
-    cmake --build build
+    runHook preBuild
+    # Build the C ABI (libptiff_c) and CLI (ptiff) in release mode. CARGO_TARGET_DIR
+    # keeps Cargo's output inside the Nix build sandbox rather than the source tree.
+    export CARGO_TARGET_DIR="$TMPDIR/cargo-target"
+    cargo build --release -p ptiff-c
+    cargo build --release -p ptiff-cli
+    runHook postBuild
   '';
 
   installPhase = ''
-    cmake --install build --prefix "$out"
-    # Build the Rust CLI against the just-installed prefix and place it in bin/.
-    PKG_CONFIG_PATH="$out/lib/pkgconfig" \
-      cargo build --release --manifest-path "$PWD/ptiff-cli/Cargo.toml"
-    mkdir -p "$out/bin"
-    install -m 0755 "$PWD/ptiff-cli/target/release/ptiff" "$out/bin/ptiff"
+    runHook preInstall
+    mkdir -p "$out/bin" "$out/lib" "$out/include" "$out/lib/pkgconfig"
+
+    # CLI
+    install -m 0755 "$CARGO_TARGET_DIR/release/ptiff" "$out/bin/ptiff"
+
+    # C ABI: shared + static library (shared suffix varies by platform).
+    install -m 0755 "$CARGO_TARGET_DIR"/release/libptiff_c.so* "$out/lib/" 2>/dev/null || true
+    install -m 0755 "$CARGO_TARGET_DIR"/release/libptiff_c.dylib "$out/lib/" 2>/dev/null || true
+    install -m 0644 "$CARGO_TARGET_DIR/release/libptiff_c.a" "$out/lib/"
+
+    # Generated header (cbindgen writes a stable copy to CARGO_TARGET_DIR).
+    install -m 0644 "$CARGO_TARGET_DIR/ptiff_c.h" "$out/include/ptiff_c.h"
+
+    # pkg-config file for C/FFI consumers.
+    printf '%s' "${pcContent}" > "$out/lib/pkgconfig/ptiff_c.pc"
+
+    runHook postInstall
   '';
 
   meta = with pkgs.lib; {
-    description = "Planetary TIFF (PTIFF) image format C/C++ library and CLI";
+    description = "Planetary TIFF (PTIFF) image format: Rust core, C ABI and CLI";
     homepage = "https://afeldman.github.io/ptiff/";
     license = licenses.asl20;
     platforms = platforms.linux ++ platforms.darwin;

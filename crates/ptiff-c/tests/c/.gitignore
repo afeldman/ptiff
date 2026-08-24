@@ -1,0 +1,6 @@
+# Compiled C ABI capability-test binary (built by `make build`).
+/abiltest
+
+# Runtime output files created by ptiff_c_abiltest (relative-path temp files).
+*.out.tif
+*.tif

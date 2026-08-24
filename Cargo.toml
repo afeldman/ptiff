@@ -1,0 +1,42 @@
+# PTIFF Rust Workspace
+#
+# This is the green-field workspace for the PTIFF 1.0 Rust core
+# (see PTIFF-1.0-RUST-CORE-PLAN.md §4.1).
+#
+# Design intent (Architectural Response):
+#   - Rust (ptiff-core) is the single maintained core implementation.
+#   - The Rust core exposes NO C ABI (#[no_mangle]); the C ABI lives in a
+#     separate `ptiff-c` crate, which is created in a later phase.
+#   - We start small: `ptiff-core` holds the fundamental, stable domain types
+#     (Error/ErrorCode/Result, PixelType, ...) before any production feature.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/ptiff-core",
+    "crates/ptiff-rust",
+    "crates/ptiff-cli",
+    "crates/ptiff-c",
+]
+
+# Old, C++-driven Rust crates (pre-1.0 world). Excluded from this workspace so
+# the green-field core builds independently; they will move/be replaced by the
+# new `ptiff-rust`/`ptiff-cli` in later phases.
+exclude = [
+    "ptiff-cli",
+    "benchmarks/rust_bench",
+    "bindings/rust",
+]
+
+# Aggregated metadata for all member crates.
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/PTIFF/ptiff"
+homepage = "https://github.com/PTIFF/ptiff"
+documentation = "https://docs.rs/ptiff"
+rust-version = "1.97"
+
+# No [workspace.dependencies] yet: the core is dependency-light by design. Add
+# shared dependency pins here as soon as a second crate needs them.

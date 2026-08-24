@@ -13,7 +13,7 @@
 
 | Version | Date       | Author            | Changes |
 |---------|------------|-------------------|---------|
-| 0.1.0   | 2026-08-22 | PTIFF Maintainers | Initial draft. Captures the private-tag allocation (65001–65005) and the versioned string-pair payload codec already implemented by the reference implementation (`libptiff`) and referenced throughout the codebase. |
+| 0.1.0   | 2026-08-22 | PTIFF Maintainers | Initial draft. Captures the private-tag allocation (65001–65005) and the versioned string-pair payload codec already implemented by the reference implementation (Rust workspace) and referenced throughout the codebase. |
 
 ---
 
@@ -27,7 +27,7 @@ tag allocation and encoding).
 
 This RFC deliberately carries the binary tag structure and byte layout that RFC-0001 (a
 foundational document) keeps out of scope. It is the document the reference implementation
-refers to as "RFC-7002" in `tiff_tag.hpp`, `ptiff_metadata.hpp`, `tiff_directory.hpp`, and the
+(Rust) refers to as "RFC-7002" in the TIFF backend (`ptiff_metadata`/`tiff_tag` modules) and the
 round-trip golden test.
 
 ---
@@ -145,6 +145,6 @@ rather than mis-parsing it.
 - `RFC-0001-Core.md` — PTIFF Core (motivation, goals, design principles; §17 items 1–2).
 - `RFC-0002-GeoTIFF.md` — GeoTIFF relationship / interop (range-selection rationale).
 - `RFC-0003`…`RFC-0010` — extension-domain field schemas carried by tags 65001–65005.
-- Reference implementation: `libptiff/include/ptiff/io/backend/tiff/ptiff_metadata.hpp`,
-  `libptiff/include/ptiff/io/backend/tiff/tiff_tag.hpp`,
-  `specification/core/container-encoding.md`, `specification/appendices/tag-table.md`.
+- Reference implementation: `crates/ptiff-core/src/io/backend/tiff/` (Rust;
+  `ptiff_metadata.rs`, `tag.rs`), `specification/core/container-encoding.md`,
+  `specification/appendices/tag-table.md`.

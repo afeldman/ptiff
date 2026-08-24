@@ -31,8 +31,9 @@ Output JSON (--out):
     }
 
 Usage:
-    DYLD_LIBRARY_PATH=install-shared/lib \
-        python3 src/bench_cli.py --bin /abs/ptiff --out benchmark-results/cli.json
+    # The pure-Rust CLI needs no libptiff_c runtime search; just point --bin
+    # at the built binary (crates/ptiff-cli/target/debug/release/ptiff).
+    python3 src/bench_cli.py --bin /abs/ptiff --out benchmark-results/cli.json
 """
 
 from __future__ import annotations

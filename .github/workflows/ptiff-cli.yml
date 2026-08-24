@@ -1,12 +1,11 @@
 name: ptiff-cli
 
-# Builds and tests the Rust command-line tool (ptiff-cli). It builds the C ABI
-# (libptiff_c) via Conan+CMake, then builds/tests the clap-based CLI in
-# ptiff-cli/ against it.
+# Builds and tests the Rust command-line tool (crates/ptiff-cli). The CLI is a
+# pure-Rust binary over ptiff-rust -> ptiff-core (no C ABI, no C++); `cargo`
+# builds and tests it directly.
 
 on:
-  push:
-  pull_request:
+  workflow_call:
 
 jobs:
   cli-build:
@@ -18,65 +17,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Conan
-        run: pip install conan
-
-      - name: Configure Conan profile
-        run: conan profile detect --force
-
-      - name: Install dependencies (Conan)
-        run: conan install . --output-folder=build --build=missing -s build_type=Debug
-
-      - name: Configure (shared lib + C bindings)
-        run: >
-          cmake -B build -S .
-          -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
-          -DCMAKE_BUILD_TYPE=Debug
-          -DBUILD_SHARED_LIBS=ON
-          -DPTIFF_BUILD_C_BINDINGS=ON
-
-      - name: Build libptiff_c
-        run: cmake --build build --target ptiff_c --config Debug
-
-      # Install the shared libraries to a prefix: this validates the relocatable
-      # pkg-config files and the @loader_path/$ORIGIN install rpath on libptiff_c.
-      - name: Install libptiff_c + libptiff to a prefix
-        run: cmake --install build --prefix ${{ github.workspace }}/ptiff-install --config Debug
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
-      # The CLI (and the ptiff binding crate) consume libptiff_c via pkg-config
-      # from the installed prefix; the final binary embeds the install rpath.
       - name: Check formatting
-        working-directory: ptiff-cli
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/ptiff-install/lib/pkgconfig
+        working-directory: crates/ptiff-cli
         run: cargo fmt --check
 
       - name: Clippy
-        working-directory: ptiff-cli
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/ptiff-install/lib/pkgconfig
+        working-directory: crates/ptiff-cli
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
-        working-directory: ptiff-cli
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/ptiff-install/lib/pkgconfig
+        working-directory: crates/ptiff-cli
         run: cargo test
 
       - name: Smoke test
-        working-directory: ptiff-cli
-        env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/ptiff-install/lib/pkgconfig
+        working-directory: crates/ptiff-cli
         run: |
           cargo run -q -- version
-          cargo run -q -- backends
+          cargo run -q -- --help >/dev/null

@@ -1,18 +1,20 @@
 # Go bindings for libptiff
 
-Go bindings for [libptiff](../..), the C++ planetary-imaging format library.
+Go bindings for [libptiff](../..).
 
 **This is promoted SWIG output**, not a hand-written cgo wrapper (see the
 ["alles in SWIG" migration](../swig/README.md#planned-migration) decision,
 2026-08-11): `bindings/go/ptiff` is regenerated from
 [`bindings/swig/ptiff.i`](../swig/ptiff.i) by SWIG, targeting the same
-language-agnostic C ABI every binding builds on
-([`bindings/c`](../c), built as `libptiff_c`). It never compiles any C++
-itself — the generated wrapper is plain C, bound only to the `extern "C"`
-surface of `libptiff_c`.
+language-agnostic C ABI every binding builds on. That C ABI is the Rust
+`libptiff_c` produced by the [`crates/ptiff-c`](../../crates/ptiff-c) crate
+(`cargo build -p ptiff-c --release` → `target/release/libptiff_c.*`, header
+`target/ptiff_c.h`). It never compiles any C++ itself — the generated wrapper
+is plain C, bound only to the `extern "C"` surface of `libptiff_c`.
 
 ```
-bindings/c/                standalone C ABI binding (shared by all languages)
+crates/ptiff-c/             Rust crate: the C ABI (libptiff_c) + cbindgen header
+crates/ptiff-rust/          idiomatic Rust core (everything builds on it)
 bindings/swig/              single source of truth: ptiff.i + typemaps.i + Makefile
                             (SWIG regenerates each language's promoted output
                             from here — see ../swig/README.md)
@@ -30,30 +32,30 @@ bindings/go/
 
 ## Architecture: C ABI shared by every binding
 
-libptiff is C++23 with PIMPL types and heavy dependencies (fmt/spdlog). Rather
-than have each language binding fight cgo/FFI against C++ directly, the project
-keeps a single, curated `extern "C"` veneer in [`bindings/c`](../c). Because every
-foreign-language runtime (Go cgo, Rust FFI, Python ctypes, Ruby Fiddle, SWIG's
-own generated glue) can call a plain C ABI, `libptiff_c` is the **one source of
-truth** all bindings build on:
+libptiff's idiomatic core is Rust; presenting that to every foreign-language
+runtime (Go cgo, Python ctypes, Ruby Fiddle, Octave, SWIG's own generated glue)
+through a single, curated `extern "C"` veneer keeps each binding on a plain C
+ABI. That veneer now lives in the Rust crate [`crates/ptiff-c`](../../crates/ptiff-c):
+it implements the stable `ptiff_*` C surface over the `ptiff`/`ptiff-core`
+Rust crates, and cbindgen authorises the single header `target/ptiff_c.h` from
+its signatures. `libptiff_c` is therefore the **one source of truth** all
+bindings build on:
 
 ```
-            libptiff (C++23 core, fmt/spdlog)
+    crates/ptiff-rust + ptiff-core (idiomatic Rust core)
                  │
                  ▼
-        bindings/c → libptiff_c   (extern "C" veneer)
-                 │
+   crates/ptiff-c → libptiff_c    (Rust extern "C" C ABI, cargo build -p ptiff-c)
+            │   target/ptiff_c.h  (cbindgen authorises this header)
                  ▼
-        bindings/swig → ptiff.i + typemaps.i   (one .i, three language targets)
+        bindings/swig → ptiff.i + typemaps.i   (one .i, four language targets)
                  │
-      ┌──────────┼──────────┐
-      ▼          ▼          ▼
-     Go        Python      Ruby
+      ┌──────────┼───────────┐
+      ▼          ▼           ▼
+     Go        Python      Ruby    (+ Octave)
  (promoted:  (bindings/  (bindings/
  this dir)    python)     ruby)
 ```
-
-Rust stays on rust-bindgen (`bindings/rust`) — no SWIG Rust target.
 
 ## What the API looks like
 
@@ -98,8 +100,9 @@ during the migration.
 
 ## Build requirements
 
-- A **C++23** compiler (to build `libptiff`/`libptiff_c`, which the Go package
-  links but never compiles itself) and **CMake ≥ 3.26**.
+- **Rust** (stable toolchain, `cargo`) — builds `libptiff_c` from
+  `crates/ptiff-c`; cbindgen does the rest and needs no separate CMake/Conan
+  step.
 - **SWIG ≥ 4** on `PATH` (regenerates `ptiff/ptiff.go`/`ptiff_wrap.c`).
 - **Go ≥ 1.21** with cgo enabled (`CGO_ENABLED=1`).
 - `make` on `PATH` (drives the SWIG regeneration in
@@ -109,14 +112,12 @@ during the migration.
 
 ### Option A — via CMake (recommended)
 
-Configure libptiff (as a **shared** library — see note below), enable the C and Go
-bindings, build `libptiff_c`, then let CTest regenerate and test:
+Enable the C and Go bindings, let CTest regenerate and test. CMake's Go target
+runs the SWIG Makefile (`make -C ../swig go`), which itself builds `libptiff_c`
+from the Rust crate if needed:
 
 ```bash
-conan install . --output-folder=build --build=missing    # or use vcpkg
 cmake -B build -S . \
-  -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake \
-  -DBUILD_SHARED_LIBS=ON \
   -DPTIFF_BUILD_C_BINDINGS=ON \
   -DPTIFF_BUILD_GO_BINDINGS=ON
 cmake --build build --target ptiff_c
@@ -124,30 +125,42 @@ ctest --test-dir build -R ptiff_go_bindings --output-on-failure
 ```
 
 `PTIFF_BUILD_GO_BINDINGS` implies `PTIFF_BUILD_C_BINDINGS`. This registers two
-CTests: `ptiff_go_bindings_generate` runs `make -C bindings/swig go` with
-`PTIFF_C_LIB_DIR` pointed at the current configuration's `libptiff_c` build
-output (a CMake generator expression, so it always matches Debug/Release/...),
-then `ptiff_go_bindings` runs `go test ./ptiff`.
+CTests: `ptiff_go_bindings_generate` runs `make -C bindings/swig go` (which
+points `PTIFF_C_LIB_DIR` at the Rust-built `target/release` by default), then
+`ptiff_go_bindings` runs `go test ./ptiff`.
 
 ### Option B — manual, via the SWIG Makefile directly
 
+Build the Rust C ABI once, then regenerate and test:
+
 ```bash
-# Regenerate ptiff/{ptiff.go,ptiff_wrap.c,cgo_flags.go} against an installed
-# prefix (cmake --install build --prefix /where/ever) or an in-tree build dir:
-PTIFF_C_LIB_DIR=/where/ever/lib make -C bindings/swig go
-# or: PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make -C bindings/swig go
+# from the repo root: build libptiff_c (target/release/libptiff_c.*) + header
+cargo build -p ptiff-c --release
+
+# regenerate ptiff/{ptiff.go,ptiff_wrap.c,cgo_flags.go} — the SWIG Makefile
+# links straight against target/release by default (no env vars needed):
+make -C bindings/swig go
 
 cd bindings/go
 go test ./ptiff
 ```
 
-> **Prefer a shared `libptiff`.** When built as a shared library
-> (`-DBUILD_SHARED_LIBS=ON`), libptiff bundles its C++ dependencies and, crucially,
-> the process-wide `BackendFactory` self-registration (which happens in static
-> initializers) is fully visible across the FFI boundary —
-> `Ptiff_backend_names()` returns all registered backends (`tiff, memory, pds4,
-> isis, zarr, cloud, openexr`). Static archives dead-strip the unreferenced
-> registration translation units, so `Ptiff_backend_names()` can come back empty.
+To point the SWIG Makefile at a different `libptiff_c` location (e.g. an
+installed prefix) instead of the default `target/release`:
+
+```bash
+PTIFF_C_LIB_DIR=/where/ever/lib make -C bindings/swig go
+# or: PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make -C bindings/swig go
+```
+
+> **Build it as a Rust `cdylib`/`staticlib`, not a C++ static archive.**
+> `crates/ptiff-c` builds both a `cdylib` and a `staticlib`, and the SWIG
+> Makefile links whichever `libptiff_c` it finds in `target/release`. Keep the
+> (default) shared library: the process-wide `BackendFactory` self-registration
+> then stays fully visible across the FFI boundary — `Ptiff_backend_names()`
+> returns all registered backends (`tiff, memory, pds4, isis, zarr, cloud,
+> openexr`). Doing `cargo build -p ptiff-c --release` produces both artifacts,
+> so nothing extra is needed.
 
 ## Idiomatic usage
 
