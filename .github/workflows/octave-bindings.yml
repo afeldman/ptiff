@@ -47,7 +47,9 @@ jobs:
 
       - name: Install Octave (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y octave
+        # mkoctfile does NOT ship inside the `octave` package on
+        # Debian/Ubuntu -- it needs the separate `liboctave-dev` package.
+        run: sudo apt-get update && sudo apt-get install -y octave liboctave-dev
 
       # libptiff_c is built by the Rust crate crates/ptiff-c into
       # target/release/ (bindings/swig/Makefile links there by default).
@@ -67,5 +69,9 @@ jobs:
         # required: `run` re-resolves the script's directory relative to the
         # file being run, so the relative "lib"/"test" addpaths get resolved
         # against bindings/octave/test and fail with "load_path: No such
-        # file or directory". The Makefile's `test` target does the same.
-        run: octave --quiet --no-gui --eval "addpath('$(pwd)/lib'); addpath('$(pwd)/test'); run(fullfile('$(pwd)/test','run_tests_octave.m'));"
+        # file or directory". Use Octave's own `pwd` builtin (not shell
+        # `$(pwd)`) -- the shell-substituted form silently produced a bare
+        # "lib"/"test" on the macOS runner (`load_path: lib: No such file or
+        # directory`, root cause not fully understood, but octave's own pwd()
+        # sidesteps the shell/YAML quoting entirely and is more robust).
+        run: octave --quiet --no-gui --eval "addpath(fullfile(pwd, 'lib')); addpath(fullfile(pwd, 'test')); run(fullfile(pwd, 'test', 'run_tests_octave.m'));"

@@ -1301,20 +1301,34 @@ die aktuelle Referenzimplementierung ist C++ `libptiff`, Zielimplementierung ab 
 Rust-Core – Details siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17“). Die Meilenstein-Beschreibungen
 selbst bleiben unverändert gültig.
 
-## 17.1 Migrations-Status (Stand: 2026-08-22)
+## 17.1 Migrations-Status (Stand: 2026-08-24, aktualisiert)
 
-**Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird archiviert (nicht
-weiter maintained), Rust ist Single-Core.“** Bis dahin bleibt `libptiff` bewusst als
-Cross-Validation-Oracle bestehen (§18) — nicht vorzeitig löschen. Status unten durch tatsächlichen
-Build+Testlauf verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace
---features tiff-backend`: 405/405 grün, inkl. ptiff-c), nicht nur aus Doku übernommen.
+> **Update 2026-08-24 (nachmittags): `libptiff` ist bereits gelöscht.** Commit `3fa458d`
+> ("refactor: replace C++ libptiff with pure-Rust workspace (Phases B-D)") hat `libptiff/`
+> (244 Dateien) sowie `bindings/c/` komplett entfernt und den Workspace auf Version `1.0.0`
+> gesetzt (Tag `v1.0.0-alpha.1`). **Das lief der eigenen Reihenfolge-Empfehlung dieses
+> Dokuments zuwider** (s. u.: "Phase 12 vor 13 zwingend") — Phase 12 (systematische
+> Cross-Validation-Benchmarks ggü. C++-Oracle) wurde nicht als eigener, dokumentierter Schritt
+> durchgeführt, bevor der C++-Oracle selbst entfernt wurde. Was tatsächlich an Äquivalenznachweis
+> existiert: golden-digest-Tests (eingefroren vor der Löschung) und die R4-Bindings-Tests gegen
+> ein eingefrorenes Oracle-Fixture (`scripts/samples/ptiff_interop_fixture.tif`), s. Phase 7/12
+> unten — das ist eine punktuelle, keine systematische Cross-Validation. `ROADMAP.md` ist ab
+> jetzt das primär gepflegte, autoritative Status-Dokument; dieser Abschnitt (§17.1) wird nur noch
+> nachgezogen, nicht mehr führend fortgeschrieben.
+
+**Ursprüngliches Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird
+archiviert (nicht weiter maintained), Rust ist Single-Core.“** In der Praxis wurde `libptiff`
+nicht archiviert, sondern ersatzlos gelöscht (s. Update oben) — das Kriterium ist damit
+**übererfüllt, aber außer der Reihe** erfüllt. Status unten durch tatsächlichen Build+Testlauf
+verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace --all-features`:
+515/515 grün), nicht nur aus Doku übernommen.
 
 | Phase | Ziel | Status | Anmerkung |
 |-------|------|--------|-----------|
 | 0 | Analyse | ✅ | dieses Dokument |
 | 1 | Workspace + Grundgerüst | 🚧 | `ptiff-core` + `ptiff` (Rust-API, `crates/ptiff-rust`) + `ptiff-c` (C-ABI, Version/Error/Pixel-Type-/Compression-Enums/Image/Backend) da — Workspace kompiliert und testet; Grundgerüst i. W. fertig |
 | 2 | Datenmodell (StorageModel + Domain-Typen) | 🚧 | `Scene`/`Image`/`StorageModel`/`Serializer`/`Deserializer` fertig; `Camera`/`CoordinateReferenceSystem`/`Geometry` existieren als eigenständige Rust-Typen, sind aber **nicht** in `Scene` verdrahtet (kein `addCamera`/`addGeometry`) — DoD nicht vollständig erfüllt |
-| 3 | TIFF/BigTIFF-Kern | 🚧 | TIFF/BigTIFF-Header/IFD/Directory/Tile-Layer fertig (`TiffBackend`, IFD-Kette lesen/schreiben, Mehrbild); **ISIS3 CUB-Backend fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/isis/`, dependency-frei über `memory-pixel-tier`, 14 Unit-Tests grün); **PDS4-Backend fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/pds4/`, XML-Label via `quick-xml`, 19 Unit-Tests grün); **OpenEXR-Backend fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/openexr/`, reines-Rust `.exr` über das `exr`-Crate, 9 Unit-Tests grün); **Zarr-Backend fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/zarr/`, JSON-Header via `serde_json`, zstd/zlib-Chunk-Kompression via `zstd`/`flate2`, 30 Unit-Tests grün) — **alle 4 C++-Backends (isis/pds4/openexr/zarr) sind damit portiert**; alle o.g. Backends via `cargo build --all-features` + `clippy` + `fmt` verifiziert, 395 Unit + Integrationstests grün im Workspace |
+| 3 | TIFF/BigTIFF-Kern | ✅ | TIFF/BigTIFF-Header/IFD/Directory/Tile-Layer fertig (`TiffBackend`, IFD-Kette lesen/schreiben, Mehrbild); **ISIS3 CUB-, PDS4-, OpenEXR- und Zarr-Backend alle fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/{isis,pds4,openexr,zarr}/`) — **alle 4 C++-Backends sind damit portiert, C++-Gegenstück existiert nicht mehr** (s. Update oben). Plus: Cloud-Object-Storage-Lesetransport (`HttpRangeBinaryReader`) laut `ROADMAP.md` Meilenstein 2 ebenfalls fertig, war in dieser Phasenliste ursprünglich nicht vorgesehen. Verifiziert via `cargo build --all-features` + `clippy` + `fmt`, 515/515 Tests grün im Gesamt-Workspace |
 | 4 | Kompression | ✅ | PackBits/LZW/Predictor (dependency-frei) fertig; **Zarr-ZSTD fertig** (in `backend/zarr/codec.rs`, als Zarr-Chunk-Kompression via `zstd`/`flate2`); **Deflate fertig** (`backend/tiff/compression/deflate.rs`, via `flate2`/zlib); **JPEG fertig** (`backend/tiff/compression/jpeg.rs`, reines Rust via `jpeg-encoder`/`jpeg-decoder`, feature-gated hinter `tiff-codecs`); alle Codecs roundtrip- und (verlustfrei) golden-getestet; **ZSTD als TIFF-Codec offen** (RFC-0011) |
 | 5 | Tiles / parallele Verarbeitung (Rayon) | ❌ | nicht begonnen — war die **Hauptmotivation** der Migration (§2.1 Punkt 1); der Rewrite hat seinen eigenen Kernvorteil bislang nicht eingelöst |
 | 6 | Metadaten-Erweiterungen (65001–65005) | 🚧 | RFC-7002-Codec (encode/decode) fertig und getestet; Scene-Verdrahtung offen (s. Phase 2) |
@@ -1323,8 +1337,8 @@ Build+Testlauf verifiziert (`cargo build --workspace --all-features`, `cargo tes
 | 9 | Python (PyO3) | ❌ | nicht begonnen |
 | 10 | Octave (MEX über C-ABI) | ❌ | nicht begonnen |
 | 11 | CLI auf `ptiff-core` | ✅ | `ptiff-cli/` läuft über das idiomatische `ptiff`-Crate direkt auf `ptiff-core` (`Tiff::open`/`read_image_pixels`/`tile_layout`/`to_bytes_with_pixels`); Reports Version über `ptiff::{APP_VERSION, VERSION_STR}`. Keine C-ABI/C++-Abhängigkeit mehr. 9 Unit + 8 Integrationstests grün |
-| 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | ❌ | nicht begonnen — keine bewiesene Verhaltensgleichheit |
-| 13 | PTIFF 1.0 (C++ archivieren) | ❌ | Voraussetzung: alle Phasen 0–12 grün |
+| 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | 🚧 **punktuell, nicht systematisch** | keine dedizierte Cross-Validation-Benchmark-Suite wie in §5/§17.0 vorgesehen; was existiert: golden-digest-Tests (vor der Löschung eingefroren) + R4-Bindings-Tests (Go/Python/Ruby/Octave) gegen ein eingefrorenes C++-Oracle-Fixture (`scripts/samples/ptiff_interop_fixture.tif`). Da `libptiff` inzwischen gelöscht ist, ist ein Nachholen der ursprünglich geplanten systematischen Cross-Validation **nicht mehr möglich**, außer durch Wiederherstellen von `libptiff` aus der Git-Historie |
+| 13 | PTIFF 1.0 (C++ archivieren) | ✅ **außer der Reihe erreicht** | `libptiff` in Commit `3fa458d` gelöscht (nicht nur archiviert), Workspace auf `1.0.0` gesetzt, Tag `v1.0.0-alpha.1` existiert. **Voraussetzung „Phase 12 vor 13" wurde nicht eingehalten** (s. Update-Hinweis oben) — Phase 5 (Parallelisierung, weiterhin ❌) ebenfalls nicht vor 13 nachgeholt, entgegen der Reihenfolge-Empfehlung unten |
 
 **Zusätzlicher, phasenübergreifender Gap:** Die N-Band-Multispektral-Erweiterung von
 `samplesPerPixel` (C++ `libptiff` ≥ 0.4.0, motiviert durch anstehende Merkur-Spektrenbilddaten,
