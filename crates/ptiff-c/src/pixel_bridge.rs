@@ -272,6 +272,14 @@ impl PtiffSink {
         desc: &ptiff_image_descriptor,
         camera: Option<&crate::camera::ptiff_camera>,
     ) -> Result<PtiffSink, ptiff::Error> {
+        if path.trim().is_empty() {
+            // The oracle rejects an empty destination path at create time
+            // (Ptiff_sink_create("") => NULL), rather than deferring the
+            // failure to the first write / close.
+            return Err(Error::invalid_argument(
+                "ptiff_sink_create: empty destination path",
+            ));
+        }
         if desc.has_tile_info == 0
             || desc.tile_info.tile_width == 0
             || desc.tile_info.tile_height == 0
