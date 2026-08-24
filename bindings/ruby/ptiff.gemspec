@@ -8,10 +8,10 @@ Gem::Specification.new do |spec|
   spec.authors = ['Anton Feldmann']
   spec.summary = 'Ruby bindings for libptiff (planetary imaging): raw SWIG output over libptiff_c'
   spec.description = <<~DESC
-    Ruby bindings for libptiff, a C++23 planetary-imaging library: raw SWIG
-    output (bindings/swig/ptiff.i) over the language-agnostic C ABI
-    `libptiff_c`. `lib/ptiff.bundle` is a compiled native extension linked
-    against `libptiff_c` -- regenerate it with `make -C ../swig ruby` before
+    Ruby bindings for PTIFF (planetary imaging) over the Rust-based `libptiff_c`
+    C ABI: raw SWIG output (bindings/swig/ptiff.i). `lib/ptiff.bundle` is a
+    compiled native extension linked against `libptiff_c` -- regenerate it with
+    `make -C ../swig ruby` before
     requiring this gem; it is not pure Ruby and ships no prebuilt binary.
   DESC
   spec.homepage = 'https://github.com/afeldman/ptiff'

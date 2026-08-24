@@ -1,27 +1,37 @@
 # Octave bindings for ptiff
 
 A [SWIG](https://www.swig.org/)-generated GNU Octave binding over the
-language-agnostic C ABI (`libptiff_c`). The raw SWIG module is built as a
-single `ptiff.oct` loadable module in `lib/` (the `make -C ../swig octave`
-"promoted" output dir) -- the dependency-free `test/` suite is the only
-versioned source here.
+language-agnostic C ABI (`libptiff_c`) produced by the Rust crate
+[`crates/ptiff-c`](../../crates/ptiff-c) (`cargo build -p ptiff-c --release`
+→ `target/release/libptiff_c.*` + `target/ptiff_c.h`). The raw SWIG module is
+built as a single `ptiff.oct` loadable module in `lib/` (the
+`make -C ../swig octave` "promoted" output dir) -- the dependency-free `test/`
+suite is the only versioned source here.
 
 Requires **GNU Octave >= 8** (the SWIG-Octave runtime uses the
 `octave::interpreter` API) and, to build, `mkoctfile` (ships with Octave).
 
 ## Build
 
-First build + install the C ABI library (see `bindings/c`), then, with a
+First build + install the C ABI library (see `crates/ptiff-c`), then, with a
 pkg-config prefix that ships `libptiff_c.pc` on `PKG_CONFIG_PATH`:
 
 ```bash
 make -C ../swig octave            # builds octave/lib/ptiff.oct
 ```
 
-or point `PTIFF_C_LIB_DIR` straight at a build output dir:
+or point `PTIFF_C_LIB_DIR` straight at the Rust build output:
 
 ```bash
-PTIFF_C_LIB_DIR=$PWD/../../build/bindings/c make -C ../swig octave
+PTIFF_C_LIB_DIR=$PWD/../../target/release make -C ../swig octave
+```
+
+The SWIG Makefile links against `target/release` by default, so for in-tree dev
+you only need to build the Rust lib once from the repo root:
+
+```bash
+cargo build -p ptiff-c --release
+make -C ../swig octave
 ```
 
 `ptiff.oct` embeds an rpath to the `libptiff_c` dylib so no

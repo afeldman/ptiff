@@ -60,8 +60,8 @@ metrics have **no inner iteration** — the unit being timed *is* the subprocess
 applies; `BENCH_ITERS` does not affect them.
 
 Fixtures are written deterministically via the Python binding itself:
-UInt8 uses the `(x·3+y·5) % 256` gradient (identical formula to
-`scripts/gen_interop_fixture.cpp`), Float32 a normalized ramp. `--real` copies
+UInt8 uses the `(x·3+y·5) % 256` gradient (identical formula to the interop
+fixtures), Float32 a normalized ramp. `--real` copies
 `scripts/samples/lola_real_crop_512.tif` into `fixtures/real_lola_512.tif` and
 `--nac` copies `scripts/samples/NAC_DTM_ATLAS2.PYR.TIF` into
 `fixtures/nac_dtm.tif`, so every language reads the identical real-data byte
@@ -82,10 +82,11 @@ BENCH_REPEATS=10 BENCH_ITERS=25 ./run_benchmarks.sh   # shorter/faster run
 ```
 
 The script needs the four SWIG bindings built (`make -C bindings/swig
-python|ruby|go|octave`) and the Rust binding/CLI built (the `cli` step builds
-`ptiff-cli/` automatically if needed); the Go/Rust/cli steps resolve `libptiff_c`
-via a pkg-config prefix (default `$REPO/install-shared`, override with
-`PTIFF_PREFIX`).
+python|ruby|go|octave`) against the Rust-built C ABI (`cargo build -p ptiff-c
+--release` → `target/release/libptiff_c.*`). The `cli` step builds the CLI
+(`crates/ptiff-cli`) automatically if needed. No pkg-config or installed prefix
+is used — the SWIG Go `cgo_flags.go`, the rpaths and the Rust workspace resolve
+`libptiff_c` / `ptiff` from `target/release` / the cargo workspace directly.
 
 `--real` / `--nac` require the gitignored real samples to be present (see
 `scripts/fetch_sample_tiff.sh`). Without them the corresponding
@@ -131,7 +132,7 @@ numbers, run locally on a quiet machine with the default knobs (as above).
   trend over time when you re-run after changes.
 
 ```text
-# representative run (macOS arm64, libptiff 0.3.0, repeats=20, iters=50)
+# representative run (macOS arm64, libptiff 1.0.0, repeats=20, iters=50)
 | metric            | python | ruby |  go  | octave | rust  |
 |-------------------|--------|------|------|--------|-------|
 | write_all_tiles   | 0.401  | 0.384| 0.356| 0.662  | 0.251 |

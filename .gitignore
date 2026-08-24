@@ -43,15 +43,11 @@ compile_commands.json
 Testing/
 CTestTestfile.cmake
 cmake_install.cmake
-Makefile
 
 ##############################################
-# Conan
+# CMake user presets
 ##############################################
 
-.conan/
-conanbuild*
-conan.lock
 CMakeUserPresets.json
 
 ##############################################
@@ -59,10 +55,6 @@ CMakeUserPresets.json
 ##############################################
 
 staging/
-/libptiff-*.pkg
-/libptiff-*.deb
-/libptiff-*.rpm
-/libptiff-*.tar.gz
 /SHA256SUMS
 
 ##############################################
@@ -224,7 +216,13 @@ examples/data/
 # Downloaded sample data (scripts/fetch_sample_tiff.sh)
 ##############################################
 
-scripts/samples/
+scripts/samples/*
+# Exception: the frozen C++-oracle-produced interop fixture that
+# crates/ptiff-c/tests/oracle_fields.rs cross-validates against (R4/Phase 12
+# precursor). The C++ generator (gen_interop_fixture.cpp) that produced it was
+# deleted along with libptiff, so this file is now irreplaceable and must be
+# tracked for CI to have it at all.
+!scripts/samples/ptiff_interop_fixture.tif
 
 ##############################################
 # Compiled interop-fixture helper (built from scripts/gen_interop_fixture.cpp)
@@ -232,3 +230,8 @@ scripts/samples/
 
 scripts/gen_interop_fixture
 scripts/gen_interop_fixture.dSYM/
+
+##############################################
+# Rust workspace (PTIFF 1.0 green-field core)
+##############################################
+target/

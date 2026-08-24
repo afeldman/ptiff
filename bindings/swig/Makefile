@@ -15,9 +15,11 @@
 #   make test       build then run all four round-trip (and feature) tests
 #   make clean      remove generated outputs
 #
-# Point PKG_CONFIG_PATH at an installed prefix that ships libptiff_c.pc, e.g.
-#   PKG_CONFIG_PATH=/where/ever/lib/pkgconfig make test
-# or set PTIFF_C_LIB_DIR to a directory containing libptiff_c.{dylib,so,a}.
+# The C ABI now comes from the Rust core: cbindgen (crates/ptiff-c/build.rs)
+# emits the single header `target/ptiff_c.h`, and Cargo builds libptiff_c into
+# `target/release/`. This SWIG makefile therefore links straight against the
+# Rust-built lib by default. Override with PTIFF_C_LIB_DIR to point at a
+# different directory containing libptiff_c.{dylib,so,a}.
 
 PYTHON    ?= python3
 RUBY      ?= ruby
@@ -27,9 +29,10 @@ CC        ?= cc
 OCTAVE    ?= octave
 MKOCTFILE ?= mkoctfile
 
-C_ABI_DIR   := ../c
-GEN_DIR     := real_inc
-SHIM_EXPORT := swig_include/ptiff_c_export.h
+# Paths into the Rust workspace `target/` (both resolved from bindings/swig/).
+C_ABI_DIR := ../../target
+GEN_DIR := real_inc
+C_LIB_DIR := ../../target/release
 
 # Per-language output dirs. PY_DIR, GO_DIR and RB_DIR are PROMOTED, official
 # locations (see the "alles in SWIG" migration notes in README.md) --
@@ -46,20 +49,13 @@ RB_DIR  := ../ruby/lib
 OC_DIR  := ../octave/lib
 GO_MODULE := github.com/crater/ptiff-go
 
-PKGCONF := $(shell command -v pkg-config)
-
 # ---- Resolve libptiff_c: prefer pkg-config, else PTIFF_C_LIB_DIR ----
 ifeq ($(PTIFF_C_LIB_DIR),)
-	ifneq ($(PKGCONF),)
-		LIBC_CFLAGS  := $(shell pkg-config --cflags libptiff_c 2>/dev/null)
-		LIBC_LDFLAGS := $(shell pkg-config --libs libptiff_c 2>/dev/null)
-		# Embed an rpath so built extensions can load libptiff_c at runtime.
-		LIBDIR       := $(shell pkg-config --variable=libdir libptiff_c 2>/dev/null)
-		LIBC_LDFLAGS += -Wl,-rpath,$(LIBDIR)
-		ifeq ($(LIBC_LDFLAGS),)
-			$(error No libptiff_c. Install a prefix and export PKG_CONFIG_PATH=</prefix/lib/pkgconfig>.)
-		endif
-	endif
+	# Default: the Rust-built lib in the workspace release dir.
+	LIB_DIR := $(CURDIR)/$(C_LIB_DIR)
+	LIBC_LDFLAGS := -L$(LIB_DIR) -lptiff_c -Wl,-rpath,$(LIB_DIR)
+	LIBC_CFLAGS  := -I$(CURDIR)/$(C_ABI_DIR)
+	LIBDIR       := $(LIB_DIR)
 else
 	# A relative PTIFF_C_LIB_DIR resolves against the build dir.
 	LIB_DIR := $(if $(filter /%,$(PTIFF_C_LIB_DIR)),$(PTIFF_C_LIB_DIR),$(CURDIR)/$(PTIFF_C_LIB_DIR))
@@ -72,11 +68,30 @@ PYINC := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_paths()['in
 RBHDR1 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyhdrdir"]')
 RBHDR2 := $(shell $(RUBY) -rrbconfig -e 'print RbConfig::CONFIG["rubyarchhdrdir"]')
 
-# ---- Shim include dir: byte-identical copy of ../c with the export macro shimmed.
+# ---- Platform strings for OS-portable linker flags ----
+# `-undefined dynamic_lookup` lets a Python/Ruby extension resolve its host
+# interpreter's symbols at runtime on macOS (Mach-O). GNU ld (Linux) has no
+# such switch -- it would be parsed as a stray file name -- and the interpreter
+# symbols are already exported by the loaded interpreter there, so the flag is
+# simply omitted on every non-Darwin platform.
+UNAME_S := $(shell uname -s)
+UNDEFINED_SYMBOLS := $(if $(filter Darwin,$(UNAME_S)),-undefined dynamic_lookup,)
+
+# ---- Shim include dir: SWIG-parseable copy of target/ptiff_c.h ----
+# SWIG chokes on the PTIFF_C_API block (visibility attribute etc.), so we ship
+# SWIG a filtered copy where that block is dropped (PTIFF_C_API => empty). The
+# %{...%} C block in ptiff.i is compiled against the REAL target/ptiff_c.h via
+# LIBC_CFLAGS above.
+.PHONY: staticlib
 $(GEN_DIR):
 	mkdir -p $(GEN_DIR)
-	cp $(C_ABI_DIR)/*.h $(GEN_DIR)/
-	cp $(SHIM_EXPORT) $(GEN_DIR)/ptiff_c_export.h
+	@test -f $(C_ABI_DIR)/ptiff_c.h || (echo "ptiff_c.h fehlt -- baue Rust-core (cargo build -p ptiff-c --release)"; cargo build -p ptiff-c --release)
+	sed -e '/^#if defined(_WIN32)/,/^$$/d' $(C_ABI_DIR)/ptiff_c.h > $(GEN_DIR)/ptiff_c.h
+
+# The Rust static/shared lib must exist before linking. `staticlib` builds it.
+staticlib:
+	@test -f $(C_LIB_DIR)/libptiff_c.dylib -o -f $(C_LIB_DIR)/libptiff_c.so -o -f $(C_LIB_DIR)/libptiff_c.a || \
+		(cd ../.. && cargo build -p ptiff-c --release)
 
 # ============================================================
 # Python
@@ -85,9 +100,9 @@ $(PY_DIR)/ptiff.py $(PY_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -python -outdir $(PY_DIR) -o $(PY_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(PY_DIR)/_ptiff.so: $(PY_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) -undefined dynamic_lookup
+	$(CC) -O2 -fPIC -I$(PYINC) $(LIBC_CFLAGS) -shared $(PY_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS) $(UNDEFINED_SYMBOLS)
 
-python: $(PY_DIR)/_ptiff.so
+python: $(PY_DIR)/_ptiff.so staticlib
 
 # ============================================================
 # Go
@@ -107,12 +122,14 @@ $(GO_MODROOT)go.mod:
 	printf 'module %s\n\ngo 1.21\n' '$(GO_MODULE)' > $@
 
 # cgo_flags.go injects #cgo directives so `go build`/`go test` in GO_DIR can
-# find the real headers + link libptiff_c (rpath baked in from LIBDIR).
+# find the real header + link the Rust-built libptiff_c. Both -I (header dir)
+# and -L/-l/-rpath (lib dir) are baked in (no pkg-config needed).
 $(GO_DIR)/cgo_flags.go: $(GO_MODROOT)go.mod
-	printf 'package ptiff\n\n/*\n#cgo pkg-config: libptiff_c\n' > $@
-	printf '#cgo LDFLAGS: -Wl,-rpath,%s\n*/\nimport "C"\n' '$(LIBDIR)' >> $@
+	printf 'package ptiff\n\n/*\n' > $@
+	printf '#cgo CFLAGS: -I%s\n' '$(CURDIR)/$(C_ABI_DIR)' >> $@
+	printf '#cgo LDFLAGS: -L%s -lptiff_c -Wl,-rpath,%s\n*/\nimport "C"\n' '$(LIBDIR)' '$(LIBDIR)' >> $@
 
-go: $(GO_DIR)/ptiff.go $(GO_DIR)/ptiff_wrap.c $(GO_MODROOT)go.mod $(GO_DIR)/cgo_flags.go
+go: $(GO_DIR)/ptiff.go $(GO_DIR)/ptiff_wrap.c $(GO_MODROOT)go.mod $(GO_DIR)/cgo_flags.go staticlib
 	cd $(GO_DIR) && $(GO) build ./...
 
 # ============================================================
@@ -122,29 +139,22 @@ $(RB_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -ruby -outdir $(RB_DIR) -o $(RB_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(RB_DIR)/ptiff.bundle: $(RB_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared -undefined dynamic_lookup \
+	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared $(UNDEFINED_SYMBOLS) \
 		$(RB_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS)
 
-ruby: $(RB_DIR)/ptiff.bundle
+ruby: $(RB_DIR)/ptiff.bundle staticlib
 
 # ============================================================
 # Octave
 # ============================================================
-# mkoctfile drives its own compiler; re-use the pkg-config/PTIFF_C_LIB_DIR
-# resolution but pass the -L / -l flags separately (mkoctfile chokes on a
-# combined "-L<path> -l<name>" single argv like pkg-config emits). SWIG
+# mkoctfile drives its own compiler; pass the -L / -l flags separately
+# (mkoctfile chokes on a combined "-L<path> -l<name>" single argv). SWIG
 # generates C++ for Octave (the octave_swig_ref runtime and octave_value API
-# are C++), so we compile the wrapper as .cpp via mkoctfile.
-ifeq ($(PTIFF_C_LIB_DIR),)
-OC_LIBDIR := $(if $(PKGCONF),$(shell pkg-config --variable=libdir libptiff_c 2>/dev/null),)
-OC_LDIR   := $(if $(PKGCONF),$(shell pkg-config --libs-only-L libptiff_c 2>/dev/null),)
-OC_LIB    := $(if $(PKGCONF),$(shell pkg-config --libs-only-l libptiff_c 2>/dev/null),)
-else
-LIB_DIR := $(if $(filter /%,$(PTIFF_C_LIB_DIR)),$(PTIFF_C_LIB_DIR),$(CURDIR)/$(PTIFF_C_LIB_DIR))
+# are C++), so we compile the wrapper as .cpp via mkoctfile. LIB_DIR and
+# LIBC_CFLAGS come from the resolution block above.
 OC_LIBDIR := $(LIB_DIR)
 OC_LDIR   := -L$(LIB_DIR)
 OC_LIB    := -lptiff_c
-endif
 
 $(OC_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -octave -outdir $(OC_DIR) -o $(OC_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
@@ -153,7 +163,7 @@ $(OC_DIR)/ptiff.oct: $(OC_DIR)/ptiff_wrap.c
 	cp $(OC_DIR)/ptiff_wrap.c $(OC_DIR)/ptiff_wrap.cpp
 	$(MKOCTFILE) $(OC_DIR)/ptiff_wrap.cpp $(LIBC_CFLAGS) $(OC_LDIR) $(OC_LIB) -Wl,-rpath,$(OC_LIBDIR) -o $@
 
-octave: $(OC_DIR)/ptiff.oct
+octave: $(OC_DIR)/ptiff.oct staticlib
 
 # ============================================================
 # Aggregate
@@ -184,4 +194,4 @@ clean:
 	rm -rf $(RB_DIR)/ptiff_wrap.c $(RB_DIR)/ptiff.bundle $(RB_TEST_DIR)/roundtrip_ruby.tif
 	rm -rf $(OC_DIR)/ptiff_wrap.c $(OC_DIR)/ptiff_wrap.cpp $(OC_DIR)/ptiff.oct
 
-.PHONY: all python go ruby octave test clean
+.PHONY: all python go ruby octave test clean staticlib

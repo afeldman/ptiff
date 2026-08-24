@@ -37,7 +37,7 @@ The product of a *PTIFF-unaware* generic TIFF/BigTIFF reader must be able to rea
 - L0.6 A `TiffBackend` that claims Level 0 MUST pass every executable test tagged
   `[conformance][baseline]` in [matrix.md](matrix.md).
 
-**Verification:** `libptiff/tests/conformance/` — see [matrix.md](matrix.md).
+**Verification:** `crates/ptiff-core/tests/` (Rust integration tests) — see [matrix.md](matrix.md).
 
 ---
 
@@ -69,7 +69,7 @@ extension RFC. A claim names the domain(s), e.g. "PTIFF Camera".
 
 | Domain | RFC status | Executable suites (future) |
 |--------|-----------|---------------------------|
-| Camera | not yet written | `conformance/camera/` → `libptiff/tests/conformance/` |
+| Camera | not yet written | `conformance/camera/` → `crates/ptiff-core/tests/` |
 | CRS | not yet written | `conformance/crs/` → |
 | SPICE | not yet written | `conformance/spice/` → |
 | Stereo | not yet written | `conformance/stereo/` → |
@@ -103,7 +103,7 @@ An implementation claims a level by committing, in its release notes or a
 `CONFORMANCE.md` at the artifact root:
 
 1. The level(s) claimed (e.g. `Level 0`, `Level 1`, `PTIFF Camera`).
-2. The exact test run evidence: CI job or local `ctest` log, commit SHA of the suite source,
+2. The exact test run evidence: CI job or local `cargo test` log, commit SHA of the suite source,
    and the platform/toolchain used for the run.
 3. Any deviations or permitted divergences documented per requirement ID (L0.x, L1.x, L2.y).
 4. The version(s) of the extension RFC(s) asserted.

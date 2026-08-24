@@ -1,0 +1,38 @@
+# ptiff-c: the PTIFF 1.0 C ABI over the Rust core.
+#
+# The architectural plan (PTIFF-1.0-RUST-CORE-PLAN.md §4.1, §7) keeps the C ABI
+# OUT of `ptiff-core` (which forbids unsafe_code and deliberately ships no
+# #[no_mangle]). `ptiff-c` is the separate layer implementing the stable
+# `extern "C"` surface — the signatures here are the source of truth; cbindgen
+# authorises `target/ptiff_c.h` from them (see cbindgen.toml) — on top of the
+# idiomatic `ptiff` crate.
+#
+# It builds as both a cdylib and a staticlib so C/C++ and any FFI runtime (Go,
+# Ruby, Octave, Python ctypes) can link `libptiff_c` against the Rust core, and
+# additionally as an rlib so our own integration tests can call the symbols
+# directly without spawning a process.
+[package]
+name = "ptiff-c"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Stable C ABI (ptiff_*) over the PTIFF 1.0 Rust core"
+
+[lib]
+name = "ptiff_c"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+ptiff = { path = "../ptiff-rust" }
+ptiff-core = { path = "../ptiff-core" }
+
+[dev-dependencies]
+# Test-only: write a temp TIFF to exercise the C-ABI readers against a real file.
+tempfile = "3"
+
+[build-dependencies]
+cbindgen = "0.29"

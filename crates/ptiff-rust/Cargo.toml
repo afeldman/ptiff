@@ -1,0 +1,33 @@
+# ptiff-rust: the idiomatic Rust API over ptiff-core (package name `ptiff`).
+#
+# Per PTIFF-1.0-RUST-CORE-PLAN.md §4.1, this crate is the friendly, ergonomic
+# Rust frontend directly on `ptiff-core` (the single maintained core). It adds
+# NO C ABI and NO C++ — it exposes typed, high-level entry points (Scene <=>
+# bytes/file) that wrap the core's StorageBackend/IO traits, so normal Rust
+# callers get idiomatic, documented, failure-safe APIs without touching the
+# raw BinaryReader/BinaryWriter or the storage-model string fields.
+#
+# It is dependency-light by design: only `ptiff-core` plus `std` (file I/O).
+[package]
+name = "ptiff"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Idiomatic Rust API over the PTIFF 1.0 core (planetary image standard)"
+
+[features]
+default = []
+# Remote (HTTP range) reading of a PTIFF over the network. Turns the core's
+# `http-range-reader` (ureq) on and exposes `RemoteTiff::open_remote`.
+remote = ["ptiff-core/http-range-reader"]
+
+[dependencies]
+# The single maintained core. The idiomatic crate deliberately re-exports the
+# core's domain types and adds ergonomic high-level entry points on top.
+ptiff-core = { path = "../ptiff-core", features = ["tiff-backend"] }
+
+[dev-dependencies]

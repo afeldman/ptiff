@@ -1,0 +1,5 @@
+# Pin the workspace to a known-stable toolchain for reproducible builds.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"

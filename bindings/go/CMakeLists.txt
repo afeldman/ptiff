@@ -1,8 +1,8 @@
 # CMake integration for the Go bindings (bindings/go).
 #
 # Guarded by PTIFF_BUILD_GO_BINDINGS. Best results with BUILD_SHARED_LIBS=ON
-# (a self-contained libptiff.dylib bundles its C++ deps, and the process-wide
-# BackendFactory self-registration is fully visible across the FFI boundary).
+# (a self-contained libptiff_c shared library over the Rust core keeps the
+# BackendFactory self-registration fully visible across the FFI boundary).
 #
 # bindings/go/ptiff is PROMOTED SWIG output (see the "alles in SWIG" migration
 # notes in bindings/swig/README.md): it is the raw C-ABI-shaped module SWIG
@@ -46,21 +46,20 @@ if(NOT MAKE_EXECUTABLE)
     return()
 endif()
 
-# The Go shim needs libptiff_c (the C ABI). Enabling the Go binding forces it on
-# in the root CMakeLists.txt; assert it here for clarity / early failure.
-if(NOT TARGET ptiff_c)
-    message(FATAL_ERROR "PTIFF_BUILD_GO_BINDINGS requires PTIFF_BUILD_C_BINDINGS "
-                        "(target ptiff_c) to be enabled.")
-endif()
+# The Go shim links against libptiff_c (the C ABI), now provided by the Rust
+# crate crates/ptiff-c. The root CMakeLists.txt (PTIFF_BUILD_C_BINDINGS) builds
+# it with `cargo build -p ptiff-c --release`; there is no longer a CMake
+# `ptiff_c` target (the old `bindings/c` CMake project is gone).
 
 set(_swig_dir "${CMAKE_CURRENT_SOURCE_DIR}/../swig")
 
 # Regenerate bindings/go/ptiff/{ptiff.go,ptiff_wrap.c,cgo_flags.go} from
-# bindings/swig/ptiff.i via the shared Makefile. PTIFF_C_LIB_DIR is a generator
-# expression so it resolves to the libptiff_c build output of the CURRENT
-# configuration (Debug/Release/...), not a hardcoded path.
+# bindings/swig/ptiff.i via the shared Makefile. PTIFF_C_LIB_DIR points at the
+# Rust-built C ABI library (crates/ptiff-c, built by the root CMakeLists via
+# `cargo build -p ptiff-c --release` into <src>/target/release).
 add_test(NAME ptiff_go_bindings_generate
-    COMMAND ${CMAKE_COMMAND} -E env "PTIFF_C_LIB_DIR=$<TARGET_FILE_DIR:ptiff_c>"
+    COMMAND ${CMAKE_COMMAND} -E env
+            "PTIFF_C_LIB_DIR=${CMAKE_SOURCE_DIR}/target/release"
             ${MAKE_EXECUTABLE} -C ${_swig_dir} go
 )
 

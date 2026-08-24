@@ -2,11 +2,11 @@
 #
 # Runs as part of `cmake --install` (and therefore CPack packaging) via
 # `install(SCRIPT)`. `PTIFF_CLI_BINARY` is substituted by CMake at configure
-# time (it is an absolute path in the build tree). The CLI is a standalone Cargo
-# build that is produced *after* the C/C++ libraries are installed to a staging
-# prefix, so this script only copies it if it already exists. That lets a plain
-# libs-first `cmake --install --prefix <staging>` succeed before `cargo` runs;
-# CPack re-installs after the CLI is built and picks the binary up.
+# time (an absolute path in the build tree). The CLI is a standalone Cargo build
+# that is produced *after* configure, so this script only copies it if it
+# already exists. That lets a plain `cmake --install --prefix <staging>` succeed
+# before `cargo` runs; CPack re-installs after the CLI is built and picks the
+# binary up.
 #
 # Installed into ${CMAKE_INSTALL_PREFIX}/<CMAKE_INSTALL_BINDIR> beneath the
 # DESTDIR root CPack uses for its staging.

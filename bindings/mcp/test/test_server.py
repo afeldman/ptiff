@@ -7,9 +7,11 @@ Two flavours:
 * A real stdio MCP round-trip that boots ``python -m ptiff_mcp.server`` as a
     child process, initializes it, lists tools and executes a metadata read.
 
-Run from bindings/mcp after building libptiff_c (see DESIGN.md):
+Run from bindings/mcp after building libptiff_c (see DESIGN.md; the Rust crate
+crates/ptiff-c builds it via `cargo build -p ptiff-c --release`, and env vars
+below point at target/release):
 
-    PTIFF_C_LIB_DIR=.../bindings/c PTIFF_LIB_DIR=.../libptiff pytest -q
+    PTIFF_C_LIB_DIR=.../target/release PTIFF_LIB_DIR=.../target/release pytest -q
 """
 
 from __future__ import annotations
@@ -21,12 +23,12 @@ import anyio
 import pytest
 from ptiff_mcp import server
 
-# Environment: point at the shared libptiff_c install the repo exposes.
+# Environment: point at the Rust-built libptiff_c (cargo build -p ptiff-c).
 _ENV = dict(os.environ)
 _REPO = Path(__file__).resolve().parents[3]
-_SHARED = _REPO / "build-shared" / "build" / "Release"
-_ENV.setdefault("PTIFF_C_LIB_DIR", str(_SHARED / "bindings" / "c"))
-_ENV.setdefault("PTIFF_LIB_DIR", str(_SHARED / "libptiff"))
+_TARGET = _REPO / "target" / "release"
+_ENV.setdefault("PTIFF_C_LIB_DIR", str(_TARGET))
+_ENV.setdefault("PTIFF_LIB_DIR", str(_TARGET))
 _ENV["PYTHONPATH"] = (
     str(Path(__file__).resolve().parents[1] / "src")
     + os.pathsep
@@ -40,7 +42,10 @@ SAMPLE = str(_REPO / "bindings" / "python" / "test" / "roundtrip_python.tif")
 
 def _require_env() -> None:
     if not os.path.exists(_ENV["PTIFF_C_LIB_DIR"]):
-        pytest.skip("libptiff_c not built (expected at build-shared). See DESIGN.md")
+        pytest.skip(
+            "libptiff_c not built (expected at target/release; "
+            "run `cargo build -p ptiff-c --release`). See DESIGN.md"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +212,6 @@ def test_stdio_roundtrip() -> None:
                 res = await session.call_tool("get_version", {})
                 assert res.is_error is False
                 text = res.content[0].text
-                assert "0." in text  # e.g. "0.3.0"
+                assert "0." in text  # e.g. "1.0.0"
 
     anyio.run(run, backend="trio")

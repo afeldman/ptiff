@@ -51,8 +51,16 @@ Sum of Levels 0–2; follows once the domain rows above are ratified.
 
 ---
 
-## Test file index (`libptiff/tests/conformance/`)
+## Test file index (`crates/ptiff-core/tests/`)
+
+The Rust workspace enforces the baseline (Level 0) requirements via the `ptiff-core`
+integration tests. The dedicated C++ conformance files that lived under
+`libptiff/tests/conformance/` were superseded by these Rust tests during the
+Rust migration.
 
 | File | Covers |
 |------|--------|
-| `baseline_tiff_conformance_test.cpp` | Level 0: header/byte-order/magic, minimal TIFF open, pixel byte-for-byte reads, BigTIFF |
+| `crates/ptiff-core/tests/tiled_write.rs` | Level 0: header/IFD write, tiled single-image TIFF/BigTIFF, pixel byte-for-byte round-trip |
+| `crates/ptiff-core/tests/corrupted.rs` | Robustness: bad byte-order/magic, truncated data, malformed IFDs rejected with a defined `ErrorCode` |
+| `crates/ptiff-core/tests/golden.rs` | Byte-exact serialized output (golden digests) |
+| `crates/ptiff-core/tests/property.rs` | Property tests over tile arithmetic and lossless codecs |

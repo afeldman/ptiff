@@ -31,7 +31,8 @@ time. This RFC resolves RFC-0001 §17 item 3.
 ## 2. Status
 
 Draft. The field schema and matrices below are normative and match the reference
-implementation (`bindings/rust/src/lib.rs` `Camera`, `bindings/c/ptiff_camera.h`).
+implementation (`crates/ptiff-core/src/geometry/camera.rs` `Camera`; the C ABI
+`ptiff_camera` in `crates/ptiff-c`, cbindgen-authorised into `target/ptiff_c.h`).
 
 ---
 
@@ -142,4 +143,5 @@ both the intrinsics and extrinsics groups are present; otherwise it is zero-fill
 - `RFC-0001-Core.md` — §9 UC1, §17 item 3.
 - `RFC-7002` — payload codec, tag 65002.
 - Reference implementation: `specification/camera/calibration.md`,
-  `bindings/rust/src/lib.rs` (`Camera`), `bindings/c/ptiff_camera.h`.
+  `crates/ptiff-core/src/geometry/camera.rs` (`Camera`), and the C ABI
+  `ptiff_camera` in `crates/ptiff-c` (`target/ptiff_c.h`).
