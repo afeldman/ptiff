@@ -438,7 +438,7 @@ mod tests {
         let err =
             HttpRangeBinaryReader::open("ftp://example.com/file", None).expect_err("must fail");
         assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
-        let err = HttpRangeBinaryReader::open("/local/path.tif", None).expect_err("must fail");
+        let err = HttpRangeBinaryReader::open("./local/path.tif", None).expect_err("must fail");
         assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
     }
 

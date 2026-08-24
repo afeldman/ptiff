@@ -20,9 +20,9 @@ The Rust example sources live in `crates/ptiff-rust/examples/` so they build and
 run with the standard Cargo workflow:
 
 ```bash
-cargo run -p ptiff --example write_local_sample -- /tmp/sample.tif     # write
-cargo run -p ptiff --example read_local_sample  -- /tmp/sample.tif     # read + camera
-cargo run -p ptiff --example copy_local_sample  -- /tmp/sample.tif /tmp/copy.tif
+cargo run -p ptiff --example write_local_sample -- ./sample.tif     # write
+cargo run -p ptiff --example read_local_sample  -- ./sample.tif     # read + camera
+cargo run -p ptiff --example copy_local_sample  -- ./sample.tif ./copy.tif
 ```
 
 `write_local_sample` embeds a **complete pinhole camera calibration** in the

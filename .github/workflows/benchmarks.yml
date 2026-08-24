@@ -34,7 +34,9 @@ jobs:
       - name: Install build toolchain + languages (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y swig golang-go ruby octave mkoctfile pkg-config
+          # mkoctfile is not a standalone Ubuntu/Debian package -- it ships
+          # inside `octave` (see bindings/swig/Makefile: MKOCTFILE ?= mkoctfile).
+          sudo apt-get install -y swig golang-go ruby octave pkg-config
           # Rust via rustup in a later step (dtolnay/rust-toolchain).
 
       - name: Set up Go

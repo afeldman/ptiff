@@ -42,7 +42,7 @@ static int failures = 0;
     } while (0)
 
 /* The temporary file path we write and read back. */
-static const char OUT_PATH[] = "/tmp/ptiff_c_abiltest_out.tif";
+static const char OUT_PATH[] = "./ptiff_c_abiltest_out.tif";
 
 static void test_version(void) {
     ptiff_version ct = ptiff_compile_time_version();
@@ -52,7 +52,7 @@ static void test_version(void) {
     CHECK(ct.major == 1, "compile-time major == 1");
     CHECK(ct.minor == 0, "compile-time minor == 0");
     CHECK(rt.major == ct.major && rt.minor == ct.minor && rt.patch == ct.patch,
-          "runtime version equals compile-time");
+            "runtime version equals compile-time");
 
     /* Out-param variants, including NULL-able pairs. */
     int m = -1, n = -1, p = -1;
@@ -98,7 +98,7 @@ static void test_image_bridge(void) {
 
     int comp = -1;
     CHECK(ptiff_image_compression(img, &comp) == 1 && comp == PTIFF_COMPRESSION_LZW,
-          "compression present == LZW");
+            "compression present == LZW");
 
     /* tile_info is absent -> returns 0 and leaves out untouched */
     ptiff_tile_info ti = {0, 0};
@@ -144,12 +144,12 @@ static int write_roundtrip_file(void) {
     /* Negative paths: wrong size, out-of-grid, null sink. */
     memset(tile, 0, sizeof(tile));
     CHECK(ptiff_sink_write_tile(sink, 0, 0, tile, sizeof(tile) - 1) ==
-              -PTIFF_ERROR_INVALID_ARGUMENT,
-          "write with wrong size -> INVALID_ARGUMENT");
+                -PTIFF_ERROR_INVALID_ARGUMENT,
+            "write with wrong size -> INVALID_ARGUMENT");
     CHECK(ptiff_sink_write_tile(sink, 99, 0, tile, sizeof(tile)) == -PTIFF_ERROR_OUT_OF_RANGE,
-          "write out-of-grid -> OUT_OF_RANGE");
+            "write out-of-grid -> OUT_OF_RANGE");
     CHECK(ptiff_sink_write_tile(NULL, 0, 0, tile, sizeof(tile)) == -PTIFF_ERROR_INVALID_ARGUMENT,
-          "write null sink -> INVALID_ARGUMENT");
+            "write null sink -> INVALID_ARGUMENT");
 
     ptiff_sink_close(sink);
     ptiff_sink_close(NULL); /* no-op */
@@ -172,7 +172,7 @@ static void test_pixel_bridge(void) {
     CHECK(d.pixel_type == PTIFF_PIXEL_UINT8, "source pixel type uint8");
     CHECK(d.channel_count == 1, "source channel count == 1");
     CHECK(d.has_tile_info == 1 && d.tile_info.tile_width == 16 && d.tile_info.tile_height == 16,
-          "source tile info 16x16");
+            "source tile info 16x16");
 
     const uint32_t cols = ptiff_source_tile_columns(src);
     const uint32_t rows = ptiff_source_tile_rows(src);
@@ -198,8 +198,8 @@ static void test_pixel_bridge(void) {
     /* Read with a too-small buffer -> INVALID_ARGUMENT. */
     size_t br = 0;
     CHECK(ptiff_source_read_tile(src, 0, 0, buf, sizeof(buf) - 1, &br) ==
-              -PTIFF_ERROR_INVALID_ARGUMENT,
-          "read with small buffer -> INVALID_ARGUMENT");
+                -PTIFF_ERROR_INVALID_ARGUMENT,
+            "read with small buffer -> INVALID_ARGUMENT");
 
     ptiff_source_close(src);
     ptiff_source_close(NULL); /* no-op */
@@ -214,7 +214,7 @@ static void test_open_path(void) {
 
     /* Missing file -> NOT_FOUND. */
     memset(&d, 0, sizeof(d));
-    rc = ptiff_open_path("/tmp/does_not_exist_ptiff.tif", &d);
+    rc = ptiff_open_path("./does_not_exist_ptiff.tif", &d);
     CHECK(rc == -PTIFF_ERROR_NOT_FOUND, "open_path missing file -> NOT_FOUND");
 }
 
@@ -284,7 +284,7 @@ static void test_logger_and_camera(void) {
         for (uint32_t r = 0; r < 3; r++) {
             for (uint32_t c = 0; c < 3; c++) {
                 CHECK(ptiff_sink_write_tile(s, c, r, tile, sizeof(tile)) == 0,
-                      "camera sink write tile ok");
+                        "camera sink write tile ok");
             }
         }
         ptiff_sink_close(s);
