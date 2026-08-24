@@ -1,0 +1,145 @@
+# Dependabot configuration for the PTIFF project.
+#
+# Enables automated dependency updates for every package ecosystem used by the
+# workspace. Each ecosystem is configured with a weekly schedule so dependency
+# bump PRs arrive in a regular, reviewable cadence instead of trickling in.
+#
+# Reference: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Directory values are relative to the repository root and require the
+# directory to contain the ecosystem's manifest (Cargo.toml, go.mod, ...).
+
+version: 2
+updates:
+  # ---------------------------------------------------------------------------
+  # Rust / Cargo
+  #  - Root workspace (ptiff-core, ptiff-rust, ptiff-cli, ptiff-c + CLI)
+  #  - The legacy crates and benchmarks that are excluded from the workspace
+  #    still ship their own Cargo.toml and are updated separately.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: "/crates/ptiff-python"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: "/benchmarks/rust_bench"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: "/benchmarks/parallel_bench"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Go
+  #  - The Go binding module (bindings/go) consumed by downstream projects via
+  #    replace directives, and the benchmark module (benchmarks).
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: gomod
+    directory: "/bindings/go"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: "/benchmarks"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Ruby / Bundler
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: bundler
+    directory: "/bindings/ruby"
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "06:00"
+    groups:
+      ruby-dependencies:
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Python / pip
+  #  - bindings/mcp (ptiff-mcp MCP server)
+  #  - crates/ptiff-python (ptiff-pyo3 PyO3/maturin binding)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: pip
+    directory: "/bindings/mcp"
+    schedule:
+      interval: weekly
+      day: thursday
+      time: "06:00"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: pip
+    directory: "/crates/ptiff-python"
+    schedule:
+      interval: weekly
+      day: thursday
+      time: "06:00"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # GitHub Actions
+  #  - Keep the workflow files themselves up to date (action version bumps).
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: friday
+      time: "06:00"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
