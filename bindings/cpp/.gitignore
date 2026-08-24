@@ -1,0 +1,5 @@
+# Compiled ptiff-cpp test binary (built by `make test`).
+/ptiff_cpp_test
+
+# Runtime temp files created by the round-trip test.
+*.tif

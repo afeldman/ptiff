@@ -1332,9 +1332,9 @@ verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace -
 | 4 | Kompression | ✅ | PackBits/LZW/Predictor (dependency-frei) fertig; **Zarr-ZSTD fertig** (in `backend/zarr/codec.rs`, als Zarr-Chunk-Kompression via `zstd`/`flate2`); **Deflate fertig** (`backend/tiff/compression/deflate.rs`, via `flate2`/zlib); **JPEG fertig** (`backend/tiff/compression/jpeg.rs`, reines Rust via `jpeg-encoder`/`jpeg-decoder`, feature-gated hinter `tiff-codecs`); alle Codecs roundtrip- und (verlustfrei) golden-getestet; **ZSTD als TIFF-Codec offen** (RFC-0011) |
 | 5 | Tiles / parallele Verarbeitung (Rayon) | ✅ | **Parallele Tile-Kompression/-Dekompression via Rayon** (2026-08-24) implementiert: `parallel`-Feature (rayon) in `ptiff-core`, `parallel.rs` (deterministischer `par_iter` + geordneter `collect`), `TiffImageSink::write_compressed_tiles_parallel` (parallele CPU-Kompression, sequentielles Schreiben in Offset-Reihenfolge, §6.2 Pt. 4) + `TiffImageSource::read_all_tiles_parallel` (sequentielles I/O, parallele Dekompression, §6.2 Pt. 3). Ergebnisse garantiert byte-identisch zum sequentiellen Pfad (§6.5 Bestimmtheit; Rayon geordneter `collect` liefert Input-Reihenfolge). Feature-optional (Default-Build dependency-frei, rayon nicht eingezogen). **Idiomatische Rust-Facade (`ptiff`, 2026-08-24):** `parallel`-Feature forwardet `ptiff-core/parallel` und exponiert `Tiff::read_all_tiles_parallel` / `Tiff::read_image_pixels_parallel` (paralleles Dekomprimieren) sowie `Tiff::to_bytes_with_pixels_parallel` (paralleles Komprimieren). Der gemeinsame Write-Kernel (`write_pixels_to_writer` + `WriteMode`-Enum) ist sequentiell/parallel byte-identisch und unterstützt **single-image tiled+compressed** (via `plan_tiff_write`); multi-image tiled+compressed bleibt (wie im Kern) nicht kombinierbar. Verifiziert: 5 neue Facade-Tests (byte-identity seq↔par write/read, parallel write→parallel read roundtrip, out-of-range, Threshold-Fallback). DoD erfüllt: Parallel-Mode aktiv, deterministisch; 8 Modul- + 6 Integrations-Tests (Kern) + 5 Facade-Tests (parallel vs. sequentiell byte-identisch, LZW/Deflate/PackBits, Write+Read-Roundtrip, Threshold-Fallback); **H7/H8-Benchmark-Messung gegen C++** ist Phase-12 (Benchmarks) vorbehalten, da C++-Orcale nicht mehr gebaut wird |
 | 6 | Metadaten-Erweiterungen (65001–65005) | ✅ | **Vollständig (2026-08-24):** RFC-7002-Codec + Write/Read aller fünf Tags (65001–65005) + golden-locked. Typisierte Camera (65002)/CRS (65003) round-trippen durch `Scene`/`ImageDescriptor`. **Neu:** generische `ptiff.*`-Metadaten (spice/layers/provenance + unbekannte Schlüssel) round-trippen durch `Scene`/`Image` über `ImageDescriptor.metadata` (BTreeMap) + `Image::metadata()`/`metadata_value`, `ImageDescriptorBuilder::metadata(k,v)`, `validate_extension_key` (schützt reservierte camera/CRS-Schlüssel). **RFC-7002-Toleranz (§3.3/§4.4):** unvollständige `ptiff.camera.*`/`ptiff.crs.*`-Domäne failt die Datei nicht mehr (typisierte Rekonstruktion übersprungen `Ok(None)`, rohe Felder bleiben in `metadata`). 8 neue Tests (Kern + Facade); Workspace default 531 / all-features 543 grün, Golden-Suite unverändert, clippy+fmt clean |
-| 7 | **C-ABI (`ptiff-c`)** | 🚧 **erster Slice committet, C-Fähigkeitstest + Logger/Camera grün** | der **einzige harte Blocker** für „libptiff löschen“. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **33 Unit-Tests grün** → 38 unit + 2 integration (flache Feld-Sicht, s. u.). **C-ABI-Fähigkeitstest gegen echtes C-Programm ✅** (`crates/ptiff-c/tests/c/ptiff_c_abiltest.c` gegen `staticlib`). **Logger ✅:** `ptiff_logger_*` forwarden jetzt auf den dependency-freien Core-Logger (set/level/log, Level-Ordering = C-Header). **Camera ✅:** `ptiff_open_path_camera` (read) + `ptiff_sink_create_camera` (write) über das strukturierte Camera-Domain; dafür die `ptiff.camera.*`-Feldnamen im Core-Marshal auf den C-ABI/Oracle-Kontrakt (`focal_length_x`, `rotation_*`, `position_*`) ausgerichtet (vorher `focal_px`/`rot_*`/`pos_*` — schematische Divergenz zum C++-Oracle geschlossen, Golden-Digest regeneriert). **Flache Feld-Sicht ✅ (2026-08-24):** `ptiff_open_path_fields` + `ptiff_fields_free` + `ptiff_field` implementiert (`crates/ptiff-c/src/metadata.rs`): re-derive der formatneutralen `StorageModel` über `TiffBackend::deserialize_model` (C++-Oracle-Vertrag), liefert alle `ptiff.<domain>.<name>`-Felder aus Tags 65001-65005 lexikographisch; 5 neue Unit-Tests (Null-Arg/Empty/NotFound/Roundtrip/Free) + 2 Integrationstests gegen den **C++-Oracle-Fixture** `scripts/samples/ptiff_interop_fixture.tif` grün (exakt die vom Go/Python/Ruby-Binding erwarteten `ptiff.camera.*`/`ptiff.spice.frame`-Werte). **38 Unit + 2 Integration + 1 C-Fähigkeitstest grün.** **R4-Bindings-Kompatibilitäts-Nachweis ✅ (2026-08-24):** Go/Python/Ruby tatsächlich gegen das Rust-`libptiff_c` laufen lassen — **Go 25/25, Python alle, Ruby alle bis auf 1 erwartete Version-Diff** (`test_runtime_version_fields` pinnt hart 0.3.0 = C++-Oracle-Version; Rust-ABI meldet korrekt 1.0.0; Schema funktioniert, runtime==compile). Dafür drei echte Rust-Gaps geschlossen: `ptiff_sink_create("")` leerer Pfad → NULL; `camera_from_model` Extrinsics optional (intrinsics-only OEM); `crs_from_model` akzeptiert RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`) aus dem Oracle-Fixture. Reproduzierbar via `CARGO_TARGET_DIR=/tmp/...` + `libptiff_c.pc` + `make {go,python,ruby}`. **Octave-Binding ✅ (2026-08-24, R4-Erweiterung):** `ptiff.oct` über SWIG gegen das Rust-`libptiff_c` neu gebaut (rpath → `target/debug`, sauberer Workflow ohne `/tmp`-Override) — **alle 8 Octave-Tests grün** (`run_tests_octave`): backend/error/image/logger/roundtrip/sink/version/wrapper; `test_wrapper` deckt die idiomatische Schicht (`Metadata`/`Camera`/`Image`) über den Oracle-Fixture ab und `test_sink` verifiziert den R4-Fix (Empty-Path→NULL); `test_version` prüft nur runtime==compile (kein hart kodierter Oracle-Version-Check), läuft daher gegen Rust-1.0.0 grün. **CRS-Writer RFC-0004 ✅ (2026-08-24):** `crs_fields` emittiert jetzt genau das normative RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`, `reference_frame` = effektives Frame), statt des Extended-Schemas (`planet_name`/`iau_id`/ellipsoid/`frame`/`param.*`) — geschlossene schematische Divergenz zum Oracle-Fixture; dokumentiert lossy (Name wird vom NAIF-`body` re-deriviert, Ellipsoid/Projektionsparameter werden nicht vom RFC-Schema getragen → UNSPECIFIED/unset); Reader liest weiterhin beide Schemata (Legacy-Extended rückwärtskompatibel). 3 neue Marshal-Tests (RFC-0004-Emissions-Konformanz, effektives Frame, Legacy-Extended-Read) + Byte-Roundtrip-Integrationstest angepasst. **498 Workspace-Tests grün, clippy + fmt clean.** Damit ist Löschen von `libptiff` deutlich entriskt (nicht mehr „vier tote Sprachbindings“). |
-| 8 | C++-Wrapper (`ptiff-cpp`) | ❌ | nicht begonnen |
-| 9 | Python (PyO3) | ❌ | nicht begonnen |
+| 7 | **C-ABI (`ptiff-c`)** | ✅ **abgeschlossen (2026-08-24)** | der **einzige harte Blocker** für „libptiff löschen“ ist geschlossen. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **33 Unit-Tests grün** → 38 unit + 2 integration (flache Feld-Sicht, s. u.). **C-ABI-Fähigkeitstest gegen echtes C-Programm ✅** (`crates/ptiff-c/tests/c/ptiff_c_abiltest.c` gegen `staticlib`). **Logger ✅:** `ptiff_logger_*` forwarden jetzt auf den dependency-freien Core-Logger (set/level/log, Level-Ordering = C-Header). **Camera ✅:** `ptiff_open_path_camera` (read) + `ptiff_sink_create_camera` (write) über das strukturierte Camera-Domain; dafür die `ptiff.camera.*`-Feldnamen im Core-Marshal auf den C-ABI/Oracle-Kontrakt (`focal_length_x`, `rotation_*`, `position_*`) ausgerichtet (vorher `focal_px`/`rot_*`/`pos_*` — schematische Divergenz zum C++-Oracle geschlossen, Golden-Digest regeneriert). **Flache Feld-Sicht ✅ (2026-08-24):** `ptiff_open_path_fields` + `ptiff_fields_free` + `ptiff_field` implementiert (`crates/ptiff-c/src/metadata.rs`): re-derive der formatneutralen `StorageModel` über `TiffBackend::deserialize_model` (C++-Oracle-Vertrag), liefert alle `ptiff.<domain>.<name>`-Felder aus Tags 65001-65005 lexikographisch; 5 neue Unit-Tests (Null-Arg/Empty/NotFound/Roundtrip/Free) + 2 Integrationstests gegen den **C++-Oracle-Fixture** `scripts/samples/ptiff_interop_fixture.tif` grün (exakt die vom Go/Python/Ruby-Binding erwarteten `ptiff.camera.*`/`ptiff.spice.frame`-Werte). **38 Unit + 2 Integration + 1 C-Fähigkeitstest grün.** **R4-Bindings-Kompatibilitäts-Nachweis ✅ (2026-08-24):** Go/Python/Ruby tatsächlich gegen das Rust-`libptiff_c` laufen lassen — **Go 25/25, Python alle, Ruby alle bis auf 1 erwartete Version-Diff** (`test_runtime_version_fields` pinnt hart 0.3.0 = C++-Oracle-Version; Rust-ABI meldet korrekt 1.0.0; Schema funktioniert, runtime==compile). Dafür drei echte Rust-Gaps geschlossen: `ptiff_sink_create("")` leerer Pfad → NULL; `camera_from_model` Extrinsics optional (intrinsics-only OEM); `crs_from_model` akzeptiert RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`) aus dem Oracle-Fixture. Reproduzierbar via `CARGO_TARGET_DIR=/tmp/...` + `libptiff_c.pc` + `make {go,python,ruby}`. **Octave-Binding ✅ (2026-08-24, R4-Erweiterung):** `ptiff.oct` über SWIG gegen das Rust-`libptiff_c` neu gebaut (rpath → `target/debug`, sauberer Workflow ohne `/tmp`-Override) — **alle 8 Octave-Tests grün** (`run_tests_octave`): backend/error/image/logger/roundtrip/sink/version/wrapper; `test_wrapper` deckt die idiomatische Schicht (`Metadata`/`Camera`/`Image`) über den Oracle-Fixture ab und `test_sink` verifiziert den R4-Fix (Empty-Path→NULL); `test_version` prüft nur runtime==compile (kein hart kodierter Oracle-Version-Check), läuft daher gegen Rust-1.0.0 grün. **CRS-Writer RFC-0004 ✅ (2026-08-24):** `crs_fields` emittiert jetzt genau das normative RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`, `reference_frame` = effektives Frame), statt des Extended-Schemas (`planet_name`/`iau_id`/ellipsoid/`frame`/`param.*`) — geschlossene schematische Divergenz zum Oracle-Fixture; dokumentiert lossy (Name wird vom NAIF-`body` re-deriviert, Ellipsoid/Projektionsparameter werden nicht vom RFC-Schema getragen → UNSPECIFIED/unset); Reader liest weiterhin beide Schemata (Legacy-Extended rückwärtskompatibel). 3 neue Marshal-Tests (RFC-0004-Emissions-Konformanz, effektives Frame, Legacy-Extended-Read) + Byte-Roundtrip-Integrationstest angepasst. **498 Workspace-Tests grün, clippy + fmt clean.** Damit ist Löschen von `libptiff` deutlich entriskt (nicht mehr „vier tote Sprachbindings“). **Phase-7-Abschluss (2026-08-24):** Gap `PTIFF_ABI_VERSION` (§7.5) geschlossen — monotone Break-Counter-Konstante (`u32 = 1`) via cbindgen als `#define PTIFF_ABI_VERSION 1` ins Header exportiert (item_types += `constants`), Unit-Test + C-Fähigkeitstest (`#if PTIFF_ABI_VERSION >= 1`-Guard). Go-Bindings (20 Tests) + Ruby-Bindings (22 runs/86 assertions) re-verifiziert unverändert gegen Rust-`libptiff_c` grün. **39 Unit + 2 Oracle-Integration grün; Workspace-Wide ohne Regression; clippy + fmt clean.** |
+| 8 | C++-Wrapper (`ptiff-cpp`) | ✅ **abgeschlossen (2026-08-24)** | `bindings/cpp/` — moderner, **header-only** C++-Wrapper über `libptiff_c` (C++23: `std::expected`, RAII, `std::optional`, `std::source_location`), der die alten API-Namen über die C-ABI reproduziert: `Image`/`Scene`/`Reader`/`Writer`/`Result<T>`/`Error`/`ErrorCode`/`ImageDescriptor`/`PixelType`/`CompressionKind`/`TileInfo`/`Camera`/`ImageId`/Version. `detail/c_abi.hpp` marshallt den C-ABI-Slice (Layout/Enum-Werte gepinnt) self-contained. **Test (`test_ptiff_cpp`):** Version, Error-Code-Mapping, Image/Scene, voller Writer→Reader-Pixel-Roundtrip (pattern-verifiziert), strukturierter Camera-Write+Read, Negativpfade (NotFound/OutOfRange) → `ptiff_cpp: ALL OK` gegen Rust-`libptiff_c`. `make test` grün; CI (`cpp-bindings.yml`) in `ci.yml` verdrahtet. DoD Teil 2 „C++-Referenz läuft weiter“ entfällt (libptiff gelöscht, Phase 13); **API-Vertrag** unter gleichen Namen reproduziert. |
+| 9 | Python (PyO3) | ✅ **abgeschlossen (2026-08-24)** | `crates/ptiff-python` — **PyO3-Binding (Option B) über den Rust-Kern direkt** (kein SWIG/ctypes über die C-ABI): PyO3 0.29 + numpy 0.29 (rust-numpy), maturin-Packaging; sagt das idiomatische `ptiff`-Crate (→ `ptiff-core`). **NumPy-Tile-API:** `Image.read_tile(col,row)` → echtes `numpy.ndarray` (Shape `(tile_height, tile_width, channel_count)`, Sample-dtype aus dem File). **Full-Facade:** `open`/`Document` (Context-Manager) + `Image` (Width/Height/Channels/PixelType/TileGrid/read_tile → ndarray), `Camera` (structured read via `doc.camera(i)` + write via `create_image(camera=...)`, K/[R|t]/P-Matrizen), `Metadata` (read-only descriptor + generische `ptiff.*`-Felder = PDS-Layer), `Logger` (set_level/level/log + PTIFF_LOG_*-Konstanten), Version/`backend_names`/`abi_version`/`PTIFF_PIXEL_*`/`PTIFF_COMPRESSION_*`-Konstanten, `Sink`/`create_image`/`write_tile`/`close`-Write-Pfad über `Tiff::to_bytes_with_pixels`. **Tests:** 19 pytest = Feature-Parität zu SWIG (Version/Backend/Constant-Ordering/Logger-Image-Source-Sink-Metadata-Camera) + e2e Write→Read-Roundtrip inkl. uint16 + NumPy dtype/shape; 4 Rust-Unit-Tests ohne Python-Runtime. **Verifikation:** `maturin build --release` grün, `maturin develop` + pytest 19/19 grün; `cargo build/clippy/test --workspace` grün — ptiff-python ist als eigenständiges Crate (eigenes Cargo.lock) per `[workspace]`-Marker & root-`exclude` ausgelagert, damit ein purer Workspace-Build nie eine Python-Dev-Installation braucht; `extension-module` aktiviert nur maturin via pyproject. fmt clean. **CI:** `python-bindings-pyo3.yml` (maturin develop + pytest auf ubuntu-24.04/macos-latest) in `ci.yml`-Phase 2 + docs-build-needs verdrahtet. **Namenswahl:** PyO3-Modul heißt `ptiff_pyo3` (nicht `ptiff`), um die Kollision mit dem SWIG-`ptiff`-Paket (`bindings/python`) zu vermeiden, das bis zum Deprecation (Plan §9 DoD) der temporäre Rückfall bleibt; das PyO3-Oberflächen-Layout (open/Image/Camera/Metadata/Logger) ist so gehalten, dass es später unverändert als `ptiff`-Import übernommen werden kann. |
 | 10 | Octave (MEX über C-ABI) | ❌ | nicht begonnen |
 | 11 | CLI auf `ptiff-core` | ✅ | `ptiff-cli/` läuft über das idiomatische `ptiff`-Crate direkt auf `ptiff-core` (`Tiff::open`/`read_image_pixels`/`tile_layout`/`to_bytes_with_pixels`); Reports Version über `ptiff::{APP_VERSION, VERSION_STR}`. Keine C-ABI/C++-Abhängigkeit mehr. 9 Unit + 8 Integrationstests grün |
 | 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | 🚧 **punktuell, nicht systematisch** | keine dedizierte Cross-Validation-Benchmark-Suite wie in §5/§17.0 vorgesehen; was existiert: golden-digest-Tests (vor der Löschung eingefroren) + R4-Bindings-Tests (Go/Python/Ruby/Octave) gegen ein eingefrorenes C++-Oracle-Fixture (`scripts/samples/ptiff_interop_fixture.tif`). Da `libptiff` inzwischen gelöscht ist, ist ein Nachholen der ursprünglich geplanten systematischen Cross-Validation **nicht mehr möglich**, außer durch Wiederherstellen von `libptiff` aus der Git-Historie |
@@ -1430,7 +1430,7 @@ eigenen Haupt-Business-Case der Migration nicht. **Beides ist inzwischen nachgeh
     übersprungen (`Ok(None)`), die rohen Felder bleiben in `metadata` erhalten.
   - Golden-Suite unverändert grün (camera/crs-Pfad nicht angefasst); Workspace default 531 / all-features 543.
 
-## Phase 7 – C ABI (ptiff-c)
+## Phase 7 – C ABI (ptiff-c) ✅
 - **Ziel:** stabile C-Header + `extern "C"`-Implementierung über den Rust-Core; opaque handles,
   Fehler-/Ownership-, Thread-Safety- und Versionierungssemantik (§7).
 - **Betroffen:** `bindings/c/` (Header) + neuer `crates/ptiff-c`.
@@ -1439,7 +1439,31 @@ eigenen Haupt-Business-Case der Migration nicht. **Beides ist inzwischen nachgeh
 - **Risiko:** ABI-Versprechen (SemVer).
 - **DoD:** C-ABI funktional über Rust; bestehende Bindings laufen unverändert dagegen.
 
-## Phase 8 – C++-Wrapper (ptiff-cpp)
+### Umgesetzt (2026-08-24, Ausbau auf Bestand)
+- [x] `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die stabile `ptiff_*`-ABI über den
+      Rust-Core (Version, Image-, Pixel-, Metadata-, Camera-, Logger-Bridge); cbindgen autorisiert
+      `target/ptiff_c.h` aus den Rust-Signaturen (Source of Truth, §7.4).
+- [x] **Neu: `PTIFF_ABI_VERSION` (Gap §7.5):** monotone Break-Counter-Konstante (`pub const
+      PTIFF_ABI_VERSION: u32 = 1`) in `version.rs`, via cbindgen als `#define PTIFF_ABI_VERSION 1`
+      in den Header exportiert (item_types += `constants`). SemVer-tragende `ptiff_version` +
+      `ptiff_compile_time_version`/`ptiff_runtime_version` (+ `_out`-Varianten) bleiben; ABI-Version
+      ist strikt vom Crate-SemVer getrennt (nur bei Breaking ABI-Change inkrementiert). Unit-Test
+      `abi_version_is_initial_and_positive`.
+- [x] **C-Fähigkeitstest erweitert:** `ptiff_c_abiltest.c` prüft jetzt zusätzlich per compile-time
+      `#if PTIFF_ABI_VERSION >= 1`-Guard + CHECK, dass der Header die ABI-Version trägt.
+- [x] **ABI-Kompatibilität (DoD) re-verifiziert:** bestehende **Go-Bindings** (20 Tests, `go test
+      ./ptiff`) und **Ruby-Bindings** (22 runs / 86 assertions via `bundle exec rake test`) laufen
+      **unverändert** gegen das Rust-`libptiff_c` grün durch (SWIG regeneriert aus `target/ptiff_c.h`,
+      linkt `target/release/libptiff_c`).
+- [x] Verifikation: `cargo test -p ptiff-c` 39 Unit + 2 Oracle-Integration grün; Workspace-Wide-Test
+      ohne Regression; clippy + fmt clean. Generierte SWIG/cbindgen-Artefakte bleiben gitignored.
+
+### DoD-Bewertung ✅
+C-ABI funktional über Rust (41 `extern "C"`-Symbole + C-Fähigkeitstest + Oracle-Cross-Validation);
+bestehende Go/Ruby-Bindings laufen unverändert gegen `libptiff_c` (R4-Nachweis in Phase-7-Tabellenzeile
+re-verifiziert).
+
+## Phase 8 – C++-Wrapper (ptiff-cpp) ✅
 - **Ziel:** neuer moderner C++-Wrapper über C-ABI; alte API-Namen (`Image`, `Scene`, `Reader`,
   `Writer`, `Result`, `Error`) unter neuem Namen ohne Kollision.
 - **Betroffen:** `libptiff` (bleibt parallel), neuer `ptiff-cpp`.
@@ -1447,6 +1471,32 @@ eigenen Haupt-Business-Case der Migration nicht. **Beides ist inzwischen nachgeh
 - **Tests:** C++-Wrapper-Tests (RT), API-Paritätstests gegen bestehende C++-Tests.
 - **Risiko:** API-Inkompatibilität (DoD: gleiche Semantik wie C++-Referenz).
 - **DoD:** C++-Nutzer können via `ptiff-cpp` auf Rust-Core zugreifen, C++-Referenz läuft weiter.
+
+### Umgesetzt (2026-08-24)
+- [x] `bindings/cpp/` — moderner, **header-only** C++-Wrapper (`ptiff-cpp`) über `libptiff_c`
+      (C++23: `std::expected`, `std::span`-artige `std::vector`-Tile-Buffer, RAII, `std::optional`,
+      `std::source_location`). Reproduziert die alten API-Namen über die C-ABI: `Image`,
+      `Scene`, `Reader`, `Writer`, `Result<T>`, `Error`, `ErrorCode`, `ImageDescriptor`,
+      `PixelType`, `CompressionKind`, `TileInfo`, `Camera`, `ImageId`, Plus Version.
+- [x] `Result<T> = std::expected<T, Error>`; `Error` trägt `ErrorCode` (stabile, additive
+      `ptiff_error_code`-Reihenfolge) + Meldung + `std::source_location`. Domain-Fehler sind
+      Werte (nie Exceptions), RAII-Handles rufen `_close`/`_destroy`.
+- [x] `detail/c_abi.hpp` marshallt exakt den C-ABI-Slice (Struktur-Layout + Enumerationswerte gegen
+      `target/ptiff_c.h` gepinnt) —Wrapper ist selbstenthalten (kein Abhängigsein vom generierten
+      Header zur Include-Zeit).
+- [x] **Tests (`test_ptiff_cpp`):** Version, Error-Code-Mapping, `Image`/`Scene`/`ImageDescriptor`,
+      voller `Writer→Reader`-Pixel-Roundtrip (getielt, pattern-verifiziert), strukturierter
+      `Camera`-Write+Read, Negativpfade (`NotFound` fehlende Datei, `OutOfRange` Bild-ID).
+      Lauf gegen das Rust-`libptiff_c` (`make test`, erwartet `ptiff_cpp: ALL OK`).
+- [x] CI: `.github/workflows/cpp-bindings.yml` + Einbindung in `ci.yml` (Phase-2-Job +
+      `docs-build`-Dependency).
+- [x] DoD Teil 2 "C++-Referenz läuft weiter" entfällt: `libptiff` wurde in Phase 13 gelöscht;
+      der **API-Vertrag** wird unter denselben Namen reproduziert.
+
+### DoD-Bewertung ✅
+C++-Nutzer greifen via `ptiff-cpp` auf den Rust-Core zu (über die C-ABI), mit den historischen
+Typnamen und moderner Semantik (RAII, `std::expected`, STL). RT + API-Paritätstest grün gegen
+Rust-`libptiff_c`.
 
 ## Phase 9 – Python (PyO3)
 - **Ziel:** PyO3-Binding (`maturin`) + NumPy-Tile-API; SWIG-Python bleibt temporär.
@@ -1457,6 +1507,26 @@ eigenen Haupt-Business-Case der Migration nicht. **Beides ist inzwischen nachgeh
 - **Risiko:** Feature-Parität mit SWIG-Bindung.
 - **DoD:** PyO3-Modul erreicht vollständige Parität; SWIG-Python wird deprecated (nicht sofort
   gelöscht).
+
+## Phase 9 abgeschlossen (2026-08-24)
+
+`crates/ptiff-python` — **PyO3-Binding über den Rust-Kern direkt** (Option B), maturin,
+pyo3 0.29 + numpy 0.29 (rust-numpy). **NumPy-Tile-API:** `Image.read_tile(col,row)` → echtes
+`numpy.ndarray` `(tile_height, tile_width, channel_count)`, Sample-dtype aus dem File.
+**Facade:** `open`/`Document` (CM) + `Image`, `Camera` (read+write, K/[R|t]/P), `Metadata`
+(descriptor + `ptiff.*`-Felder = PDS-Layer), `Logger` (+ `PTIFF_LOG_*`), Version/`backend_names`/
+`abi_version`/`PTIFF_PIXEL_*`/`PTIFF_COMPRESSION_*`, `Sink`/`create_image`/`write_tile`/`close`
+(Writes über `Tiff::to_bytes_with_pixels`). **19 pytest Feature-Parität + 4 Rust-Unit-Tests**
+ohne Python-Runtime grün; `maturin build --release` + `maturin develop` + pytest 19/19 grün;
+**`cargo build/clippy/test --workspace` grün** (ptiff-python via root-`exclude` + eigenem
+`[workspace]`-Marker als eigenständiges, maturin-gebautes Crate mit eigenem Cargo.lock
+ausgelagert — ein purer Workspace-Build braucht keine Python-Dev-Installation; `extension-module`
+aktiviert nur maturin via `pyproject.toml`); fmt clean.
+**CI:** `python-bindings-pyo3.yml` (maturin develop + pytest, ubuntu-24.04/macos-latest) in
+`ci.yml`-Phase 2 + docs-build-needs. **Modulname `ptiff_pyo3`** (nicht `ptiff`): kollidiert nicht
+mit dem SWIG-`ptiff`-Paket (`bindings/python`), das bis zum Deprecation (DoD) der temporäre
+Rückfall bleibt; die PyO3-Oberfläche ist so geschnitten, dass sie später unverändert als `ptiff`
+übernommen werden kann.
 
 ## Phase 10 – Octave (MEX via C-ABI)
 - **Ziel:** eigener `ptiff-octave`-Adapter (C++-MEX + `.m`-API) über ptiff-c; SWIG-Octave bleibt

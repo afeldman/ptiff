@@ -1,0 +1,48 @@
+name: Python bindings (ptiff-python / PyO3)
+
+# Builds and tests the new PyO3 Python binding (crates/ptiff-python, Plan §9
+# Option B): a maturin-driven extension module over the Rust core (ptiff →
+# ptiff-core), with a NumPy-integrated tile API. The legacy SWIG Python module
+# (bindings/python) is tested separately in python-bindings.yml and remains the
+# fallback until deprecated.
+
+on:
+  workflow_call:
+
+jobs:
+  python-bindings-pyo3:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build/test tools (maturin, pytest, numpy)
+        run: |
+          pip install --quiet maturin pytest numpy
+
+      # ptiff-python is excluded from the root workspace (see crates/
+      # ptiff-python/Cargo.toml), so its Rust unit tests run in its own
+      # directory against its own lockfile. Requires a Python install to link
+      # libpython (available via setup-python above).
+      - name: Rust unit tests (cargo)
+        working-directory: crates/ptiff-python
+        run: cargo test -p ptiff-python
+
+      - name: Build extension module (maturin develop)
+        working-directory: crates/ptiff-python
+        run: maturin develop --release
+
+      - name: Test (pytest)
+        working-directory: crates/ptiff-python
+        run: python -m pytest python/tests -v

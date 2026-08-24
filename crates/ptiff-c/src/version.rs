@@ -10,6 +10,21 @@
 
 use ptiff::APP_VERSION;
 
+/// The ABI version of `libptiff_c`, exported into the generated header as the
+/// `#define PTIFF_ABI_VERSION` preprocessor constant (plan §7.5).
+///
+/// Unlike the semantic crate version (1.0.0, carried by `ptiff_version` /
+/// `ptiff_compile_time_version`), this is a **monotonic break counter**: it
+/// increments by one on every *breaking* C-ABI change (a removed or
+/// reordered symbol, a struct-layout change, a changed parameter/return
+/// contract). Pure additions (new functions/structs) bump the minor SemVer
+/// but leave `PTIFF_ABI_VERSION` unchanged, so a foreign runtime can pre-check
+/// the two with a single `#if PTIFF_ABI_VERSION < n` guard without knowing the
+/// crate's exact release cadence.
+///
+/// The ABI starts at 1 (initial stable surface over the 1.0.0 Rust core).
+pub const PTIFF_ABI_VERSION: u32 = 1;
+
 /// Mirror of the C `ptiff_version` struct (see `ptiff_version.h`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +105,17 @@ mod tests {
             VERSION_STR,
             "C version struct mirrors the crate semantic version"
         );
+    }
+
+    #[test]
+    fn abi_version_is_initial_and_positive() {
+        // §7.5: PTIFF_ABI_VERSION is a monotonic break counter, distinct from
+        // the crate SemVer. It must be >= 1 from the first stable ABI onwards.
+        assert!(PTIFF_ABI_VERSION >= 1, "ABI version starts at 1");
+        // Stable surface is contract-pinned by the cbindgen-exported header;
+        // the value is also a `#define` in target/ptiff_c.h (asserted by the
+        // header-level test in the C-ABI test suite).
+        assert_eq!(PTIFF_ABI_VERSION, 1);
     }
 
     #[test]

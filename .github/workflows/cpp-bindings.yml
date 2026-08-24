@@ -1,0 +1,31 @@
+name: C++ bindings (ptiff-cpp)
+
+# Builds the standalone C ABI library (libptiff_c) via the Rust crate
+# crates/ptiff-c, then compiles and runs the modern C++ wrapper's round-trip +
+# API-parity test (bindings/cpp) against it. The wrapper is header-only over
+# the C ABI (Phase 8), so a C++23 compiler + libptiff_c are all that's needed.
+
+on:
+  workflow_call:
+
+jobs:
+  cpp-bindings:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The C++ wrapper links the standalone C ABI (libptiff_c), built by the
+      # Rust crate crates/ptiff-c via Cargo into target/release/.
+      - name: Build libptiff_c (Rust)
+        run: cargo build -p ptiff-c --release
+
+      - name: Test (make test)
+        working-directory: bindings/cpp
+        run: make test

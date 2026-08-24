@@ -76,8 +76,9 @@ include = [
     "ptiff_image",
     "ptiff_source",
     "ptiff_sink",
+    "PTIFF_ABI_VERSION",
 ]
-item_types = ["structs", "enums", "functions", "typedefs"]
+item_types = ["structs", "enums", "functions", "typedefs", "constants"]
 
 # ---- Naming: the C header uses lowercase opaque handles. ----
 [export.rename]
