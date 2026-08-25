@@ -84,5 +84,14 @@ jobs:
       - name: gofmt
         working-directory: bindings/go
         run: |
-          files=$(find ptiff -name '*_test.go')
-          test -z "$(gofmt -l $files)" || { echo "gofmt needed on:"; gofmt -l $files; exit 1; }
+          readarray -t files < <(find ptiff -name '*_test.go')
+          if (( ${#files[@]} == 0 )); then
+            echo "No *_test.go files to check"
+            exit 0
+          fi
+          unformatted=$(gofmt -l "${files[@]}")
+          if [[ -n "$unformatted" ]]; then
+            echo "gofmt needed on:"
+            echo "$unformatted"
+            exit 1
+          fi

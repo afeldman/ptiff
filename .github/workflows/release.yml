@@ -47,11 +47,7 @@ jobs:
             label: linux-arm64
             arch: arm64
             packages: deb+rpm
-          - os: macos-13
-            label: macos-x86_64
-            arch: x86_64
-            packages: pkg
-          - os: macos-14
+          - os: macos-15
             label: macos-arm64
             arch: arm64
             packages: pkg
@@ -142,7 +138,7 @@ jobs:
             -exec cp {} "${{ github.workspace }}/dist/" \;
           cd "${{ github.workspace }}/dist"
           ls -la
-          shasum -a 256 * > SHA256SUMS
+          shasum -a 256 ./* > SHA256SUMS
 
       - name: Upload packages (artifact)
         uses: actions/upload-artifact@v4
