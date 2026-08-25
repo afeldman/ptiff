@@ -80,10 +80,11 @@ fail() { printf '[bench] WARN: %s\n' "$*"; }
 # ---- 0. fixtures ----
 # Regenerate fixtures fresh each run so measurements are over identical files
 # regardless of previous writes/size drift. The Python binding is the PyO3
-# module in crates/ptiff-python (installed with `maturin develop`), replacing
-# the removed SWIG Python binding -- so just require `import ptiff` to work.
-if ! python3 -c 'import ptiff' >/dev/null 2>&1; then
-  fail "Python 'ptiff' module not importable -- run 'maturin develop' in crates/ptiff-python first."
+# module `ptiff_pyo3` in crates/ptiff-python (installed with `maturin develop`),
+# replacing the removed SWIG Python binding; the benchmark/fixture scripts
+# `import ptiff_pyo3 as ptiff`.
+if ! python3 -c 'import ptiff_pyo3' >/dev/null 2>&1; then
+  fail "Python 'ptiff_pyo3' module not importable -- run 'maturin develop' in crates/ptiff-python first."
 fi
 log "generating fixtures"
 python3 src/make_fixtures.py
