@@ -36,10 +36,14 @@ pub use extrinsics::Extrinsics;
 pub use frames::{Frame, FramePair};
 pub use intrinsics::Intrinsics;
 pub use lens_model::{LensModel, LensModelKind};
-/// Typed marshalling between the camera / CRS domain classes (`camera_fields`,
-/// `camera_from_model`, `crs_fields`, `crs_from_model`) and the flat
+/// Typed marshalling between the camera / CRS / geometry domain classes
+/// (`camera_fields`, `camera_from_model`, `crs_fields`, `crs_from_model`,
+/// `geometry_fields`, `geometry_from_model`) and the flat
 /// `ptiff.<domain>.<key>` storage-model field convention.
-pub use marshal::{camera_fields, camera_from_model, crs_fields, crs_from_model};
+pub use marshal::{
+    camera_fields, camera_from_model, crs_fields, crs_from_model, geometry_fields,
+    geometry_from_model,
+};
 pub use planet::Planet;
 pub use pose::Pose;
 pub use projection::{Projection, ProjectionKind};

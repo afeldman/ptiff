@@ -64,6 +64,15 @@ impl Geometry {
         }
     }
 
+    /// Sets the optional source image this geometry was derived from.
+    ///
+    /// Useful when reconstructing a [`Geometry`] from a stored model (the
+    /// `source_image` is known only after parsing its serialized form).
+    #[inline]
+    pub fn set_source_image(&mut self, source_image: Option<ImageId>) {
+        self.source_image = source_image;
+    }
+
     /// The kind of geometry.
     #[inline]
     pub fn kind(&self) -> GeometryKind {

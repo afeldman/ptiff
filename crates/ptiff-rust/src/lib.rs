@@ -44,11 +44,11 @@ pub use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileLayout, TileRegion};
 /// `ptiff::Scene` rather than reaching into `ptiff_core`. Includes the
 /// geometry, image, scene, pixel, tile and IO model types.
 pub use ptiff_core::{
-    BackendCapabilities, BackendFactory, BinaryReader, BinaryWriter, Camera, CompressionKind,
-    CoordinateReferenceSystem, Ellipsoid, Error, ErrorCode, Extrinsics, Frame, FramePair, Geometry,
-    GeometryKind, Image, ImageDescriptor, ImageDescriptorBuilder, Intrinsics, LensModel, PixelType,
-    Planet, Pose, Projection, ProjectionKind, Quaternion, Result, Scene, StorageModel, TileInfo,
-    Vec3,
+    AnnotationId, BackendCapabilities, BackendFactory, BinaryReader, BinaryWriter, Camera,
+    CameraId, CompressionKind, CoordinateReferenceSystem, Ellipsoid, Error, ErrorCode, Extrinsics,
+    Frame, FramePair, Geometry, GeometryId, GeometryKind, Image, ImageDescriptor,
+    ImageDescriptorBuilder, ImageId, Intrinsics, LayerId, LensModel, PixelType, Planet, Pose,
+    Projection, ProjectionKind, Quaternion, Result, Scene, StorageModel, TileInfo, Vec3,
 };
 
 /// Runtime-queryable crate version (e.g. for a `ptiff --version` CLI flag).
@@ -93,5 +93,30 @@ mod tests {
             .parse()
             .expect("major parses");
         assert_eq!(APP_VERSION.major, cargo_major);
+    }
+
+    #[test]
+    fn scene_level_camera_and_geometry_via_facade() {
+        // The idiomatic crate re-exports Scene + Camera + Geometry + the ID
+        // types, so scene-level cameras/geometries are usable from `ptiff`.
+        use crate::{Camera, CameraId, Extrinsics, Geometry, GeometryId, GeometryKind, Intrinsics};
+
+        let mut scene = Scene::new();
+        let cam_id = scene.add_camera(Camera::from_model(
+            "pinhole",
+            Intrinsics::new(400.0, 401.0, 32.0, 32.0),
+            Extrinsics::default(),
+            "2026-08-21T10:00:00Z",
+        ));
+        let geom_id = scene.add_geometry(Geometry::new(GeometryKind::Unspecified));
+
+        // The facade type aliases are the same handles the scene returns.
+        let typed: CameraId = cam_id;
+        let typed_geom: GeometryId = geom_id;
+        let cam = scene.camera(typed).unwrap();
+        assert_eq!(cam.model_name(), "pinhole");
+        assert!(scene.geometry(typed_geom).is_ok());
+        assert_eq!(scene.camera_count(), 1);
+        assert_eq!(scene.geometry_count(), 1);
     }
 }
