@@ -1,12 +1,12 @@
 # PTIFF MCP Server — Design
 
-**Status:** Draft / experimental (0.0.1)
-**Scope:** bindings/mcp (application layer, not a libptiff subsystem)
+**Status:** 1.0.0, offiziell (10 Tools, 9/9 Tests grün)
+**Scope:** bindings/mcp (application layer, not a `ptiff-core` subsystem)
 
 ## Ziel
 
 Ein [MCP](https://modelcontextprotocol.io)-Server, der einem LLM (z. B. Claude
-Code) Zugriff auf [PTIFF](https://github.com/) / `libptiff` ermöglicht: ein
+Code) Zugriff auf [PTIFF](https://github.com/afeldman/ptiff) ermöglicht: ein
 LLM soll eingebettete PTIFF-/Planetenbild-Metadaten lesen, Tiles/Pixel abfragen
 und kleine Dokumente schreiben können, ohne die C-API oder das Containerformat
 direkt zu fassen.
@@ -62,14 +62,16 @@ kleine Stichproben/ROI begrenzt (LLM-Kontextgrenzen, siehe "Grenzen").
 
 | Tool | Zweck | Wichtige Parameter |
 |------|-------|--------------------|
-| `get_version` | Laufzeit- & Compilezeit-Version von libptiff | — |
+| `get_version` | Laufzeit- & Compilezeit-Version des PTIFF-Rust-Cores | — |
 | `list_backends` | Registrierte Backend-Namen | — |
 | `read_metadata` | Metadaten + PTIFF-Extension-Fields (`ptiff.*`) + structured Camera (K/[R|t]/P, Modell, Timestamp) | `path` |
 | `read_scene` | Dasselbe als „Scene"-Blick (aktuell = Primary Image), JSON | `path` |
 | `read_tile` | Ein Tile/Strip lesen, inkl. Eckstatistik (min/max/mean, Histogramm-Brackets) | `path`, `column`, `row`, `max_samples` |
 | `read_pixel_sample` | Kleine ROI (stats) aus einer Tile-Region | `path`, `x`, `y`, `radius` |
-| `create_image` | Neue leere TIFF/BigTIFF-Datei anlegen (tiled), optional mit `camera` | `path`, `width`, `height`, `pixel_type`, `channel_count`, `tile_width`, `tile_height`, `compression`, `camera` |
+| `write_image_file` | Neues tiled Bild anlegen, optional konstant befüllen; optional `camera` persistieren (stateless, ein Aufruf) | `path`, `width`, `height`, `pixel_type`, `channel_count`, `tile_width`, `tile_height`, `compression`, `fill`, `camera` |
+| `create_image` | Tiled Bild für sequentielle Tile-Writes öffnen (low-level, liefert `sink_key`), optional mit `camera` | `path`, `width`, `height`, `pixel_type`, `channel_count`, `tile_width`, `tile_height`, `compression`, `camera` |
 | `write_tile` | Ein einzelnes Tile mit Rohdaten beschreiben | `path` (open sink), `column`, `row`, `data` (Hex/Base64) |
+| `close_image` | Offenen Sink flushen/schließen (macht die Datei lesbar) | `path` |
 
 `read_scene` ist mit `read_metadata` redundant; er bleibt als dünner Alias für
 die semantische Brücke zum `Scene`-Konzept von PTIFF erhalten, bis
@@ -88,7 +90,8 @@ Multi-Image/`Scene`-Zugriffe über die C-ABI ausgeprägt sind.
   abfängt und als MCP-Fehler weitergibt (keine rohen Fehlercodes).
 - **Kein volles Raster-Dekodieren** im Servercontext über einzelne Tiles hinaus.
 - **Bindungs-Reifegrad** : Die PyO3-Bindung `ptiff_pyo3` ist die offizielle
-  Python-Bindung; der Server bleibt als **experimentell/Preview** markiert.
+  Python-Bindung; der Server ist seit 2026-08-25 als **1.0.0, offiziell**
+  markiert (9/9 Tests grün, 10 Tools, gegen PTIFF~1.0 verifiziert).
 
 ## Tests
 

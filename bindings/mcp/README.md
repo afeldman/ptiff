@@ -1,15 +1,16 @@
-# PTIFF MCP Server (experimental)
+# PTIFF MCP Server
 
 Ein [MCP](https://modelcontextprotocol.io)-Server, der einem LLM Zugriff auf
-[PTIFF](https://github.com/) / `libptiff` gibt: ein LLM kann die eingebetteten
+[PTIFF](https://github.com/afeldman/ptiff) gibt: ein LLM kann die eingebetteten
 Metadaten von Planeten-/TIFF-Dokumenten lesen, Tile-Pixel-Statistiken abfragen
 und kleine tiled Dokumente schreiben — ohne die C-API oder das
 Containerformat direkt zu fassen.
 
-> **Status: experimental (0.0.1).** Der Server ist eine dünne Anwendungsebene
-> über die PyO3-Python-Bindung `ptiff_pyo3` (`crates/ptiff-python`), die direkt
-> den Rust-Core spricht. Siehe `DESIGN.md` für Architektur & bewusste Grenzen
-> (u. a. keine vollen Raster-Buffer in LLM-Antworten).
+> **Status: 1.0.0, offiziell.** Der Server ist eine dünne Anwendungsebene über
+> die PyO3-Python-Bindung `ptiff_pyo3` (`crates/ptiff-python`), die direkt den
+> Rust-Core (PTIFF~1.0) spricht. 10 Tools, 9/9 Tests grün (In-Process-Dispatch
+> + echter stdio-MCP-Roundtrip). Siehe `DESIGN.md` für Architektur & bewusste
+> Grenzen (u. a. keine vollen Raster-Buffer in LLM-Antworten).
 
 ## Prinzip
 
