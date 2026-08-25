@@ -38,9 +38,15 @@ jobs:
         working-directory: crates/ptiff-python
         run: cargo test -p ptiff-python
 
-      - name: Build extension module (maturin develop)
+      - name: Build extension module (maturin build + pip install)
         working-directory: crates/ptiff-python
-        run: maturin develop --release
+        run: |
+          # maturin develop requires an activated virtualenv; on CI with
+          # actions/setup-python there is none, so build a wheel and install it
+          # (no venv/conda needed) -- the PyO3 module then lands on the active
+          # interpreter's site-packages for the pytest step below.
+          maturin build --release --out dist/
+          pip install --quiet dist/*.whl
 
       - name: Test (pytest)
         working-directory: crates/ptiff-python
