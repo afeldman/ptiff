@@ -1,10 +1,16 @@
 name: Benchmarks
 
-# Runs the cross-language benchmark suite (benchmarks/run_benchmarks.sh) on
-# every push/PR as a regression check: it builds libptiff_c (Rust, crates/ptiff-c)
-# + all language bindings, then measures read/write throughput across
-# Python/Ruby/Go/Octave/Rust and the ptiff CLI. Median times are saved as a
-# workflow artifact so you can diff cycles or PRs.
+# Runs the cross-language benchmark suite (benchmarks/run_benchmarks.sh) as a
+# regression check: it builds libptiff_c (Rust, crates/ptiff-c) + all language
+# bindings, then measures read/write throughput across Python/Ruby/Go/Octave/Rust
+# and the ptiff CLI. Median times are saved as a workflow artifact so you can
+# diff cycles or releases.
+#
+# Deliberately runs ONLY on version tags (v*) and via manual workflow_dispatch
+# (not on every push/PR): this suite builds every binding, so running it on each
+# push/PR would burn CI time and create noisy artifacts for intermediate work.
+# Run it on demand (dispatch) or let it produce the official number for a
+# release tag.
 #
 # Numbers on CI are intentionally coarse (reduced BENCH_REPEATS/BENCH_ITERS +
 # Release build) -- the point is a *stable ordering + trend*, not precise
@@ -17,7 +23,8 @@ name: Benchmarks
 
 on:
   push:
-  pull_request:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 jobs:
