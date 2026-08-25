@@ -44,10 +44,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      # maturin builds the PyO3 Python binding (crates/ptiff-python) into the
-      # runner's Python env so `import ptiff` works for the python benchmark.
-      - name: Install maturin (PyO3 build tool)
-        run: pip install maturin
+      # Set up a single virtualenv for the whole job. The python benchmark runs
+      # later in a *different* step (Run benchmark suite), so we cannot rely on
+      # pip-installing the PyO3 module into the bare setup-python interpreter
+      # and hoping the next step sees it. A venv on $PATH makes `python3` in
+      # every step resolve to the same environment, and it is what `maturin
+      # develop` requires. Build tools go in here too.
+      - name: Create virtualenv + install maturin
+        run: |
+          python -m venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python -m pip install --quiet --upgrade pip maturin
 
       # SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package), NOT the
       # distro apt `swig` (Ubuntu 24.04 is only 4.2.0). This repo is developed
