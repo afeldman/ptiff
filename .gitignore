@@ -188,6 +188,10 @@ benchmark-results/
 benchmarks/fixtures/
 # Rust benchmark crate build artifacts.
 benchmarks/rust_bench/target/
+# Real NASA samples for the --real/--nac benchmark flags (large, not source --
+# same real data as documents/paper/ptiff/experiment/data/, copied here so the
+# benchmark suite runs standalone without depending on the paper directory).
+benchmarks/data/
 
 ##############################################
 # Goose (local agent configuration)

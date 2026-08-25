@@ -27,12 +27,12 @@ dependencies stay hidden behind it.
                  │
         cbindgen → target/ptiff_c.h   (Rust-generated C ABI → libptiff_c)
                  │
-      ┌───────────┼───────────┬──────────┬──────────────┐
-      ▼           ▼           ▼          ▼             ▼
-     Go         Ruby       Python      Octave        CLI/MCP
-  (SWIG,      (SWIG,      (PyO3,      (MEX,          (Rust CLI +
-  bindings/go) bindings/   crates/     bindings/      MCP over Python)
-                ruby)       ptiff-python) octave/mex)
+      ┌───────────┼───────────┬──────────┬──────────┬──────────────┐
+      ▼           ▼           ▼          ▼          ▼             ▼
+     Go         Ruby       Python      Octave     Julia         CLI/MCP
+  (SWIG,      (SWIG,      (PyO3,      (MEX,      (ccall,       (Rust CLI +
+  bindings/go) bindings/   crates/     bindings/   bindings/     MCP over Python)
+                ruby)       ptiff-python) octave/mex) julia)
 ```
 
 | Binding | Directory | Approach          | Status |
@@ -42,6 +42,7 @@ dependencies stay hidden behind it.
 | **Python**| `crates/ptiff-python` | PyO3 over `libptiff_c` | ✅ tested, official |
 | **Ruby**| `bindings/ruby` | SWIG output over `libptiff_c` (promoted from `bindings/swig`) | ✅ tested, official |
 | **Octave**| `bindings/octave` | Hand-written C++ MEX adapter (`bindings/octave/mex`) over `libptiff_c` | ✅ tested, official |
+| **Julia**| `bindings/julia` | Hand-written Julia module (`Ptiff.jl`) calling `libptiff_c` directly via `ccall` | ✅ tested, official |
 | **SWIG**| `bindings/swig` | SWIG (pure C) over `libptiff_c`; Go + Ruby outputs promoted to their own dirs | ✅ round-trip + full test parity |
 | **MCP** | `bindings/mcp` | MCP server (Model Context Protocol) over the Python binding, for LLMs | ✅ 10 tools, tested (in-process + stdio) |
 

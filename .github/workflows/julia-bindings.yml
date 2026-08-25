@@ -1,0 +1,35 @@
+name: Julia bindings
+
+# Builds the standalone C ABI library (libptiff_c) via the Rust crate
+# crates/ptiff-c, then runs the hand-written Julia binding test suite
+# (bindings/julia/test/runtests.jl) with `make test`. Julia needs no adapter
+# compile step: Ptiff.jl calls libptiff_c directly through `ccall`.
+
+on:
+  workflow_call:
+
+jobs:
+  julia-bindings:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.6'
+
+      # libptiff_c is built by the Rust crate crates/ptiff-c into
+      # target/release/ (Ptiff.libpath() resolves there by default).
+      - name: Build libptiff_c (Rust)
+        run: cargo build -p ptiff-c --release
+
+      - name: Test (Julia suite)
+        run: make -C bindings/julia test

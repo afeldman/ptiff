@@ -37,10 +37,10 @@ TIFF-Tag-Output implementiert und roundtrip-fest getestet.
 - **Reine Rust-Implementierung**: kein C++, kein C-ABI im Kern
   (`#![forbid(unsafe_code)]`); die stabile C-ABI lebt in einem
   separaten `ptiff-c`-Crate, damit C/C++ und FFI-Runtimes (Go, Python,
-  Ruby, Octave) `libptiff_c` gegen den Rust-Kern linken können.
+  Ruby, Octave, Julia) `libptiff_c` gegen den Rust-Kern linken können.
 - **Anbindung**: `libptiff_c` (sprachunabhängige "extern C"-Veneer über den
-  Rust-Kern) als Grundlage für die Go-/Python-/Ruby-/Octave-Bindings und die
-  Rust-CLI `ptiff`. Darauf baut ein **MCP-Server**
+  Rust-Kern) als Grundlage für die Go-/Python-/Ruby-/Octave-/Julia-Bindings
+  und die Rust-CLI `ptiff`. Darauf baut ein **MCP-Server**
   ([`bindings/mcp`](./bindings/mcp)) auf, der PTIFF als LLM-Werkzeuge
   (Model Context Protocol) über stdio bereitstellt — z. B. für Claude Code.
 

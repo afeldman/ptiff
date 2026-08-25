@@ -36,10 +36,11 @@ OUT="benchmark-results"
 mkdir -p "$OUT"
 
 # `--real` adds a read of a genuine NASA LOLA elevation crop; `--nac` adds a
-# read of the full ~55 MB LRO-NAC DTM pyramid (scripts/samples/). Both are off
-# by default because they need the gitignored scripts/samples/ present (fetch
-# via scripts/fetch_sample_tiff.sh). `--nac` also feeds the CLI's large-file
-# metadata-open (cli_info_nac_ms).
+# read of the full ~55 MB LRO-NAC DTM pyramid. Both live in benchmarks/data/
+# (gitignored; same real data as documents/paper/ptiff/experiment/data/,
+# copied here so this suite runs standalone). Both flags are off by default
+# because they need that directory present.
+# `--nac` also feeds the CLI's large-file metadata-open (cli_info_nac_ms).
 REAL=0
 NAC=0
 LANG_ARGS=()
@@ -90,28 +91,32 @@ log "generating fixtures"
 python3 src/make_fixtures.py
 
 # --real: stage a copy of the real NASA LOLA elevation crop into fixtures/ so
-# every language reads the identical real-data byte stream. (Same deterministic
-# name; absent = '--real' runs degrade gracefully to the synthetic suite only.)
+# every language reads the identical real-data byte stream. The sample lives
+# in benchmarks/data/ (gitignored, same real data as
+# documents/paper/ptiff/experiment/data/, copied here so this suite runs
+# standalone). (Same deterministic name; absent = '--real' runs degrade
+# gracefully to the synthetic suite only.)
 if [ "$REAL" -eq 1 ]; then
-  LOLA_SRC="$REPO/scripts/samples/lola_real_crop_512.tif"
+  LOLA_SRC="./data/lola_real_crop_512.tif"
   if [ -f "$LOLA_SRC" ]; then
     cp "$LOLA_SRC" fixtures/real_lola_512.tif
-    log "staged real sample: scripts/samples/lola_real_crop_512.tif -> fixtures/real_lola_512.tif"
+    log "staged real sample: ./data/lola_real_crop_512.tif -> fixtures/real_lola_512.tif"
   else
-    fail "--real requested but $LOLA_SRC missing (run scripts/fetch_sample_tiff.sh?)"
+    fail "--real requested but $LOLA_SRC missing (see README.md)"
   fi
 fi
 
 # --nac: stage the full NASA LRO-NAC DTM (2693x14236 UInt8, 256x256 tiles,
 # ~55 MB) into fixtures/ so every language reads the identical real-data byte
-# stream (616 tiles/pass). Skipped gracefully if the sample is not cached.
+# stream (616 tiles/pass). Sample lives in benchmarks/data/ (gitignored, see
+# above). Skipped gracefully if the sample is not cached.
 if [ "$NAC" -eq 1 ]; then
-  NAC_SRC="$REPO/scripts/samples/NAC_DTM_ATLAS2.PYR.TIF"
+  NAC_SRC="./data/NAC_DTM_ATLAS2.PYR.TIF"
   if [ -f "$NAC_SRC" ]; then
     cp "$NAC_SRC" fixtures/nac_dtm.tif
-    log "staged real NAC sample: scripts/samples/NAC_DTM_ATLAS2.PYR.TIF -> fixtures/nac_dtm.tif"
+    log "staged real NAC sample: ./data/NAC_DTM_ATLAS2.PYR.TIF -> fixtures/nac_dtm.tif"
   else
-    fail "--nac requested but $NAC_SRC missing (run scripts/fetch_sample_tiff.sh?)"
+    fail "--nac requested but $NAC_SRC missing (see README.md)"
   fi
 fi
 
