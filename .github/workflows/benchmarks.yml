@@ -95,8 +95,12 @@ jobs:
         working-directory: crates/ptiff-python
         run: |
           source "$GITHUB_WORKSPACE/.venv/bin/activate"
+          echo "python3=$(command -v python3) pip=$(command -v pip)"
           maturin build --release --out dist/
           pip install --quiet dist/*.whl
+          echo "--- import check in build step ---"
+          python3 -c 'import ptiff; print("PYO3 import OK from:", ptiff.__file__)' \
+            || echo "IMPORT FAILED in build step"
 
       # --- Build every language binding against the freshly built C ABI ---
       # (bindings/swig/Makefile links the Rust-built libptiff_c by default)
