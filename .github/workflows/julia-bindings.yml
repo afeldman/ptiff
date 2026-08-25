@@ -13,7 +13,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        include:
+          # Ubuntu runners are x86_64: exercise the declared minimum Julia
+          # version (1.6) against the real x86_64 binaries.
+          - os: ubuntu-24.04
+            julia-version: '1.6'
+          # `macos-latest` resolves to Apple Silicon (aarch64); Julia 1.6/1.7
+          # have no native ARM darwin binaries, so use the current LTS there.
+          # This also validates the binding against a modern Julia.
+          - os: macos-latest
+            julia-version: 'lts'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +33,7 @@ jobs:
       - name: Set up Julia
         uses: julia-actions/setup-julia@v2
         with:
-          version: '1.6'
+          version: ${{ matrix.julia-version }}
 
       # libptiff_c is built by the Rust crate crates/ptiff-c into
       # target/release/ (Ptiff.libpath() resolves there by default).
