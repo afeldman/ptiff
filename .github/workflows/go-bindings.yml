@@ -46,7 +46,12 @@ jobs:
 
       - name: Install SWIG (macOS)
         if: runner.os == 'macOS'
-        run: brew install swig
+        # Use the same pinned SWIG 4.5.0 as Linux (pip wheel) instead of
+        # Homebrew: macos-latest Homebrew now ships a newer SWIG whose Go
+        # enum codegen differs (4.5 vs the drifted names), which breaks the
+        # generated Go binding with "undefined: Ptiff_pixel_type/Ptiff_log_level".
+        # Pinning 4.5.0 on both OSes keeps codegen identical to local dev.
+        run: pip install swig==4.5.0
 
       # The Go binding builds on the standalone C ABI (libptiff_c), built by
       # the Rust crate crates/ptiff-c via Cargo into target/release/.
