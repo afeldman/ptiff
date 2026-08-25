@@ -14,8 +14,13 @@ dependencies = [
     "numpy>=2.0",
 ]
 
+# ``ptiff_pyo3`` (the PyO3 binding over the PTIFF Rust core) is a required
+# runtime dependency of this server, but it is NOT installable from PyPI: it is
+# built locally via ``maturin`` in crates/ptiff-python and installed into the
+# active venv (see README.md). It intentionally stays out of ``dependencies``.
+
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
+test = ["pytest>=8.0", "anyio[trio]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ptiff_mcp"]
@@ -23,5 +28,5 @@ include = ["src/ptiff_mcp/**/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
-pythonpath = ["src", "../python/src"]
+pythonpath = ["src"]
 addopts = "-ra"

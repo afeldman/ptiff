@@ -3,13 +3,13 @@
 Ein [MCP](https://modelcontextprotocol.io)-Server, der einem LLM Zugriff auf
 [PTIFF](https://github.com/) / `libptiff` gibt: ein LLM kann die eingebetteten
 Metadaten von Planeten-/TIFF-Dokumenten lesen, Tile-Pixel-Statistiken abfragen
-und kleine tiled Dokumente schreiben — ohne die C++-API oder das
+und kleine tiled Dokumente schreiben — ohne die C-API oder das
 Containerformat direkt zu fassen.
 
 > **Status: experimental (0.0.1).** Der Server ist eine dünne Anwendungsebene
-> über die SWIG-Python-Bindung (`bindings/python`), die selbst noch
-> "under-construction" ist. Siehe `DESIGN.md` für Architektur & bewusste
-> Grenzen (u. a. keine vollen Raster-Buffer in LLM-Antworten).
+> über die PyO3-Python-Bindung `ptiff_pyo3` (`crates/ptiff-python`), die direkt
+> den Rust-Core spricht. Siehe `DESIGN.md` für Architektur & bewusste Grenzen
+> (u. a. keine vollen Raster-Buffer in LLM-Antworten).
 
 ## Prinzip
 
@@ -18,7 +18,7 @@ Containerformat direkt zu fassen.
          │
  crates/ptiff-c → libptiff_c  (Rust-extern-"C"-C-ABI, cargo build -p ptiff-c)
          │
- bindings/python (SWIG, promoted)   ←  `ptiff`-Modul
+ crates/ptiff-python (PyO3)  ←  `ptiff_pyo3`-Modul (maturin)
          │
  bindings/mcp (dieser Server)        ←  MCP-Tools
          │
@@ -26,47 +26,34 @@ Containerformat direkt zu fassen.
 ```
 
 Der Server ändert **nichts** an `libptiff`, `crates/ptiff-c` oder
-`bindings/swig` — nur eine zusätzliche Anwendungs-Ebene.
+`bindings/swig` — nur eine zusätzliche Anwendungs-Ebene über die Python-Bindung.
 
 ## Voraussetzungen
 
-- Gebaute `libptiff_c` (+ Rust-Core), z. B.:
-  ```bash
-  cd <repo-root>
-  cargo build -p ptiff-c --release
-  ```
-  erzeugt `target/release/libptiff_c.*` und den Header `target/ptiff_c.h`.
-- `uv` (für das venv) und Python 3.13.
+- Der Rust-Core + C-ABI sind gebaut (`cargo build -p ptiff-c --release` aus dem
+  Repo-Root → `target/release/libptiff_c.*` + `target/ptiff_c.h`).
+- CPython ≥ 3.9 und `maturin` (zum Bauen von `ptiff_pyo3`).
 
 ## Setup
 
+Die PyO3-Bindung `ptiff_pyo3` ist **nicht** auf PyPI — sie wird lokal mit
+`maturin` in `crates/ptiff-python` gebaut und in die venv installiert:
+
 ```bash
 cd bindings/mcp
-uv venv --python 3.13 .venv
-uv pip install --python .venv/bin/python -e .
-uv pip install --python .venv/bin/python "mcp[cli]" "anyio[trio]" pytest
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .          # ptiff-mcp (mcp, numpy, anyio, pytest)
+.venv/bin/python -m pip install maturin
+cd ../../crates/ptiff-python
+../../bindings/mcp/.venv/bin/maturin develop  # installiert ptiff_pyo3 in die MCP-venv
 ```
 
-> Der Server lädt das `ptiff`-Modul aus `bindings/python/src` (SWIG-Ausgabe).
-> Wir installieren bewusst **nicht** die dist—der Server läuft mit dem
-> Repo-`ptiff` via `PYTHONPATH` (siehe unten) bzw. die Tests.
+Danach ist das `ptiff_pyo3`-Modul aus der MCP-venv importierbar.
 
 ## Start (stdio)
 
 ```bash
 cd bindings/mcp
-PYTHONPATH=src:../python/src \
-.venv/bin/python -m ptiff_mcp.server
-```
-
-Die Python-Bindung findet `libptiff_c` standardmäßig im Rust-Build-Output
-(`target/release`) — oder explizit:
-
-```bash
-cd bindings/mcp
-PTIFF_C_LIB_DIR=../../target/release \
-PTIFF_LIB_DIR=../../target/release \
-PYTHONPATH=src:../python/src \
 .venv/bin/python -m ptiff_mcp.server
 ```
 
@@ -78,12 +65,7 @@ Für einen MCP-Client (z. B. Claude Code `mcpServers`) den Server als
   "mcpServers": {
     "ptiff": {
       "command": "/pfad/zu/bindings/mcp/.venv/bin/python",
-      "args": ["-m", "ptiff_mcp.server"],
-      "env": {
-        "PYTHONPATH": "/pfad/zu/bindings/mcp/src:/pfad/zu/bindings/python/src",
-        "PTIFF_C_LIB_DIR": "/pfad/zu/<repo>/target/release",
-        "PTIFF_LIB_DIR": "/pfad/zu/<repo>/target/release"
-      }
+      "args": ["-m", "ptiff_mcp.server"]
     }
   }
 }
@@ -114,8 +96,9 @@ cd bindings/mcp
 ```
 
 Deckt sowohl die In-Process-Dispatch als auch einen echten stdio-MCP-Roundtrip
-(Server als Unterprozess) ab — gegen die Beispiel-Datei der Python-Bindings
-(`bindings/python/test/roundtrip_python.tif`).
+(Server als Unterprozess) ab. Eine Referenz-TIFF wird bei Bedarf on-demand mit
+`ptiff_pyo3` erzeugt (Fixture `sample_tiff`), sodass keine fremden Dateien
+nötig sind.
 
 ## Hinweise
 

@@ -2,13 +2,12 @@
 
 Exposes libptiff (Planetary TIFF) to an LLM over the Model Context Protocol,
 running over stdio. Thin application layer: all real work happens in
-``runtime`` against the SWIG ``ptiff`` binding / ``libptiff_c``.
+``runtime`` against the PyO3 ``ptiff_pyo3`` binding over the PTIFF Rust core.
 
-Run (from bindings/mcp; libptiff_c comes from the Rust crate crates/ptiff-c,
-built with `cargo build -p ptiff-c --release` into target/release):
+Run (from bindings/mcp; ptiff_pyo3 is built via `maturin` in
+crates/ptiff-python and installed into this venv):
 
-    PTIFF_C_LIB_DIR=.../target/release PTIFF_LIB_DIR=.../target/release \\
-        .venv/bin/python -m ptiff_mcp.server
+    .venv/bin/python -m ptiff_mcp.server
 
 See DESIGN.md for tool semantics and the deliberate context-size limits.
 """
