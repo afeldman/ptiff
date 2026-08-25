@@ -81,7 +81,7 @@ cd test && RUBYLIB=../lib ruby test_roundtrip.rb
 ```bash
 gem build ptiff.gemspec
 # local install
-gem install ./ptiff-1.0.0.gem
+gem install ./ptiff-1.0.1.gem
 # or with Bundler from this directory
 bundle install
 ```
@@ -96,7 +96,7 @@ ruby` for the target platform before `gem build`.
 require "ptiff"
 
 v = Ptiff::ptiff_runtime_version
-v.major, v.minor, v.patch             # => 1, 0, 0
+v.major, v.minor, v.patch             # => 1, 0, 1
 Ptiff::ptiff_backend_names            # => "core, ..." (comma-joined string)
 
 desc = Ptiff::Ptiff_image_descriptor.new
