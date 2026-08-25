@@ -158,7 +158,7 @@ impl Default for SceneDeserializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::{Camera, Geometry, GeometryKind};
+    use crate::geometry::{Camera, Geometry};
     use crate::io::Serializer;
     use crate::ErrorCode;
 
