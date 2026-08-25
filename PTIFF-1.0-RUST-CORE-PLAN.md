@@ -1422,8 +1422,11 @@ selbst bleiben unverändert gültig.
 > die Phase-4-`jpeg-encoder`/`jpeg-decoder`-Paarung (baseline 4:4:4) ist der deterministische
 > 1.0-Ziel-Encoder; Golden = Pixel-Toleranz. libjpeg-turbo bleibt optionaler, feature-gated
 > Post-1.0-Pfad (hinter der C-ABI für Bridges). Zudem ist das übergeordnete **Pure-Rust-Prinzip
-> (§3.1.9)** als neues Leitprinzip verankert: „Kern & Rust-Interfaces sind pure-Rust; Bridges
-> dürfen nativ“ (§20/Q2 folgt ihm). Die übrigen §20-Fragen sind triage-dokumentiert
+> §3.1.9)** als neues Leitprinzip verankert: „Kern & Rust-Interfaces sind pure-Rust; Bridges
+> dürfen nativ“ (§20/Q2 folgt ihm). **Post-1.0-Reserven als RFC-Drafts dokumentiert:** RFC-0016
+> (ZSTD als TIFF-Codec) und RFC-0017 (libjpeg-turbo-Bridge-Pfad) reservieren die beiden
+> Post-1.0-Pfade normativ-sauber, ohne 1.0-Anspruch (Details s. `rfcs/RFC-0016*`, `RFC-0017*`
+> und §20/Q1/Q2). Die übrigen §20-Fragen sind triage-dokumentiert
 > (Empfehlung + Status), keine blockiert 1.0 (Details §20).
 
 
@@ -1753,7 +1756,10 @@ triage-dokumentiert (Empfehlung + Status); keine blockieren PTIFF 1.0.
    `CompressionKind` bleibt None/Lzw/Deflate/Jpeg. Kein standardisierter TIFF-Tag-Wert (nur
    non-standard 34925), würde die dependency-light/Plattform-Ziele (§3.1.2) brechen und das
    `zarr-backend`-Feature-Gating umgehen. Bleibt dokumentierter Post-1.0-Kandidat; erfordert
-   normative RFC-Neufassung (§5.2, RFC-0011 §6.1).
+   normative RFC-Neufassung (§5.2, RFC-0011 §6.1). **Post-1.0-Reserve jetzt als RFC-0016
+   (ZSTD-TIFF-Draft) dokumentiert** — sie legt Tag-Wert/Block-Geometrie/Verlustfreiheit/
+   Dependency-Policy-Klärung fest, die eine spätere normative Revision vor jedem Code-Change
+   beantworten muss.
 2. **JPEG-Ziel-Encoder exakt libjpeg-turbo?** **Entschieden (2026-08-25): pure-Rust-Pinning.**
    Phase-4-Realität (`jpeg-encoder`/`jpeg-decoder`, baseline 4:4:4) wird für 1.0 beibehalten:
    deterministisch (§14, kein libjpeg-Versions-/CPU-Drift), dependency-light, Plattform-frei,
@@ -1761,7 +1767,9 @@ triage-dokumentiert (Empfehlung + Status); keine blockieren PTIFF 1.0.
    Golden = Pixel-Toleranz (nicht byte-exakt). libjpeg-turbo bleibt optionaler Post-1.0-Pfad
    für SIMD-Durchsatz — nur **hinter der C-ABI / für die Sprach-Bridges** (Python/Octave/Go/
    Ruby/C++-Wrapper), feature-gated, mit gepinnter Mindestversion (RFC-0011 §6.2); nie im
-   Rust-Interface.
+   Rust-Interface. **Post-1.0-Reserve jetzt als RFC-0017 (libjpeg-turbo-Bridge-Draft)**
+   dokumentiert — sie definiert die Bridge-Grenze, Determinismus-Isolation und den
+   Version-Pinning-/Test-Vertrag.
 3. **`cxx`?** Empfehlung (unverändert): **Nicht** für die zentrale C++-Brücke; C++ geht über die
    C-ABI (`ptiff-cpp`, Phase 8). Für typsichere interne Rust↔C++-Pipelines post-1.0 prüfbar,
    nicht primär. (Status: beibehalten — Empfehlung.)
@@ -1820,9 +1828,13 @@ bleibt ein optionaler Post-1.0-Pfad für SIMD-Durchsatz, nicht mehr die determin
 > (2026-08-25):** die beiden Compression-relevanten Entscheidungen (ZSTD als TIFF-Codec → NEIN
 > für 1.0 / Zarr-only; JPEG-Ziel-Encoder → pure-Rust-Pinning gegenüber libjpeg-turbo) sind
 > verbindlich in RFC-0011 §6 fixiert; die übrigen Fragen sind mit Empfehlung/Status
-> dokumentiert und blockieren PTIFF 1.0 nicht (Details §20 oben). **Neu verankert als
+> ... dokumentiert und blockieren PTIFF 1.0 nicht (Details §20 oben). **Neu verankert als
 > übergeordnetes Leitprinzip:** das Pure-Rust-Prinzip (§3.1.9) — Kern & Rust-Interfaces sind
 > pure-Rust; Bridges (Python/Octave/Go/Ruby/C++-Wrapper) dürfen native Libraries nutzen.
+> **Post-1.0-Reserven als RFC-Drafts reserviert:** RFC-0016 (ZSTD als TIFF-Codec) und RFC-0017
+> (libjpeg-turbo-Bridge-Pfad) sichern die beiden Post-1.0-Performance-/Interop-Pfade
+> normativ-sauber, ohne 1.0-Anspruch — beide bleiben strikt hinter der C-ABI/feature-gated
+> (Details §20/Q1+Q2, RFC-0016/0017).
 
 ---
 

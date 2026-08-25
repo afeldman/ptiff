@@ -45,6 +45,20 @@ als noch nicht veröffentlicht.
   C++-Wrapper) dürfen für Performance/Parität native Bibliotheken nutzen — libjpeg-turbo bleibt
   hinter der C-ABI für Bridges.
 
+### Post-1.0-RFC-Drafts (2026-08-25)
+
+- **RFC-0016 (ZSTD als TIFF-Codec, Post-1.0) als Draft reserviert.** Kein normativer Anspruch
+  für 1.0 (`CompressionKind` bleibt None/Lzw/Deflate/Jpeg). Sichert die Zukunfts-Lücke: legt die
+  zu klärenden normativen Punkte (Tag-Wert 34925 vs. PTIFF-Private-Allokation, Block-/
+  Fenster-Geometrie, wissenschaftliche Verlustfreiheit, Pure-Rust-Dependency-Policy §3.1.9,
+  Konformitäts-Runden) fest, die eine spätere normative RFC-Revision vor jedem Code-Change
+  beantworten muss. (Back-Referenz aus §20/Q1 / RFC-0011 §6.1.)
+- **RFC-0017 (libjpeg-turbo Bridge-Pfad, Post-1.0) als Draft reserviert.** Kein normativer
+  Anspruch für 1.0. Definiert den **bridge-only, feature-gated** Pfad hinter der C-ABI für die
+  Sprach-Bridges (Python/Octave/Go/Ruby/C++-Wrapper) inkl. Determinismus-Isolation von der
+  pure-Rust-Default-Paarung, Version-Pinning und Konformitäts-/Test-Regeln. (Back-Referenz aus
+  §20/Q2 / RFC-0011 §6.2.)
+
 ## [1.0.0] — 2026-08-24
 
 ### Meilenstein: Rust-Referenzkern und C-ABI-Homogenisierung
