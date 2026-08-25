@@ -366,9 +366,10 @@ Kann es sicher & effizient in Rust implementiert werden?
 ```
 
 Konkret: TIFF/BigTIFF, LZW, PackBits, Predictor → Rust; Deflate → `flate2`; JSON →
-`serde_json`; XML → Rust-XML-Crate; HTTP → Rust (`ureq`); parallel → Rayon; **JPEG →
-`libjpeg-turbo` über eine sehr kleine FFI-Grenze** (Determinismus/Performance); CSPICE →
-optional isoliertes FFI.
+`serde_json`; XML → Rust-XML-Crate; HTTP → Rust (`ureq`); parallel → Rayon; **JPEG → pure-Rust-
+`jpeg-encoder`/`jpeg-decoder` im Kern/Interface (§20/Q2, RFC-0011 §6.2; libjpeg-turbo nur als
+optionaler Post-1.0-Pfad hinter der C-ABI für Bridges, §3.1.9)**; CSPICE → optional isoliertes
+FFI (Bridge).
 
 ### 3.1.4 Die C-ABI ist die Plattform-Grenze; die Rust-ABI nie
 
@@ -430,6 +431,34 @@ Portability Performance Interoperability
       Scientific PTIFF
 ```
 
+### 3.1.9 Pure-Rust-Prinzip: Kern & Rust-Interfaces sind pure-Rust; Bridges dürfen nativ
+
+> **Leitlinie (2026-08-25):** *„Erstens versuche alles in pure Rust zu machen, was Kern oder
+> Rust-Interfaces sind. Bei Bridges ist das nicht so wichtig.“*
+
+Das gesamte PTIFF-Core und alle Rust-Interfaces sind **reines Rust** (Safe Rust, no unsafe in
+der Public-Logik; nur minimales, dokumentiertes `unsafe` dort, wo es FFI technisch erfordert).
+Dies ist eine **Stärkung von §3.1.3**: Wo eine Funktionalität *sicher & effizient* in Rust
+implementierbar ist, wird sie von vornherein in Rust umgesetzt — nicht erst als Rückfall, wenn
+eine native Bibliothek unpraktikabel wird.
+
+Konkret für 1.0:
+
+- **Kern (`ptiff-core`)** und die **Rust-Interfaces** (`ptiff`-Facade, `ptiff-c` C-ABI,
+  `ptiff-cli`) sind pure-Rust:
+  - TIFF/BigTIFF, LZW, PackBits, Predictor → eigene Rust-Implementierung.
+  - Deflate via `flate2`, ZSTD via `zstd` (Zarr-only), **JPEG via die pure-Rust-Paarung
+    `jpeg-encoder`/`jpeg-decoder`** (§20/Q2, RFC-0011 §6.2). Eine native C-Bibliothek wird im
+    Kern **nicht** als Pflicht-Dependency eingezogen.
+- **Bridges (Python/Octave/Go/Ruby/C++-Wrapper)** dürfen für Performance/Parität native
+  Bibliotheken nutzen — z. B. ein optionaler, feature-gated **libjpeg-turbo-Pfad hinter der
+  C-ABI** für SIMD-Durchsatz der Sprach-Bindings (Post-1.0, RFC-0011 §6.2). Dieser bleibt strikt
+  hinter der Interop-Grenze (§3.1.4) und ist nie im Rust-Interface.
+
+Die Konsequenz ist deterministisch reproduzierbarer Output über Builds und Plattformen hinweg
+(§14), eine dependency-freie Kern-Basis (§3.1.2, §4.4) sowie volle Build-Kontrolle, ohne dass
+Rust-Clients (oder der Kern) eine System-Toolchain voraussetzen müssen.
+
 
 ---
 
@@ -466,8 +495,9 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 - `BinaryReader`/`BinaryWriter` Trait
 - **TIFF/BigTIFF-Backend** (Header, IFD, Tag-Parser, Directory, PTIFF-Private-Tags
   65001–65005, RFC-7002-Payload-Codec)
-- Kompressions-Codecs: LZW, PackBits, Predictor (intern), Deflate (flate2), JPEG
-  (libjpeg-turbo), bei Zarr zusätzlich ZSTD
+- Kompressions-Codecs: LZW, PackBits, Predictor (intern), Deflate (`flate2`), JPEG
+  (`jpeg-encoder`/`jpeg-decoder`, pure-Rust), bei Zarr zusätzlich ZSTD — alles pure-Rust
+  (§3.1.9); keine native Pflicht-Dependency im Kern.
 - Domain-Typen: `Image`, `Scene`, `Camera`, `CRS`, `Metadata`, `ScientificLayer`, `History`,
   `Mission`
 - GeoTIFF-/Planeten-CRS-Basisfunktionalität (OGC-Identifikatoren, Projektions-Basis)
@@ -499,8 +529,15 @@ ptiff/                          (Workspace-Root; Cargo.toml [workspace])
 
 ## 4.5 Wo brauchen wir C/C++ (bewusst)?
 
-- **libjpeg-turbo** – maßgeblich SIMD-/Rollback-Performance des JPEG-Codecs; entweder als
-  externes System-Abl auf `libjpeg`-Bindings oder als `turbojpeg`-FFI. (Siehe §5.)
+Nach dem **Pure-Rust-Prinzip** (§3.1.9) ist die folgende Liste auf **Bridges/optionale
+Performance-Pfade hinter der C-ABI** beschränkt; sie gehört bewusst **NICHT** in den
+pure-Rust-Kern oder in Rust-Interfaces:
+
+- **libjpeg-turbo (optional, hinter der C-ABI)** – maßgeblich SIMD-/Rollback-Performance des
+  JPEG-Codecs für die **Sprach-Bridges** (Python/Octave/Go/Ruby/C++-Wrapper); entweder als
+  externes System-Abl auf `libjpeg`-Bindings oder als `turbojpeg`-FFI. **Post-1.0**, feature-
+  gated (§20/Q2, RFC-0011 §6.2); der Rust-Kern/-Default bleibt die pure-Rust-Paarung.
+  (Alle §5-Referenzen, die libjpeg-turbo als 1.0-Kern-Encoder nennen, sind historisch.)
 - **Optional SPICE** (CSPICE via `spice-rs`-FFI), wenn Kunden echte Kernel laden müssen. Kein
   Mandat für 1.0 – die PTIFF-RFCs speichern Referenzen/abgeleitete Werte, nicht die
   Kernel-Binärformate.
@@ -653,8 +690,10 @@ Die C++-Implementierung ist in der Tile-Verarbeitung **vollständig sequentiell*
    (Offsets/Längen) in einen eigenen, immutable Snapshot (`Sync`) überführen. Als immutable
    Snapshot ist er `Sync` (teilsicher in Read-Only-Nutzung).
 - **Kompressions-Rohdaten:** pro Tile owned & moved. Kein gemeinsamer `&mut`.
-- **JPEG-Worker:** libjpeg-turbo (C-API) ist pro Instanz thread-safe; pro Tile eine eigene
-   Handler-Struktur erzeugen → voll parallel.
+- **JPEG-Worker:** Die pure-Rust-`jpeg-encoder`/`jpeg-decoder`-Paarung (§20/Q2, RFC-0011 §6.2)
+   ist `Send + Sync`/owned-pro-Tile und voll parallel (§6.2 Pt. 3). Nur falls ein optionaler
+   libjpeg-turbo-Pfad hinter der C-ABI aktiviert ist (Bridges, §3.1.9/§4.5): dessen C-API ist
+   pro Instanz thread-safe; pro Tile eine eigene Handler-Struktur erzeugen → voll parallel.
 - **Async vs. sync:** Der **Core bleibt synchron** (kein Tokio im Kern). Für eine zukünftige
    async-Fassade wird der sync-Kern in `spawn_blocking` ausgeführt. HTTP-Range wird per
    Threadpool parallelisiert; die **C-ABI ist definitionsgemäß synchron** (kein Future über die
@@ -685,7 +724,8 @@ Die C++-Implementierung ist in der Tile-Verarbeitung **vollständig sequentiell*
 - **Bestimmtheit:** Der parallele Plan ist deterministisch bzgl. der Reihenfolge der Ergebnisse,
    auch wenn die Ausführungsreihenfolge pro Lauf variieren darf. Für verlustfreie Codecs ist das
    Ergebnis immer byte-identisch (Decompression ist funktionstüchtig); für JPEG gilt, dass die
-   dekodierten Pixel deterministisch sind, solange dieselbe libjpeg-Konfiguration verwendet wird.
+   dekodierten Pixel deterministisch sind, solange dieselbe Encoder-Konfiguration verwendet wird
+   (1.0-Default: pure-Rust-Paarung, §20/Q2 / RFC-0011 §6.2).
 
 ---
 
@@ -1040,7 +1080,7 @@ und vergleichen C++-PTIFF vs. Rust-PTIFF auf identischen Fixtures/Hardware.
 | H1 | `open` + Metadata-Read: Rust ≤ C++ (beide parse einmal). |
 | H2 | `read_tile` unkomprimiert: Rust ≤ C++ (Byte-copy + overhead vergleichbar). |
 | H3 | `read_tile` LZW/Deflate/PackBits: Rust ≈ C++ (Single-threaded), `≥2×` bei paralleler Tile-Kompression. |
-| H4 | `read_tile` JPEG: Rust ≈ C++ bei identischem libjpeg-turbo; DCT-Determinismus. |
+| H4 | `read_tile` JPEG: Rust ≈ C++ bei identischem Encoder; für 1.0 gilt der Vergleich der pure-Rust-Paarung (deterministisch, §20/Q2 / RFC-0011 §6.2); ein optionaler libjpeg-turbo-Bridge-Pfad wird separat vermessen. |
 | H5 | Random-Access (zufällige Tile-Offsets): Rust ≤ C++ bei `memmap2`-basierte Reads. |
 | H6 | Sequentielles Lesen: ≥ C++ (keine Regression). |
 | H7 | parallele Tile-Decompression (Rayon): skaliert sublinear bis linear über Cores gegenüber C++ sequential. **✅ gemessen (2026-08-24, `benchmarks/parallel_bench`): LZW-Decompress ≈ 1.9×/3.7×/7.0× bei 2/4/8 Cores — nahezu linear.** Der C++-Vergleich (Speedup gegenüber C++ sequential) entfällt, da `libptiff` gelöscht ist; der Speedup gegenüber dem eigenen sequentiellen Pfad ist hier dokumentiert. |
@@ -1217,6 +1257,10 @@ Konkrete Definition von **PTIFF 1.0**, die ein Team als Ziel anstreben und erfü
 - **Rust** (idiomatisch via `ptiff` crate), **C** (roh auf C-ABI), **C++** (`ptiff-cpp` moderner
   Wrapper), **Python** (PyO3 + NumPy-integriert), **GNU Octave** (MEX via C-ABI). Go/Ruby via
   bestehende SWIG-Bindings auf C-ABI.
+- **Pure-Rust-Prinzip (§3.1.9):** Der Kern (`ptiff-core`) und alle Rust-Interfaces/CLI sind
+  pure-Rust und dependency-frei in der Default-Basis; die Sprach-Bridges (Python/Octave/Go/
+  Ruby/C++-Wrapper) dürfen für Performance/Parität native Bibliotheken (z. B. ein optionaler
+  libjpeg-turbo-Pfad hinter der C-ABI) nutzen.
 
 ## 16.2a Plattformen
 
@@ -1377,8 +1421,10 @@ selbst bleiben unverändert gültig.
 > None/Lzw/Deflate/Jpeg; Post-1.0-Kandidat. (b) **JPEG-Encoder-Pinning: pure-Rust** —
 > die Phase-4-`jpeg-encoder`/`jpeg-decoder`-Paarung (baseline 4:4:4) ist der deterministische
 > 1.0-Ziel-Encoder; Golden = Pixel-Toleranz. libjpeg-turbo bleibt optionaler, feature-gated
-> Post-1.0-Pfad. Die übrigen §20-Fragen sind triage-dokumentiert (Empfehlung + Status), keine
-> blockiert 1.0 (Details §20).
+> Post-1.0-Pfad (hinter der C-ABI für Bridges). Zudem ist das übergeordnete **Pure-Rust-Prinzip
+> (§3.1.9)** als neues Leitprinzip verankert: „Kern & Rust-Interfaces sind pure-Rust; Bridges
+> dürfen nativ“ (§20/Q2 folgt ihm). Die übrigen §20-Fragen sind triage-dokumentiert
+> (Empfehlung + Status), keine blockiert 1.0 (Details §20).
 
 
 **Ursprüngliches Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird
@@ -1710,9 +1756,12 @@ triage-dokumentiert (Empfehlung + Status); keine blockieren PTIFF 1.0.
    normative RFC-Neufassung (§5.2, RFC-0011 §6.1).
 2. **JPEG-Ziel-Encoder exakt libjpeg-turbo?** **Entschieden (2026-08-25): pure-Rust-Pinning.**
    Phase-4-Realität (`jpeg-encoder`/`jpeg-decoder`, baseline 4:4:4) wird für 1.0 beibehalten:
-   deterministisch (§14, kein libjpeg-Versions-/CPU-Drift), dependency-light, Plattform-frei.
+   deterministisch (§14, kein libjpeg-Versions-/CPU-Drift), dependency-light, Plattform-frei,
+   und folgt dem **Pure-Rust-Prinzip** (§3.1.9: Kern & Rust-Interfaces sind pure-Rust).
    Golden = Pixel-Toleranz (nicht byte-exakt). libjpeg-turbo bleibt optionaler Post-1.0-Pfad
-   für SIMD-Durchsatz, feature-gated, mit gepinnter Mindestversion (RFC-0011 §6.2).
+   für SIMD-Durchsatz — nur **hinter der C-ABI / für die Sprach-Bridges** (Python/Octave/Go/
+   Ruby/C++-Wrapper), feature-gated, mit gepinnter Mindestversion (RFC-0011 §6.2); nie im
+   Rust-Interface.
 3. **`cxx`?** Empfehlung (unverändert): **Nicht** für die zentrale C++-Brücke; C++ geht über die
    C-ABI (`ptiff-cpp`, Phase 8). Für typsichere interne Rust↔C++-Pipelines post-1.0 prüfbar,
    nicht primär. (Status: beibehalten — Empfehlung.)
@@ -1771,7 +1820,9 @@ bleibt ein optionaler Post-1.0-Pfad für SIMD-Durchsatz, nicht mehr die determin
 > (2026-08-25):** die beiden Compression-relevanten Entscheidungen (ZSTD als TIFF-Codec → NEIN
 > für 1.0 / Zarr-only; JPEG-Ziel-Encoder → pure-Rust-Pinning gegenüber libjpeg-turbo) sind
 > verbindlich in RFC-0011 §6 fixiert; die übrigen Fragen sind mit Empfehlung/Status
-> dokumentiert und blockieren PTIFF 1.0 nicht (Details §20 oben).
+> dokumentiert und blockieren PTIFF 1.0 nicht (Details §20 oben). **Neu verankert als
+> übergeordnetes Leitprinzip:** das Pure-Rust-Prinzip (§3.1.9) — Kern & Rust-Interfaces sind
+> pure-Rust; Bridges (Python/Octave/Go/Ruby/C++-Wrapper) dürfen native Libraries nutzen.
 
 ---
 

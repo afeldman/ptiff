@@ -38,6 +38,12 @@ als noch nicht veröffentlicht.
   `jpeg-encoder`/`jpeg-decoder`-Paarung gepinnt (Phase-4-Realität, baseline 4:4:4, Pixel-Toleranz-
   Golden statt byte-exakt). libjpeg-turbo bleibt ein optionaler, feature-gated Post-1.0-Pfad für
   SIMD-Durchsatz/Parität mit dem C++-Oracle. (RFC-0011 §6.2).
+- **Pure-Rust-Prinzip als Leitlinie (Plan §3.1.9):** „Alles in pure Rust, was Kern oder
+  Rust-Interfaces sind — bei Bridges ist das nicht so wichtig.“ Der Kern (`ptiff-core`) und alle
+  Rust-Interfaces (`ptiff`-Facade, `ptiff-c`, CLI) sind pure-Rust; eine native C-Bibliothek wird
+  im Kern **nicht** als Pflicht-Dependency eingezogen. Die Sprach-Bridges (Python/Octave/Go/Ruby/
+  C++-Wrapper) dürfen für Performance/Parität native Bibliotheken nutzen — libjpeg-turbo bleibt
+  hinter der C-ABI für Bridges.
 
 ## [1.0.0] — 2026-08-24
 

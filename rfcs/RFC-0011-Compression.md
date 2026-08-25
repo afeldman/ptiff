@@ -127,6 +127,8 @@ with:
   this decision does not force a rework at 1.0 and keeps the golden/tolerance suite as-is.
 
 **libjpeg-turbo remains an optional, Post-1.0 path** for throughput/SIMD parity with the C++
-oracle (plan §5.3 "erste Wahl" for performance). If/when introduced, it must be feature-gated,
-document its pinned minimum version, and coexist with the pure-Rust default so the deterministic
-default path is unchanged.
+oracle (plan §5.3 "erste Wahl" for performance). It is limited to a **bridge-only, feature-gated
+path behind the C-ABI** (Python/Octave/Go/Ruby/C++-wrapper), per the **Pure-Rust principle**
+(plan §3.1.9: *core & Rust interfaces are pure-Rust; bridges may use native libraries*); it is
+never a Rust-interface/kern dependency. If/when introduced, it must document its pinned minimum
+version and coexist with the pure-Rust default so the deterministic default path is unchanged.
