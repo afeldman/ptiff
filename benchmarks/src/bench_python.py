@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Benchmark read/write throughput of the SWIG Python binding (ptiff).
+"""Benchmark read/write throughput of the PyO3 Python binding (ptiff_pyo3).
 
 Measures, with median-of-repeats timing (perf_counter — same methodology as
 scripts/interop_check.py):
 
   * write_all_tiles   -- create a 128x128 UInt8 tiled TIFF and write every tile
-                         through the sink surface (4 tiles of 64x64).
+                         through the Sink surface (4 tiles of 64x64).
   * read_uint8_128    -- open benchmarks/fixtures/uint8_128.tif, read all tiles.
   * read_uint8_512    -- open benchmarks/fixtures/uint8_512.tif, read all tiles.
   * read_f32_512      -- open benchmarks/fixtures/f32_512.tif, read all tiles.
@@ -14,8 +14,12 @@ Writes a per-language JSON document to --out (consumed by run_benchmarks.sh /
 summary.py). All repeat/time/iteration knobs are env- or argument-driven so runs
 are reproducible and consistent across the whole suite.
 
+The Python binding is the PyO3 module `ptiff_pyo3` (crates/ptiff-python, built
+with maturin) now imported here as `ptiff`; the legacy SWIG `ptiff` package and
+its C-ABI functions (ptiff_sink_*, ptiff_source_*) have been removed.
+
 Usage:
-    PYTHONPATH=bindings/python/src python3 benchmarks/src/bench_python.py \
+    python3 benchmarks/src/bench_python.py \
         --out benchmarks/benchmark-results/python.json
 """
 
@@ -29,7 +33,7 @@ import tempfile
 import time
 from pathlib import Path
 
-import ptiff
+import ptiff_pyo3 as ptiff
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE.parent / "fixtures"
@@ -61,50 +65,45 @@ def median_times(fn, repeats: int) -> dict:
     }
 
 
-def _new_desc(width, height, pixel_type, tile) -> object:
-    d = ptiff.ptiff_image_descriptor()
-    d.width = width
-    d.height = height
-    d.pixel_type = pixel_type
-    d.channel_count = 1
-    d.has_tile_info = 1
-    d.tile_info.tile_width = tile
-    d.tile_info.tile_height = tile
-    d.has_compression = 0
-    return d
-
-
 def write_all_tiles(tmpdir: Path, iters: int) -> None:
-    d = _new_desc(WRITE_SIZE, WRITE_SIZE, 0, WRITE_TILE)
     out = tmpdir / "write_small.tif"
     if out.exists():
         out.unlink()
-    sink = ptiff.ptiff_sink_create(str(out), d)
-    cols = ptiff.ptiff_sink_tile_columns(sink)
-    rows = ptiff.ptiff_sink_tile_rows(sink)
-    bs = ptiff.ptiff_sink_tile_byte_size(sink)
+    sink = ptiff.create_image(
+        str(out),
+        width=WRITE_SIZE,
+        height=WRITE_SIZE,
+        pixel_type=0,
+        channel_count=1,
+        tile_width=WRITE_TILE,
+        tile_height=WRITE_TILE,
+        compression=0,
+    )
+    cols = sink.tile_columns
+    rows = sink.tile_rows
+    bs = sink.tile_byte_size
     pat = bytes([7]) * bs
     for _ in range(iters):
         for c in range(cols):
             for r in range(rows):
-                rc = ptiff.ptiff_sink_write_tile(sink, c, r, pat)
-                if rc != 0:
-                    raise RuntimeError(f"write_tile({c},{r}) rc={rc}")
-    ptiff.ptiff_sink_close(sink)
+                sink.write_tile(c, r, pat)
+    sink.close()
 
 
 def read_all_tiles(path: Path, iters: int) -> None:
-    res = ptiff.ptiff_source_open(str(path))
-    src = res[0] if isinstance(res, (list, tuple)) else res
-    ncols = ptiff.ptiff_source_tile_columns(src)
-    nrows = ptiff.ptiff_source_tile_rows(src)
-    rbs = ptiff.ptiff_source_tile_byte_size(src)
-    for _ in range(iters):
-        buf = bytearray(rbs)
-        for c in range(ncols):
-            for r in range(nrows):
-                ptiff.ptiff_source_read_tile(src, c, r, buf)
-    ptiff.ptiff_source_close(src)
+    doc = ptiff.open(str(path))
+    try:
+        img = doc.image(0)
+        ncols = img.tile_columns
+        nrows = img.tile_rows
+        for _ in range(iters):
+            for c in range(ncols):
+                for r in range(nrows):
+                    # read_tile returns a fresh numpy.ndarray; discarded here
+                    # (we measure raw tile-read throughput).
+                    img.read_tile(column=c, row=r)
+    finally:
+        doc.close()
 
 
 def fixture_info(name: str) -> dict:
@@ -136,7 +135,16 @@ def main() -> int:
     nac = args.nac
 
     # Warm-up: load the module + libptiff backends once before any measurements.
-    _new_desc(1, 1, 0, 1)
+    ptiff.create_image(
+        str(Path(tempfile.gettempdir()) / "_ptiff_warmup.tif"),
+        width=1,
+        height=1,
+        pixel_type=0,
+        channel_count=1,
+        tile_width=1,
+        tile_height=1,
+        compression=0,
+    ).close()
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -158,10 +166,10 @@ def main() -> int:
             ),
         }
 
-    version = ptiff.ptiff_runtime_version()
+    major, minor, patch = ptiff.runtime_version()
     doc = {
         "language": "python",
-        "binding_version": f"{version.major}.{version.minor}.{version.patch}",
+        "binding_version": f"{major}.{minor}.{patch}",
         "repeats": REPEATS,
         "write_image": {
             "width": WRITE_SIZE,

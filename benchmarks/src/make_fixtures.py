@@ -5,9 +5,13 @@ The benchmark suite wants a shared, deterministic set of real on-disk TIFFs so
 that read throughput across the language bindings is measured against *identical*
 byte streams (and write throughput against identical logical images). Rather than
 depend on gitignored, externally-downloaded samples (scripts/samples/), we write
-the fixtures ourselves through the same SWIG C-ABI binding the benchmarks measure
--- which has the pleasant side effect that fixture generation itself is a small,
-validated exercise of the sink/source surface.
+the fixtures ourselves through the same PyO3 Python binding the benchmarks
+measure -- which has the pleasant side effect that fixture generation itself is a
+small, validated exercise of the create_image/write_tile/close surface.
+
+The Python binding is the PyO3 module `ptiff_pyo3` in crates/ptiff-python
+(built with maturin; the SWIG C-ABI `bindings/python` package has been removed).
+It is imported here as `ptiff` for readability.
 
 Fixtures written into benchmarks/fixtures/ (gitignored):
 
@@ -20,66 +24,58 @@ Pixel values are deterministic: UInt8 uses the same gradient formula
 removed with libptiff) so it is reproducible and matches the interop fixtures;
 Float32 uses a normalized ramp in [0,1].
 
-Requires the Python binding on PYTHONPATH (bindings/python/src) -- build it with
-`make -C bindings/swig python` first.
+Requires the Python binding installed (crates/ptiff-python; `maturin develop`
+inside a venv). Import as `ptiff_pyo3` or `ptiff` (same extension).
 """
 
 from __future__ import annotations
 
-import struct
 import sys
 from pathlib import Path
 
-import ptiff
+import numpy as np
+import ptiff_pyo3 as ptiff
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
-PIXEL_BYTES = {0: 1, 1: 2, 2: 4, 3: 4, 4: 8}
-
 
 def _write(path: Path, width: int, height: int, pixel_type: int, tile: int) -> int:
-    byte_width = PIXEL_BYTES.get(pixel_type)
-    if byte_width is None:
-        raise ValueError(f"unhandled pixel_type {pixel_type}")
-
+    path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         path.unlink()
-    d = ptiff.ptiff_image_descriptor()
-    d.width = width
-    d.height = height
-    d.pixel_type = pixel_type
-    d.channel_count = 1
-    d.has_tile_info = 1
-    d.tile_info.tile_width = tile
-    d.tile_info.tile_height = tile
-    d.has_compression = 0
 
-    sink = ptiff.ptiff_sink_create(str(path), d)
-    if not sink:
-        sys.exit(f"sink_create failed for {path}")
-    cols = ptiff.ptiff_sink_tile_columns(sink)
-    rows = ptiff.ptiff_sink_tile_rows(sink)
-    bs = ptiff.ptiff_sink_tile_byte_size(sink)
+    sink = ptiff.create_image(
+        str(path),
+        width=width,
+        height=height,
+        pixel_type=pixel_type,
+        channel_count=1,
+        tile_width=tile,
+        tile_height=tile,
+        compression=0,
+    )
+    cols = sink.tile_columns
+    rows = sink.tile_rows
+    bs = sink.tile_byte_size
 
     for c in range(cols):
         for r in range(rows):
             if pixel_type == 0:  # UInt8 gradient (matches the interop fixtures)
-                pattern = bytes([(3 * (c * tile) + 5 * (r * tile)) % 256]) * bs
+                pattern = bytes([(3 * c * tile + 5 * r * tile) % 256]) * bs
             elif pixel_type == 3:  # Float32 ramp in [0, 1]
                 base = (c * cols + r) / float(cols * rows)
-                pattern = b"".join(
-                    struct.pack("<f", base + (i % 7) * 0.01) for i in range(bs // 4)
-                )
+                pattern = np.ones(bs // 4, dtype=np.float32) * base
+                # Slight deterministic variation per sample in the tile.
+                pattern += (np.arange(bs // 4, dtype=np.float32) % 7) * 0.01
+                pattern = pattern.tobytes()
             else:  # UInt16 packed ramp
                 base = (c * cols + r) * 257
-                pattern = b"".join(
-                    struct.pack("<H", (base + i) & 0xFFFF) for i in range(bs // 2)
-                )
+                data = (base + np.arange(bs // 2, dtype=np.uint16)) & 0xFFFF
+                pattern = data.tobytes()
 
-            rc = ptiff.ptiff_sink_write_tile(sink, c, r, pattern)
-            if rc != 0:
-                sys.exit(f"write_tile({c},{r}) rc={rc}")
-    ptiff.ptiff_sink_close(sink)
+            sink.write_tile(c, r, pattern)
+
+    sink.close()
     return path.stat().st_size
 
 

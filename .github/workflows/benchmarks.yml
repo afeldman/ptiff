@@ -88,19 +88,16 @@ jobs:
         run: cargo build -p ptiff-c --release
 
       # Build the PyO3 Python binding into the venv so the python benchmark can
-      # `import ptiff` in the later suite step. Activate the venv explicitly
+      # `import ptiff_pyo3` in the later suite step. Activate the venv explicitly
       # (GITHUB_PATH cannot override setup-python's bin). `maturin build` +
       # pip-install the wheel (maturin develop would also work in this venv).
       - name: Build Python binding (PyO3, maturin)
         working-directory: crates/ptiff-python
         run: |
           source "$GITHUB_WORKSPACE/.venv/bin/activate"
-          echo "python3=$(command -v python3) pip=$(command -v pip)"
           maturin build --release --out dist/
           pip install --quiet dist/*.whl
-          echo "--- import check in build step ---"
-          python3 -c 'import ptiff; print("PYO3 import OK from:", ptiff.__file__)' \
-            || echo "IMPORT FAILED in build step"
+          python3 -c 'import ptiff_pyo3 as ptiff; print("PyO3 import OK from:", ptiff.__file__)'
 
       # --- Build every language binding against the freshly built C ABI ---
       # (bindings/swig/Makefile links the Rust-built libptiff_c by default)
@@ -120,7 +117,7 @@ jobs:
       # fast while still exercising every binding and the summary pipeline.
       # run_benchmarks.sh resolves libptiff_c from target/release; no prefix.
       # Activate the job venv so python3 (used by run_benchmarks.sh, incl. the
-      # 'import ptiff' self-check and make_fixtures) sees the PyO3 module.
+      # 'import ptiff_pyo3' self-check and make_fixtures) sees the PyO3 module.
       - name: Run benchmark suite
         working-directory: benchmarks
         env:
