@@ -146,8 +146,6 @@ if(PTIFF_BUILD_C_ABI)
 
     install(PROGRAMS "${PTIFF_CARGO_LIB_DIR}/${PTIFF_C_SHARED}"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-    install(FILES "${PTIFF_CARGO_LIB_DIR}/${PTIFF_C_STATIC}"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}")
     if(WIN32)
         # The MSVC import library that links against the DLL lives next to it.
         install(FILES "${PTIFF_CARGO_LIB_DIR}/${PTIFF_C_SHARED_IMPLIB}"
@@ -157,6 +155,10 @@ if(PTIFF_BUILD_C_ABI)
     # pkg-config for C/FFI consumers (only meaningful on *nix; Windows CMake
     # consumers typically use the import lib above).
     if(NOT WIN32)
+        # The Rust static archive libptiff_c.a only exists on non-Windows;
+        # on MSVC the DLL + its import library above are the link artifact.
+        install(FILES "${PTIFF_CARGO_LIB_DIR}/${PTIFF_C_STATIC}"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}")
         configure_file(
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ptiff_c.pc.in"
             "${CMAKE_CURRENT_BINARY_DIR}/ptiff_c.pc"
