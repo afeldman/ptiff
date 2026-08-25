@@ -27,7 +27,7 @@ const ARRAY_NODE: &str = "Array_2D_Image";
 /// document (mirrors `pds4::kHeaderSize`, `sizeof(std::uint64_t)`).
 pub const HEADER_SIZE: u64 = std::mem::size_of::<u64>() as u64;
 
-fn xml_write_err(e: quick_xml::Error) -> Error {
+fn xml_write_err(e: std::io::Error) -> Error {
     Error::invalid_argument(format!("pds4: failed to write label: {e}"))
 }
 
@@ -55,7 +55,7 @@ pub fn write_label(model: &StorageModel) -> Result<Vec<u8>> {
         if field_err.is_some() {
             return;
         }
-        let result: std::result::Result<(), quick_xml::Error> = (|| {
+        let result: std::result::Result<(), std::io::Error> = (|| {
             writer.write_event(Event::Start(BytesStart::new(key)))?;
             writer.write_event(Event::Text(BytesText::new(value)))?;
             writer.write_event(Event::End(BytesEnd::new(key)))?;
@@ -98,7 +98,12 @@ pub fn parse_label(label_bytes: &[u8]) -> Result<StorageModel> {
         .map_err(|_| Error::invalid_argument("pds4: label is not valid UTF-8"))?;
 
     let mut reader = Reader::from_str(text);
-    reader.config_mut().trim_text(true);
+    // trim_text must stay disabled: quick-xml 0.41 emits entity references
+    // (`&amp;` & co.) as separate `GeneralRef` events, and trimming the
+    // individual text nodes around them would drop significant whitespace.
+    // Leading/trailing outer whitespace is insignificant for the flat label
+    // subset we parse (element names == storage keys).
+    reader.config_mut().trim_text(false);
 
     let mut model = StorageModel::new();
     let mut seen_product = false;
@@ -135,13 +140,31 @@ pub fn parse_label(label_bytes: &[u8]) -> Result<StorageModel> {
             }
             Ok(Event::Text(t)) => {
                 if in_array && current_key.is_some() {
-                    let decoded = t
-                        .unescape()
-                        .map_err(|e| {
-                            Error::invalid_argument(format!("pds4: malformed XML label: {e}"))
-                        })?
-                        .into_owned();
-                    current_value.push_str(&decoded);
+                    let text = t.xml10_content().map_err(|e| {
+                        Error::invalid_argument(format!("pds4: malformed XML label: {e}"))
+                    })?;
+                    current_value.push_str(text.as_ref());
+                }
+            }
+            Ok(Event::GeneralRef(r)) => {
+                // quick-xml 0.41 emits named/numeric entity references
+                // (e.g. `&amp;`) as `GeneralRef` events instead of folding
+                // them into the surrounding `Text` event. Reconstruct the
+                // `&name;` reference and resolve it with the escape module so
+                // entity-escaped field values round-trip identically to the
+                // pre-0.41 `BytesText::unescape()` behaviour.
+                if in_array && current_key.is_some() {
+                    let name = std::str::from_utf8(r.as_ref()).map_err(|_| {
+                        Error::invalid_argument("pds4: label contains a non-UTF-8 entity reference")
+                    })?;
+                    let mut reference = String::with_capacity(name.len() + 2);
+                    reference.push('&');
+                    reference.push_str(name);
+                    reference.push(';');
+                    let resolved = quick_xml::escape::unescape(&reference).map_err(|e| {
+                        Error::invalid_argument(format!("pds4: malformed XML label: {e}"))
+                    })?;
+                    current_value.push_str(resolved.as_ref());
                 }
             }
             Ok(Event::End(e)) => {
@@ -268,5 +291,45 @@ mod tests {
         let bytes = b"<Product_Observational><Array_2D_Image><container/></Array_2D_Image></Product_Observational>";
         let parsed = parse_label(bytes).expect("parse_label");
         assert_eq!(parsed.field("container").unwrap(), "");
+    }
+
+    #[test]
+    fn parse_unescapes_xml_entity_references_in_field_text() {
+        // A label written by an external PDS4 producer may escape ampersands and
+        // angle brackets as XML entity references. `parse_label` must resolve
+        // them back to the literal characters (this is the role of
+        // quick_xml's escape machinery, required by the 0.41 API).
+        let bytes = b"<Product_Observational><Array_2D_Image><label>A &amp; B &lt;C&gt;</label></Array_2D_Image></Product_Observational>";
+        let parsed = parse_label(bytes).expect("parse_label");
+        assert_eq!(parsed.field("label").unwrap(), "A & B <C>");
+    }
+
+    #[test]
+    fn parse_ignores_indentation_whitespace_between_fields() {
+        // Real PDS4 labels are typically pretty-printed. With quick-xml 0.41
+        // entity refs are separate `GeneralRef` events, so `trim_text` is
+        // disabled; whitespace-only text nodes between elements must be
+        // ignored while whitespace *inside* a field value is preserved.
+        let bytes = br"<Product_Observational>
+    <Array_2D_Image>
+    <imageWidth>32</imageWidth>
+    <imageHeight>32</imageHeight>
+    <pixelType>UInt8</pixelType>
+    </Array_2D_Image>
+</Product_Observational>";
+        let parsed = parse_label(bytes).expect("parse_label");
+        assert_eq!(parsed.field("imageWidth").unwrap(), "32");
+        assert_eq!(parsed.field("imageHeight").unwrap(), "32");
+        assert_eq!(parsed.field("pixelType").unwrap(), "UInt8");
+    }
+
+    #[test]
+    fn parse_preserves_inner_whitespace_inside_field_value() {
+        // A human-edited label may pad a value with meaningless whitespace;
+        // unlike the inter-element indentation, that leading/trailing space
+        // inside the value is preserved as-is.
+        let bytes = b"<Product_Observational><Array_2D_Image><comment> hello world </comment></Array_2D_Image></Product_Observational>";
+        let parsed = parse_label(bytes).expect("parse_label");
+        assert_eq!(parsed.field("comment").unwrap(), " hello world ");
     }
 }
