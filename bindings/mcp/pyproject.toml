@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ptiff-mcp"
-version = "0.0.1"
-description = "Experimental MCP server exposing libptiff (Planetary TIFF) to LLMs."
+version = "1.0.0"
+description = "MCP server exposing PTIFF (Planetary TIFF) 1.0 to LLMs."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
