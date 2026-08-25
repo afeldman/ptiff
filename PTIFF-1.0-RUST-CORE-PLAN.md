@@ -556,8 +556,10 @@ Interop-/Konformitätsbackup: `tiff` (LibreGraphics).
 | JPEG | siehe §5.3 | — | — | — | — |
 
 **Wichtig:** ZSTD ist derzeit **nur** im Zarr-Backend ein Feature; `CompressionKind` kennt nur
-None/Lzw/Deflate/Jpeg. Soll PTIFF 1.0 ZSTD als TIFF-Kompression ausweisen, ist zuerst eine
-RFC-0011-Entscheidung nötig – nicht einfach „hinzufügen“.
+None/Lzw/Deflate/Jpeg. **Entscheidung (2026-08-25, §20/Q1):** PTIFF 1.0 weist ZSTD **nicht** als
+TIFF-Kompression aus — ZSTD bleibt Zarr-only; die RFC-0011-Entscheidung ist getroffen und in
+RFC-0011 §6.1 fixiert (kein standardisierter TIFF-Tag-Wert, dependency-light-Ziel). Nicht einfach
+„hinzufügen“.
 
 ## 5.3 JPEG – detaillierter Vergleich
 
@@ -570,15 +572,24 @@ Subsampling) erzwingbar, SIMD-Performance, wissenschaftliche Reproduzierbarkeit.
 | **libjpeg-turbo via `turbojpeg`-FFI / `jpeg`-Crate** | sehr reif | **höchste**, voll parallelisierbar | alle | **IZL / BSD-3-Clause** | C-Dependency; ABI an libjpeg-Version gekoppelt | **Erste Wahl** |
 | `mozjpeg`/`mozjpeg-sys` | reif | Gipfel der Encoder-Qualität | alle | BSD | **Output-NICHT byte-identisch mit libjpeg** – bricht Golden-Digests | **Nicht** für 1.0-Identität |
 
-**Entscheidung:** Für verlustfreie/identische Kodierung mit der C++-Referenz wird **libjpeg-
-turbo** verwendet. Kritisch ist **Determinismus**: libjpeg-turbo liefert bei fester Eingabe und
-fester Konfiguration deterministische Bytes (kein Zufall), was die Golden-Files sichert. Ein
-reiner Rust-Encoder erzeugt für denselben `quality`-Wert **andere Bytes** als libjpeg. Daher:
+**Entscheidung:** *Ursprünglich* (Stand August 2026) war für verlustfreie/identische Kodierung mit
+der C++-Referenz **libjpeg-turbo** als Ziel-Encoder vorgesehen, mit kritischem **Determinismus**
+(libjpeg-turbo liefert bei fester Eingabe und fester Konfiguration deterministische Bytes). Ein
+reiner Rust-Encoder erzeugt für denselben `quality`-Wert **andere Bytes** als libjpeg. Daher
+(schon damals) festgelegt:
 
 - Roundtrip-/Pixel-Vergleiche vergleichen **dekodierte Pixel** (mit Toleranzband), nicht die
   komprimierten Bytes, ODER hinterlegen pro-Encoder-Golden.
 - Byte-exakte Golden-Tests nur für verlustfreie Codecs (LZW/Deflate/PackBits), für JPEG eine
   klar definierte Pixel-Toleranz.
+
+**Update 2026-08-25 (§20/Q2, RFC-0011 §6.2):** Für PTIFF 1.0 wird **nicht** libjpeg-turbo,
+sondern die in Phase 4 bereits umgesetzte **pure-Rust `jpeg-encoder`/`jpeg-decoder`-Paarung**
+gepinnt. Der oben genannten Tabelle folgend ist pure-Rust damit für 1.0 das **Primärziel** (statt
+„Rückfall“): deterministisch über Builds (kein libjpeg-Versions-/CPU-Drift), dependency-light,
+plattformfrei (§3.1.2). Die Determinismus-Anforderung (§14) gilt identisch: feste Konfiguration →
+identische Bytes/Pixel. libjpeg-turbo bleibt ein **optionaler, feature-gated Post-1.0-Pfad** für
+SIMD-Durchsatz/Parität mit dem C++-Oracle, nicht Bestandteil des 1.0-Defaults.
 
 ## 5.4 Weitere Komponenten
 
@@ -1001,9 +1012,10 @@ Die Rust-Implementierung muss nachweisen, dass sie **semantisch identisch** zur 
   hinterlegt, Datei unter `tests/golden/`).
 - **JPEG:** Golden = Pixel-Hashes der **dekodierten** Pixel (nicht der komprimierten Bytes),
   mit dokumentierter Toleranz (z. B. `max_abs_diff <= 1` und identische Dimensionen), weil
-  Encoder-Konfigurationen zwischen libjpeg und pure-Rust abweichen können. Für 1.0 ist der
-  Ziel-Encoder libjpeg-turbo (deterministischer Encoder), also kann der Golden auch byte-exakt
-  pro libjpeg-Version sein – wird als offen gekennzeichnet.
+  Encoder-Konfigurationen zwischen Implementierungen abweichen können. Für 1.0 ist der
+  Ziel-Encoder die **pure-Rust `jpeg-encoder`/`jpeg-decoder`-Paarung** (§20/Q2, RFC-0011 §6.2);
+  der Golden ist damit über Builds deterministisch (feste Konfiguration → identische Bytes/Pixel),
+  wird aber bewusst auf Pixel-Ebene statt byte-exakt validiert (JPEG ist verlustbehaftet).
 
 ## 11.4 Werkzeuge in Rust
 
@@ -1146,10 +1158,11 @@ Die Rust-Migration darf die wissenschaftlichen Eigenschaften von PTIFF **nicht**
 
 ## 14.2 Besonders konservativ zu behandeln
 
-1. **JPEG:** DCT-Koeffizienten/Quantisierung können je nach libjpeg-Version/CPU variieren. Für
-   Archiv-Zwecke: verlustfreie Formate (None/Deflate/LZW) sind deterministisch; JPEG
-   dokumentieren wir als „Bitgenauigkeit v. libjpeg-turbo-Parameter abhängig“ mit klar geprüfter
-   Toleranz.
+1. **JPEG:** DCT-Koeffizienten/Quantisierung sind abhängig von der gewählten Encoder-Konfiguration
+   (für 1.0: die gepinnte pure-Rust-`jpeg-encoder`/`jpeg-decoder`-Paarung, §20/Q2 / RFC-0011 §6.2,
+   deterministisch über Builds). Für Archiv-Zwecke: verlustfreie Formate (None/Deflate/LZW) sind
+   deterministisch; JPEG validieren wir auf Pixel-Ebene mit klar geprüfter Toleranz und
+   dokumentierter Bitgenauigkeit.
 2. **CRS/Georeferenzierung:** Keine ungeprüfte Projektionstransformation im Kern (kein silent
    geodätisches Rechnen); nur Tag-/WKT-/ID-Serialisierung.
 3. **Endianness und Byte-Exaktheit beim Schreiben:** Der Writer muss OFDs/Offsets deterministisch
@@ -1177,9 +1190,10 @@ Werten (verlustfreie Codecs), da nur schneller gerechnet wird, nicht anders geru
 - Eine **Rust-Architektur beseitigt das teilweise** – nicht durch „Rust kompiliert schneller“,
   sondern weil reine-Rust-Crates kleiner sind, Cargo nur aktivierte Features baut und teure
   C-Bibliotheken durch kleinere Abhängigkeiten ersetzt werden.
-- **libjpeg-turbo bleibt** die einzige unvermeidbare schwere C-Abhängigkeit für die
-  JPEG-Determinismus/Performance-Anforderung; sie wird über Bindings gelinkt, nicht mehr aus
-  Conan-Quellcode neu gebaut. Der Hybrid (§13) sichert die bestehenden CPack/Nix/Release-Flows ab.
+- **JPEG ist für 1.0 dependency-frei (pure-Rust)** — die `jpeg-encoder`/`jpeg-decoder`-Paarung
+  (§20/Q2, RFC-0011 §6.2) zieht keine schwere C-Bibliothek in den Kern; der ursprünglich geplante
+  libjpeg-turbo-Pfad ist ein optionaler, feature-gated Post-1.0-Pfad für SIMD-Durchsatz, nicht die
+  1.0-Dependency.
 
 ---
 
@@ -1225,7 +1239,7 @@ C++-Referenz.
 ## 16.3 Format
 
 - **TIFF/BigTIFF**: eigenständiger Parser/Writer; `CompressionKind` für None/Lzw/Deflate/Jpeg
-  (+ optional ZSTD, gemäß RFC-0011).
+  (ZSTD **nicht** als TIFF-Codec für 1.0 — bleibt Zarr-only, RFC-0011 §6.1).
 - **PTIFF-Extensions**: die fünf Private-Tags 65001–65005 mit RFC-7002-Payload-Codec; Lesen
   toleriert unbekannte Versionen, Schreiben deterministisch (sortierte Keys).
 - **Wissenschaftliche Metadaten**: Camera, CRS, SPICE, Scientific-Layers, Provenance-Felder
@@ -1356,6 +1370,16 @@ selbst bleiben unverändert gültig.
 > + Referenz-Fixtures `crates/ptiff-core/tests/data/oracle/`. **Benchmark-Hypothesen §12.2** neu
 > gemessen/bestätigt (H7/H8, s. Phase-12-Zeile). Phase-12-Status in der Tabelle darunter: ✅.
 
+> **Update 2026-08-25 (§20-Entscheidungen getroffen):** Die beiden Compression-relevanten
+> §20-Open-Questions sind entschieden und verbindlich in RFC-0011 §6 fixiert: (a) **ZSTD wird
+> NICHT als TIFF-Codec für 1.0 ausgewiesen** — bleibt Zarr-only; kein standardisierter TIFF-Tag-
+> Wert, dependency-light/Plattform-Ziele (§3.1.2) gewahrt, `CompressionKind` bleibt
+> None/Lzw/Deflate/Jpeg; Post-1.0-Kandidat. (b) **JPEG-Encoder-Pinning: pure-Rust** —
+> die Phase-4-`jpeg-encoder`/`jpeg-decoder`-Paarung (baseline 4:4:4) ist der deterministische
+> 1.0-Ziel-Encoder; Golden = Pixel-Toleranz. libjpeg-turbo bleibt optionaler, feature-gated
+> Post-1.0-Pfad. Die übrigen §20-Fragen sind triage-dokumentiert (Empfehlung + Status), keine
+> blockiert 1.0 (Details §20).
+
 
 **Ursprüngliches Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird
 archiviert (nicht weiter maintained), Rust ist Single-Core.“** In der Praxis wurde `libptiff`
@@ -1370,7 +1394,7 @@ verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace -
 | 1 | Workspace + Grundgerüst | 🚧 | `ptiff-core` + `ptiff` (Rust-API, `crates/ptiff-rust`) + `ptiff-c` (C-ABI, Version/Error/Pixel-Type-/Compression-Enums/Image/Backend) da — Workspace kompiliert und testet; Grundgerüst i. W. fertig |
 | 2 | Datenmodell (StorageModel + Domain-Typen) | ✅ | `Scene`/`Image`/`StorageModel`/`Serializer`/`Deserializer` fertig; `Camera`/`CoordinateReferenceSystem`/`Geometry` existieren als eigenständige Rust-Typen. **Fachliche Verdrahtung** der Camera/CRS-Domäne über `ImageDescriptor` (→ TIFF-Tags 65002/65003) ist ✅ (Phase 6, `marshal.rs`) und übersteht den vollen `Scene` → StorageModel → TIFF → StorageModel → `Scene`-Roundtrip (`tests/scene_tiff_roundtrip.rs`, Commit `677a421`). **Scene-Ebene (Option A, 2026-08-25):** `Scene::add_camera`/`add_geometry` + `camera`/`geometry`/`camera_count`/`geometry_count`-Lookups implementiert, formatneutral über `SceneSerializer`/`SceneDeserializer` (eigene `StorageModel`-Kindknoten mit `ptiff.scene.object_type`-Marker, `geometry_fields`/`geometry_from_model` in `marshal.rs`); die idiomatische `ptiff`-Facade re-exportiert `Scene`+`Camera`/`Geometry`+ID-Handles. Diese Scene-Objekte sind bewusst nicht im per-Image-TIFF-Tag-Schema (65002/65003) abbildbar (GEOMETRY-FOUNDATION.md §8 Phase IV, analog `tile_info`/`gsd`), so dass ein TIFF-Roundtrip sie nicht überträgt. DoD ("Domain-Modell-Tests grün, Metadaten-Vergleich-Roundtrips grün") erfüllt |
 | 3 | TIFF/BigTIFF-Kern | ✅ | TIFF/BigTIFF-Header/IFD/Directory/Tile-Layer fertig (`TiffBackend`, IFD-Kette lesen/schreiben, Mehrbild); **ISIS3 CUB-, PDS4-, OpenEXR- und Zarr-Backend alle fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/{isis,pds4,openexr,zarr}/`) — **alle 4 C++-Backends sind damit portiert, C++-Gegenstück existiert nicht mehr** (s. Update oben). Plus: Cloud-Object-Storage-Lesetransport (`HttpRangeBinaryReader`) laut `ROADMAP.md` Meilenstein 2 ebenfalls fertig, war in dieser Phasenliste ursprünglich nicht vorgesehen. Verifiziert via `cargo build --all-features` + `clippy` + `fmt`, 515/515 Tests grün im Gesamt-Workspace |
-| 4 | Kompression | ✅ | PackBits/LZW/Predictor (dependency-frei) fertig; **Zarr-ZSTD fertig** (in `backend/zarr/codec.rs`, als Zarr-Chunk-Kompression via `zstd`/`flate2`); **Deflate fertig** (`backend/tiff/compression/deflate.rs`, via `flate2`/zlib); **JPEG fertig** (`backend/tiff/compression/jpeg.rs`, reines Rust via `jpeg-encoder`/`jpeg-decoder`, feature-gated hinter `tiff-codecs`); alle Codecs roundtrip- und (verlustfrei) golden-getestet; **ZSTD als TIFF-Codec offen** (RFC-0011) |
+| 4 | Kompression | ✅ | PackBits/LZW/Predictor (dependency-frei) fertig; **Zarr-ZSTD fertig** (in `backend/zarr/codec.rs`, als Zarr-Chunk-Kompression via `zstd`/`flate2`); **Deflate fertig** (`backend/tiff/compression/deflate.rs`, via `flate2`/zlib); **JPEG fertig** (`backend/tiff/compression/jpeg.rs`, reines Rust via `jpeg-encoder`/`jpeg-decoder`, feature-gated hinter `tiff-codecs`); alle Codecs roundtrip- und (verlustfrei) golden-getestet; **ZSTD als TIFF-Codec: entschieden nicht für 1.0** (RFC-0011 §6.1 — bleibt Zarr-only; `CompressionKind` None/Lzw/Deflate/Jpeg) |
 | 5 | Tiles / parallele Verarbeitung (Rayon) | ✅ | **Parallele Tile-Kompression/-Dekompression via Rayon** (2026-08-24) implementiert: `parallel`-Feature (rayon) in `ptiff-core`, `parallel.rs` (deterministischer `par_iter` + geordneter `collect`), `TiffImageSink::write_compressed_tiles_parallel` (parallele CPU-Kompression, sequentielles Schreiben in Offset-Reihenfolge, §6.2 Pt. 4) + `TiffImageSource::read_all_tiles_parallel` (sequentielles I/O, parallele Dekompression, §6.2 Pt. 3). Ergebnisse garantiert byte-identisch zum sequentiellen Pfad (§6.5 Bestimmtheit; Rayon geordneter `collect` liefert Input-Reihenfolge). Feature-optional (Default-Build dependency-frei, rayon nicht eingezogen). **Idiomatische Rust-Facade (`ptiff`, 2026-08-24):** `parallel`-Feature forwardet `ptiff-core/parallel` und exponiert `Tiff::read_all_tiles_parallel` / `Tiff::read_image_pixels_parallel` (paralleles Dekomprimieren) sowie `Tiff::to_bytes_with_pixels_parallel` (paralleles Komprimieren). Der gemeinsame Write-Kernel (`write_pixels_to_writer` + `WriteMode`-Enum) ist sequentiell/parallel byte-identisch und unterstützt **single-image tiled+compressed** (via `plan_tiff_write`); multi-image tiled+compressed bleibt (wie im Kern) nicht kombinierbar. Verifiziert: 5 neue Facade-Tests (byte-identity seq↔par write/read, parallel write→parallel read roundtrip, out-of-range, Threshold-Fallback). DoD erfüllt: Parallel-Mode aktiv, deterministisch; 8 Modul- + 6 Integrations-Tests (Kern) + 5 Facade-Tests (parallel vs. sequentiell byte-identisch, LZW/Deflate/PackBits, Write+Read-Roundtrip, Threshold-Fallback); **H7/H8-Benchmark-Messung gegen C++** ist Phase-12 (Benchmarks) vorbehalten, da C++-Orcale nicht mehr gebaut wird |
 | 6 | Metadaten-Erweiterungen (65001–65005) | ✅ | **Vollständig (2026-08-24):** RFC-7002-Codec + Write/Read aller fünf Tags (65001–65005) + golden-locked. Typisierte Camera (65002)/CRS (65003) round-trippen durch `Scene`/`ImageDescriptor`. **Neu:** generische `ptiff.*`-Metadaten (spice/layers/provenance + unbekannte Schlüssel) round-trippen durch `Scene`/`Image` über `ImageDescriptor.metadata` (BTreeMap) + `Image::metadata()`/`metadata_value`, `ImageDescriptorBuilder::metadata(k,v)`, `validate_extension_key` (schützt reservierte camera/CRS-Schlüssel). **RFC-7002-Toleranz (§3.3/§4.4):** unvollständige `ptiff.camera.*`/`ptiff.crs.*`-Domäne failt die Datei nicht mehr (typisierte Rekonstruktion übersprungen `Ok(None)`, rohe Felder bleiben in `metadata`). 8 neue Tests (Kern + Facade); Workspace default 531 / all-features 543 grün, Golden-Suite unverändert, clippy+fmt clean |
 | 7 | **C-ABI (`ptiff-c`)** | ✅ **abgeschlossen (2026-08-24)** | der **einzige harte Blocker** für „libptiff löschen“ ist geschlossen. Neues Crate `crates/ptiff-c` (cdylib+staticlib+rlib) implementiert die handgepflegten C-Header in `bindings/c/` unverändert: Version-ABI, Image-Bridge, Pixel-Bridge lesen+schreiben, Backend-Names, `ptiff_open_path` — **33 Unit-Tests grün** → 38 unit + 2 integration (flache Feld-Sicht, s. u.). **C-ABI-Fähigkeitstest gegen echtes C-Programm ✅** (`crates/ptiff-c/tests/c/ptiff_c_abiltest.c` gegen `staticlib`). **Logger ✅:** `ptiff_logger_*` forwarden jetzt auf den dependency-freien Core-Logger (set/level/log, Level-Ordering = C-Header). **Camera ✅:** `ptiff_open_path_camera` (read) + `ptiff_sink_create_camera` (write) über das strukturierte Camera-Domain; dafür die `ptiff.camera.*`-Feldnamen im Core-Marshal auf den C-ABI/Oracle-Kontrakt (`focal_length_x`, `rotation_*`, `position_*`) ausgerichtet (vorher `focal_px`/`rot_*`/`pos_*` — schematische Divergenz zum C++-Oracle geschlossen, Golden-Digest regeneriert). **Flache Feld-Sicht ✅ (2026-08-24):** `ptiff_open_path_fields` + `ptiff_fields_free` + `ptiff_field` implementiert (`crates/ptiff-c/src/metadata.rs`): re-derive der formatneutralen `StorageModel` über `TiffBackend::deserialize_model` (C++-Oracle-Vertrag), liefert alle `ptiff.<domain>.<name>`-Felder aus Tags 65001-65005 lexikographisch; 5 neue Unit-Tests (Null-Arg/Empty/NotFound/Roundtrip/Free) + 2 Integrationstests gegen den **C++-Oracle-Fixture** `scripts/samples/ptiff_interop_fixture.tif` grün (exakt die vom Go/Python/Ruby-Binding erwarteten `ptiff.camera.*`/`ptiff.spice.frame`-Werte). **38 Unit + 2 Integration + 1 C-Fähigkeitstest grün.** **R4-Bindings-Kompatibilitäts-Nachweis ✅ (2026-08-24):** Go/Python/Ruby tatsächlich gegen das Rust-`libptiff_c` laufen lassen — **Go 25/25, Python alle, Ruby alle bis auf 1 erwartete Version-Diff** (`test_runtime_version_fields` pinnt hart 0.3.0 = C++-Oracle-Version; Rust-ABI meldet korrekt 1.0.0; Schema funktioniert, runtime==compile). Dafür drei echte Rust-Gaps geschlossen: `ptiff_sink_create("")` leerer Pfad → NULL; `camera_from_model` Extrinsics optional (intrinsics-only OEM); `crs_from_model` akzeptiert RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`) aus dem Oracle-Fixture. Reproduzierbar via `CARGO_TARGET_DIR=/tmp/...` + `libptiff_c.pc` + `make {go,python,ruby}`. **Octave-Binding ✅ (2026-08-24, R4-Erweiterung):** `ptiff.oct` über SWIG gegen das Rust-`libptiff_c` neu gebaut (rpath → `target/debug`, sauberer Workflow ohne `/tmp`-Override) — **alle 8 Octave-Tests grün** (`run_tests_octave`): backend/error/image/logger/roundtrip/sink/version/wrapper; `test_wrapper` deckt die idiomatische Schicht (`Metadata`/`Camera`/`Image`) über den Oracle-Fixture ab und `test_sink` verifiziert den R4-Fix (Empty-Path→NULL); `test_version` prüft nur runtime==compile (kein hart kodierter Oracle-Version-Check), läuft daher gegen Rust-1.0.0 grün. **CRS-Writer RFC-0004 ✅ (2026-08-24):** `crs_fields` emittiert jetzt genau das normative RFC-0004-Schema (`ptiff.crs.body`/`projection`/`reference_frame`, `reference_frame` = effektives Frame), statt des Extended-Schemas (`planet_name`/`iau_id`/ellipsoid/`frame`/`param.*`) — geschlossene schematische Divergenz zum Oracle-Fixture; dokumentiert lossy (Name wird vom NAIF-`body` re-deriviert, Ellipsoid/Projektionsparameter werden nicht vom RFC-Schema getragen → UNSPECIFIED/unset); Reader liest weiterhin beide Schemata (Legacy-Extended rückwärtskompatibel). 3 neue Marshal-Tests (RFC-0004-Emissions-Konformanz, effektives Frame, Legacy-Extended-Read) + Byte-Roundtrip-Integrationstest angepasst. **498 Workspace-Tests grün, clippy + fmt clean.** Damit ist Löschen von `libptiff` deutlich entriskt (nicht mehr „vier tote Sprachbindings“). **Phase-7-Abschluss (2026-08-24):** Gap `PTIFF_ABI_VERSION` (§7.5) geschlossen — monotone Break-Counter-Konstante (`u32 = 1`) via cbindgen als `#define PTIFF_ABI_VERSION 1` ins Header exportiert (item_types += `constants`), Unit-Test + C-Fähigkeitstest (`#if PTIFF_ABI_VERSION >= 1`-Guard). Go-Bindings (20 Tests) + Ruby-Bindings (22 runs/86 assertions) re-verifiziert unverändert gegen Rust-`libptiff_c` grün. **39 Unit + 2 Oracle-Integration grün; Workspace-Wide ohne Regression; clippy + fmt clean.** |
@@ -1659,7 +1683,7 @@ Rückfall bleibt; die PyO3-Oberfläche ist so geschnitten, dass sie später unve
 
 | # | Risiko | Schwere | Mitigation |
 |---|--------|---------|------------|
-| R1 | **JPEG-Determinismus** (Lib-Version/CPU-abhängig) | hoch | libjpeg-turbo als Standard; Golden nur für verlustfreie; Pixel-Toleranztests; Doku zur Bitgenauigkeit |
+| R1 | **JPEG-Determinismus** (Encoder-Version/-Konfiguration) | hoch | für 1.0: gepinnte pure-Rust-`jpeg-encoder`/`jpeg-decoder`-Paarung (§20/Q2, RFC-0011 §6.2); Golden nur für verlustfreie; JPEG als Pixel-Toleranztests; Doku zur Bitgenauigkeit |
 | R2 | **Endianness/Overflow-Bugs** im eigenen TIFF-Parser | hoch | byte-orientierte Tests, Property-Tests, Fuzzing aus Phase 3 |
 | R3 | **Thread-Safety-/Race-Bugs** | hoch | klare Ownership (§6), Parallel- vs. sequentielle Gleichheitstests, TSAN-ähnliche Rust-IPC |
 | R4 | **ABI-Brüche** für bestehende Bindings (Go/Ruby) | mittel | SemVer + `PTIFF_ABI_VERSION`; Bindings laufen gegen stabilen C-ABI |
@@ -1675,23 +1699,44 @@ Rückfall bleibt; die PyO3-Oberfläche ist so geschnitten, dass sie später unve
 # 20. Open Questions
 
 Diese Punkte muss das Team vor Beginn der Implementierung klären, ohne die zentrale
-Architektur zu gefährden:
+Architektur zu gefährden. **Stand 2026-08-25:** Die beiden Compression-relevanten Fragen
+(1 und 2) sind entschieden und in RFC-0011 §6 verbindlich fixiert. Die restlichen Fragen sind
+triage-dokumentiert (Empfehlung + Status); keine blockieren PTIFF 1.0.
 
-1. **ZSTD als TIFF-Codec?** Ja/Nein je nach RFC-0011. (Heute nur Zarr.)
-2. **JPEG-Ziel-Encoder exakt libjpeg-turbo?** Falls ja, welche Version als Minimum? Einfrieren
-   der DCT-/Quantisierungskonfiguration für Determinismus?
-3. **`cxx`?** Auch wenn ich es für die zentrale C++-Brücke ablehne – für bestimmte Use Cases
-   (schnelle, typsichere interne Rust-C++-Pipelines) prüfbar, aber nicht als primärer Pfad.
-4. **Wie lautet die genaue C-ABI-Grenze für Resource-ownership?** Out-Buffer wer besitzt was,
-   Who frees Strings (bereits `ptiff_free_string` vor). Kann verfeinert werden.
-5. **Neuer `ptiff-cpp`-Name mangels Kollision** mit bestehenden `ptiff/*.hpp`-Headern – klar
-   benennen (z. B. `ptiff-cpp/lib/include`).
-6. **Go/Ruby** bleiben SWIG auf C-ABI – okay? (Ich empfehle ja, da SWIG dort gut funktioniert.)
-7. **Determinismus/SIMD**: Soll SIMD-Pfad standardmäßig deaktiviert sein? (§14 sagt ja im Kern.)
-8. **Octave-Windows** – ist das ein Release-Ziel? Falls ja, braucht der MEX-Adapter Extra-Arbeit.
-9. **Performance-Ziel-Zahlen**: Welche konkreten Zahlen (z. B. „≥2× parallele Decompression“)
-   ergeben sich aus der Akzeptanz? (– Baseline aus bestandenen Benchmarks.)
-10. **`tiff`-Crate als optionales Interop-Backup** – behalten oder nicht (offen, nicht kritisch).
+1. **ZSTD als TIFF-Codec?** **Entschieden (2026-08-25): NEIN für 1.0.** ZSTD bleibt Zarr-only;
+   `CompressionKind` bleibt None/Lzw/Deflate/Jpeg. Kein standardisierter TIFF-Tag-Wert (nur
+   non-standard 34925), würde die dependency-light/Plattform-Ziele (§3.1.2) brechen und das
+   `zarr-backend`-Feature-Gating umgehen. Bleibt dokumentierter Post-1.0-Kandidat; erfordert
+   normative RFC-Neufassung (§5.2, RFC-0011 §6.1).
+2. **JPEG-Ziel-Encoder exakt libjpeg-turbo?** **Entschieden (2026-08-25): pure-Rust-Pinning.**
+   Phase-4-Realität (`jpeg-encoder`/`jpeg-decoder`, baseline 4:4:4) wird für 1.0 beibehalten:
+   deterministisch (§14, kein libjpeg-Versions-/CPU-Drift), dependency-light, Plattform-frei.
+   Golden = Pixel-Toleranz (nicht byte-exakt). libjpeg-turbo bleibt optionaler Post-1.0-Pfad
+   für SIMD-Durchsatz, feature-gated, mit gepinnter Mindestversion (RFC-0011 §6.2).
+3. **`cxx`?** Empfehlung (unverändert): **Nicht** für die zentrale C++-Brücke; C++ geht über die
+   C-ABI (`ptiff-cpp`, Phase 8). Für typsichere interne Rust↔C++-Pipelines post-1.0 prüfbar,
+   nicht primär. (Status: beibehalten — Empfehlung.)
+4. **C-ABI-Grenze für Resource-ownership?** **Bereits praktisch geklärt (§7/§16.1):** „wer öffnet,
+   schließt“, symmetrische `_free`/`_close`, `ptiff_free_string` für Callee-allozierte Strings,
+   Kind-Handles gültig solange Eltern lebt. Verfeinerung laufend möglich, keine offene Blockade.
+5. **Neuer `ptiff-cpp`-Name mangels Kollision?** **Entschieden:** `bindings/cpp/` unter
+   Namensraum `ptiff`-Wrapper (Header-only, reproduziert alte API-Namen über die C-ABI, Phase 8).
+   Kollision mit `libptiff` entfällt, da `libptiff` in Phase 13 gelöscht ist.
+6. **Go/Ruby bleiben SWIG auf C-ABI?** Empfehlung (unverändert): **Ja.** SWIG funktioniert dort
+   gut, die C-ABI ist die einzige Sprachbrücke; in Phase 7 gegen Rust-`libptiff_c` re-verifiziert.
+   (Status: beibehalten — Empfehlung.)
+7. **Determinismus/SIMD: SIMD-Pfad standardmäßig deaktiviert?** **Ja (§14).** Das
+   `simd`-Feature bleibt opt-in, nicht-reproduzierbar/hardware-abhängig; Default-Pfad ist
+   portabel und deterministisch. (Status: beibehalten — Entscheidung.)
+8. **Octave-Windows als Release-Ziel?** **NEIN für 1.0.** MEX-Adapter ist Linux/macOS-verifiziert;
+   Windows-Octave bleibt Post-1.0-Evaluierung. (Status: beibehalten — Empfehlung.)
+9. **Performance-Ziel-Zahlen?** Baseline aus bestandenen Benchmarks (§12, Phase 12): H7/H8
+   gemessen (LZW comp/decomp ≈ 1.9×/3.7×/7.0× bei 2/4/8 Cores, nahezu linear); restliche Hypothesen
+   als dokumentierte Abweichung (C++-Oracle nur noch Backup). Keine weitere Zielzahl für 1.0
+   fixiert.
+10. **`tiff`-Crate als optionales Interop-Backup?** **Behalten** (nicht kritisch). Dient als
+    data-level Interop-Oracle in Tests (dev-dependency, `default-features=false`), nie im
+    Library-Build. (Status: beibehalten — Entscheidung.)
 
 ---
 
@@ -1709,8 +1754,10 @@ diese ABI legen, die bestehende C++-Implementierung als Oracle nutzen und alle w
 Anforderungen (Endianness, Float/NaN, Metadaten-Preservation, CRS/SPICE, Provenance,
 Reproduzierbarkeit) konservativ absichern. Der Build wird schneller – nicht weil „Rust schneller
 kompiliert“, sondern weil Cargo Feature-basiert nur das Nötige baut und schwere C-Bibliotheken
-durch kleinere, reine-Rust-Crates ersetzt (libjpeg-turbo bleibt als einzige schwere C-Dependency
-für den deterministischen JPEG-Pfad).
+durch kleinere, reine-Rust-Crates ersetzt. Der **JPEG-Pfad ist für 1.0 auf die deterministische,
+pure-Rust `jpeg-encoder`/`jpeg-decoder`-Paarung gepinnt** (§20/Q2, RFC-0011 §6.2) — libjpeg-turbo
+bleibt ein optionaler Post-1.0-Pfad für SIMD-Durchsatz, nicht mehr die deterministische
+1.0-Dependency.
 
 > **Stand 2026-08-25:** Die Migration ist inzwischen weit fortgeschritten (Phasen 1–11 und 13
 > nach §17.1 ✅ sowie der N-Band-Parity-Gap geschlossen). Zusätzlich ist die eigenständige
@@ -1720,8 +1767,11 @@ für den deterministischen JPEG-Pfad).
 > die Cross-Validation wurde ggü. dem C++-Oracle-Backup (`../ptiff_back`) nachgeholt und ist über
 > `crates/ptiff-rust/tests/cross_validation_oracle.rs` + committierte Oracle-Fixtures dauerhaft
 > beigelegt (§17.1/Phase-12-Zeile); H7/H8-Benchmark-Hypothesen sind gemessen und bestätigt. Damit
-> sind alle Migrationsphasen (0–13) 🚧-frei; für die noch offenen §20-Entscheidungen
-> (v. a. ZSTD-Codec, JPEG-Encoder-Pinning) siehe die jeweiligen RFCs.
+> sind alle Migrationsphasen (0–13) 🚧-frei. **Die §20-Open-Questions sind triage-dokumentiert
+> (2026-08-25):** die beiden Compression-relevanten Entscheidungen (ZSTD als TIFF-Codec → NEIN
+> für 1.0 / Zarr-only; JPEG-Ziel-Encoder → pure-Rust-Pinning gegenüber libjpeg-turbo) sind
+> verbindlich in RFC-0011 §6 fixiert; die übrigen Fragen sind mit Empfehlung/Status
+> dokumentiert und blockieren PTIFF 1.0 nicht (Details §20 oben).
 
 ---
 
