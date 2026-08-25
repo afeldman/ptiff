@@ -8,7 +8,8 @@
 # them into the Markdown table (+ CSV) you use for the "Auswertung".
 #
 # Requirements (all four are built by the binding CI / README flows):
-#   - Python binding:     bindings/python/src  (ptiff + _ptiff.so)
+#   - Python binding:     crates/ptiff-python (PyO3; `maturin develop`,
+#                         replacing the removed SWIG Python binding)
 #   - Ruby binding:       bindings/ruby/lib    (ptiff.bundle)
 #   - Octave binding:     bindings/octave/mex  (ptiff_octave.oct + .m wrappers)
 #   - Go binding:         bindings/go  (cgo; cgo_flags.go links target/release)
@@ -78,12 +79,14 @@ fail() { printf '[bench] WARN: %s\n' "$*"; }
 
 # ---- 0. fixtures ----
 # Regenerate fixtures fresh each run so measurements are over identical files
-# regardless of previous writes/size drift.
-if [ ! -d "$REPO/bindings/python/src" ]; then
-  fail "Python binding missing (bindings/python/src) -- run 'make -C bindings/swig python' first."
+# regardless of previous writes/size drift. The Python binding is the PyO3
+# module in crates/ptiff-python (installed with `maturin develop`), replacing
+# the removed SWIG Python binding -- so just require `import ptiff` to work.
+if ! python3 -c 'import ptiff' >/dev/null 2>&1; then
+  fail "Python 'ptiff' module not importable -- run 'maturin develop' in crates/ptiff-python first."
 fi
 log "generating fixtures"
-PYTHONPATH="$REPO/bindings/python/src" python3 src/make_fixtures.py
+python3 src/make_fixtures.py
 
 # --real: stage a copy of the real NASA LOLA elevation crop into fixtures/ so
 # every language reads the identical real-data byte stream. (Same deterministic
@@ -114,9 +117,8 @@ fi
 # ---- helpers ----
 run_python() {
   log "benchmarking python"
-  PYTHONPATH="$REPO/bindings/python/src" \
-    python3 src/bench_python.py --out "$OUT/python.json" \
-      "${EXTRA_ARGS[@]}"
+  python3 src/bench_python.py --out "$OUT/python.json" \
+    "${EXTRA_ARGS[@]}"
 }
 
 run_ruby() {
@@ -168,8 +170,7 @@ run_cli() {
       || { fail "ptiff CLI build failed"; return 1; }
     CLI_BIN="$CLI_BIN_RELEASE"
   fi
-  PYTHONPATH="$REPO/bindings/python/src" \
-    python3 src/bench_cli.py --bin "$CLI_BIN" --out "$OUT/cli.json"
+  python3 src/bench_cli.py --bin "$CLI_BIN" --out "$OUT/cli.json"
 }
 
 # ---- dispatch ----

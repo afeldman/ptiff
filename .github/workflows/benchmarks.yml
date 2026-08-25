@@ -44,6 +44,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      # maturin builds the PyO3 Python binding (crates/ptiff-python) into the
+      # runner's Python env so `import ptiff` works for the python benchmark.
+      - name: Install maturin (PyO3 build tool)
+        run: pip install maturin
+
       # SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package), NOT the
       # distro apt `swig` (Ubuntu 24.04 is only 4.2.0). This repo is developed
       # and validated against SWIG 4.5.x (Homebrew locally, brew on
@@ -74,6 +79,13 @@ jobs:
       # crate crates/ptiff-c into target/release/.
       - name: Build libptiff_c (Rust)
         run: cargo build -p ptiff-c --release
+
+      # Build the PyO3 Python binding into the active Python env so the python
+      # benchmark can `import ptiff` (the legacy SWIG bindings/python was
+      # removed in favour of crates/ptiff-python + maturin).
+      - name: Build Python binding (PyO3, maturin)
+        working-directory: crates/ptiff-python
+        run: maturin develop --release
 
       # --- Build every language binding against the freshly built C ABI ---
       # (bindings/swig/Makefile links the Rust-built libptiff_c by default)
