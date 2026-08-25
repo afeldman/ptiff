@@ -21,6 +21,13 @@ Legend for status:
 | L0.5 | Pixel layouts read byte-for-byte | gray/RGB 8/16/32 uint + 32 float, uncompressed & compressed | ✅ |
 | L0.6 | `TiffBackend` passes `[conformance][baseline]` | whole suite | ✅ |
 
+> **Phase-12-Cross-Validation-Nachweis (2026-08-25):** Zusätzlich zu den oben genannten
+> implementierungsinternen Tests wird die **Level-0-Konformität gegen den C++-Oracle** belegt:
+> Der Rust-Core liest die vom C++-Writer (`gen_interop_fixture`, Backup `../ptiff_back`) erzeugten
+> TIFFs **byte-identisch auf Pixel-Ebene** (L0.5) und dekodiert dieselben PTIFF-Metadaten (Tags
+> 65001–65005). Dauerhafter Nachweis: `crates/ptiff-rust/tests/cross_validation_oracle.rs` gegen
+> `crates/ptiff-core/tests/data/oracle/*.tif`. Siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17.1 / Phase 12.
+
 ## Level 1 — PTIFF Core
 
 | Req | Requirement | Executable test(s) | Status |
@@ -64,3 +71,5 @@ Rust migration.
 | `crates/ptiff-core/tests/corrupted.rs` | Robustness: bad byte-order/magic, truncated data, malformed IFDs rejected with a defined `ErrorCode` |
 | `crates/ptiff-core/tests/golden.rs` | Byte-exact serialized output (golden digests) |
 | `crates/ptiff-core/tests/property.rs` | Property tests over tile arithmetic and lossless codecs |
+| `crates/ptiff-rust/tests/cross_validation_oracle.rs` | **Phase 12 cross-validation** — Rust-core reader decodes C++-oracle-produced TIFFs (pixels, camera/CRS, generic `ptiff.*` fields) byte-identically against `crates/ptiff-core/tests/data/oracle/`; plus a Rust write→read round-trip reproducing the oracle extension schema. |
+| `crates/ptiff-c/tests/oracle_fields.rs` | C-ABI `ptiff_open_path_fields` decodes the frozen oracle fixture's `ptiff.*` fields (R4 / Phase-12 precursor). |

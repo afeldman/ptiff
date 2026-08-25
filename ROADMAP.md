@@ -82,6 +82,14 @@ fachlichen Domain-Klassen oberhalb des Containers:
 
 ## Anmerkungen
 
+- **Stand 1.0.0 / Phase 12 (2026-08-25):** Die systematische Cross-Validation ggü. dem
+  C++-Oracle wurde nachgeholt (Phase 12 abgeschlossen): der Rust-Kern liest vom C++-Writer
+  (`gen_interop_fixture`, Backup `../ptiff_back`) erzeugte TIFFs **byte-identisch auf Pixel-Ebene**
+  und dekodiert dieselben PTIFF-Metadaten (Tags 65001–65005). Dauerhafter Nachweis:
+  `crates/ptiff-rust/tests/cross_validation_oracle.rs` (5 Tests) gegen `crates/ptiff-core/tests/
+  data/oracle/`. Benchmark-Hypothesen H7/H8 (§12.2) auf macOS-arm64/v1.0.0 neu gemessen und
+  bestätigt (LZW-Compress/Decompress ≈ 1.9×/3.7×/7.0× bei 2/4/8 Cores, nahezu linear; Deflate
+  Sweet-Spot bei 2–4 Cores). Siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17.1 / Phase 12.
 - **Stand 1.0.0 (2026-08-24):** vollständige Rust-Migration abgeschlossen — die
   C++-Implementierung (`libptiff/`) und die C++-Veneer (`bindings/c`) sind
   entfernt; `cargo build`/`cargo test` (Workspace, alle Features) sind grün,

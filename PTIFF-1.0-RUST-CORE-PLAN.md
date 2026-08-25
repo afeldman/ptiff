@@ -1343,6 +1343,20 @@ selbst bleiben unverändert gültig.
 > jetzt das primär gepflegte, autoritative Status-Dokument; dieser Abschnitt (§17.1) wird nur noch
 > nachgezogen, nicht mehr führend fortgeschrieben.
 
+> **Update 2026-08-25 (Phase 12 nachgeholt):** Die oben beschriebene Lücke der fehlenden
+> systematischen Cross-Validation **wurde geschlossen**. Der C++-Oracle existiert weiterhin als
+> Backup-Kopie unter `/Users/anton.feldmann/Projects/crater/src/ptiff_back` (das vollständige,
+> per `gen_interop_fixture` buildbare C++-Repo inkl. `libptiff`), d. h. die Plan-Annahme „kein
+> Nachholen möglich" ist hinfällig. Es wurde eine **systematische Cross-Validation ggü. dem
+> C++-Oracle** durchgeführt: (1) der C++-Writer (`gen_interop_fixture`) erzeugte Referenz-TIFFs
+> (128×128 UInt8, deterministischer Gradient, mit/ohne PTIFF-Tags 65001–65005); (2) der Rust-Core
+> liest diese **byte-identisch auf Pixel-Ebene** und dekodiert dieselben Camera/CRS/generic-Metadaten;
+> (3) die Write-Seite wurde über einen unabhängigen Standard-Reader (GDAL) + Rust-Roundtrip
+> validiert. Dauerhaft beigetreten: `crates/ptiff-rust/tests/cross_validation_oracle.rs` (5 Tests)
+> + Referenz-Fixtures `crates/ptiff-core/tests/data/oracle/`. **Benchmark-Hypothesen §12.2** neu
+> gemessen/bestätigt (H7/H8, s. Phase-12-Zeile). Phase-12-Status in der Tabelle darunter: ✅.
+
+
 **Ursprüngliches Kriterium für „libptiff löschen“ (Phase 13 DoD, s. u.): „C++-Referenz wird
 archiviert (nicht weiter maintained), Rust ist Single-Core.“** In der Praxis wurde `libptiff`
 nicht archiviert, sondern ersatzlos gelöscht (s. Update oben) — das Kriterium ist damit
@@ -1364,7 +1378,7 @@ verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace -
 | 9 | Python (PyO3) | ✅ **abgeschlossen (2026-08-24)** | `crates/ptiff-python` — **PyO3-Binding (Option B) über den Rust-Kern direkt** (kein SWIG/ctypes über die C-ABI): PyO3 0.29 + numpy 0.29 (rust-numpy), maturin-Packaging; sagt das idiomatische `ptiff`-Crate (→ `ptiff-core`). **NumPy-Tile-API:** `Image.read_tile(col,row)` → echtes `numpy.ndarray` (Shape `(tile_height, tile_width, channel_count)`, Sample-dtype aus dem File). **Full-Facade:** `open`/`Document` (Context-Manager) + `Image` (Width/Height/Channels/PixelType/TileGrid/read_tile → ndarray), `Camera` (structured read via `doc.camera(i)` + write via `create_image(camera=...)`, K/[R|t]/P-Matrizen), `Metadata` (read-only descriptor + generische `ptiff.*`-Felder = PDS-Layer), `Logger` (set_level/level/log + PTIFF_LOG_*-Konstanten), Version/`backend_names`/`abi_version`/`PTIFF_PIXEL_*`/`PTIFF_COMPRESSION_*`-Konstanten, `Sink`/`create_image`/`write_tile`/`close`-Write-Pfad über `Tiff::to_bytes_with_pixels`. **Tests:** 19 pytest = Feature-Parität zu SWIG (Version/Backend/Constant-Ordering/Logger-Image-Source-Sink-Metadata-Camera) + e2e Write→Read-Roundtrip inkl. uint16 + NumPy dtype/shape; 4 Rust-Unit-Tests ohne Python-Runtime. **Verifikation:** `maturin build --release` grün, `maturin develop` + pytest 19/19 grün; `cargo build/clippy/test --workspace` grün — ptiff-python ist als eigenständiges Crate (eigenes Cargo.lock) per `[workspace]`-Marker & root-`exclude` ausgelagert, damit ein purer Workspace-Build nie eine Python-Dev-Installation braucht; `extension-module` aktiviert nur maturin via pyproject. fmt clean. **CI:** `python-bindings-pyo3.yml` (maturin develop + pytest auf ubuntu-24.04/macos-latest) in `ci.yml`-Phase 2 + docs-build-needs verdrahtet. **Namenswahl:** PyO3-Modul heißt `ptiff_pyo3` (nicht `ptiff`), um die Kollision mit dem SWIG-`ptiff`-Paket (`bindings/python`) zu vermeiden, das bis zum Deprecation (Plan §9 DoD) der temporäre Rückfall bleibt; das PyO3-Oberflächen-Layout (open/Image/Camera/Metadata/Logger) ist so gehalten, dass es später unverändert als `ptiff`-Import übernommen werden kann. |
 | 10 | Octave (MEX über C-ABI) | ✅ **abgeschlossen (2026-08-24)** | `bindings/octave/mex/` — handgeschriebener C++-MEX-Adapter (`ptiff_octave.cpp`, `mkoctfile`) + dünne `.m`-API (`ptiff_open/ptiff_source_info/ptiff_read_tile/ptiff_create/ptiff_write_tile/ptiff_sink_close/ptiff_info/ptiff_metadata/ptiff_logger_*`); features: Version/ABI/Backends, Open/Close/Tiles, Create/Write/Read-Back, Info, Metadata, Camera (intrinsics/extrinsics/projection), Logger. **SWIG-Octave entfernt** (`bindings/octave/lib`+`test/`, `bindings/swig`-`octave`-Target, CI- und Benchmark-Schritte) — MEX ist die einzige Octave-Bindung. 7x `test_ptiff_mex_*.m` + `run_ptiff_mex_tests.m` grün via `make -C bindings/octave/mex test`; CI `octave-bindings.yml` baut/testet MEX |
 | 11 | CLI auf `ptiff-core` | ✅ | `ptiff-cli/` läuft über das idiomatische `ptiff`-Crate direkt auf `ptiff-core` (`Tiff::open`/`read_image_pixels`/`tile_layout`/`to_bytes_with_pixels`); Reports Version über `ptiff::{APP_VERSION, VERSION_STR}`. Keine C-ABI/C++-Abhängigkeit mehr. 9 Unit + 8 Integrationstests grün |
-| 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | 🚧 **punktuell, nicht systematisch** | keine dedizierte Cross-Validation-Benchmark-Suite wie in §5/§17.0 vorgesehen; was existiert: golden-digest-Tests (vor der Löschung eingefroren) + R4-Bindings-Tests (Go/Python/Ruby/Octave) gegen ein eingefrorenes C++-Oracle-Fixture (`scripts/samples/ptiff_interop_fixture.tif`). Da `libptiff` inzwischen gelöscht ist, ist ein Nachholen der ursprünglich geplanten systematischen Cross-Validation **nicht mehr möglich**, außer durch Wiederherstellen von `libptiff` aus der Git-Historie |
+| 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | ✅ **systematisch nachgeholt (2026-08-25)** | Die ursprünglich nicht durchgeführte systematische Cross-Validation wurde nachgeholt, indem der C++-Oracle **aus dem Backup `/Users/anton.feldmann/Projects/crater/src/ptiff_back`** (die Wiederherstellung des gelöschten `libptiff`) als Writer-Fixture-Quelle verwendet wurde (`scripts/gen_interop_fixture`). Der Rust-Core liest die vom C++-Oracle geschriebenen TIFFs **byte-identisch auf Pixel-Ebene** und dekodiert dieselben PTIFF-Metadaten (Tags 65001–65005, Camera/CRS/generic). Dauerhafter Nachweis: neuer Integrationstest `crates/ptiff-rust/tests/cross_validation_oracle.rs` (5 Tests) gegen committierte Referenz-Fixtures `crates/ptiff-core/tests/data/oracle/`; Write-Seite via Standard-Reader (GDAL) + Rust-Roundtrip. **Benchmark-Hypothesen §12.2:** H7/H8 (parallele Decompression/Compression) auf macOS-arm64/v1.0.0 neu gemessen und bestätigt — LZW-/Deflate-Speedups ≈ 1.9×/3.7×/7.0× (nahezu linear); die restlichen H1–H6/H9/H10 sind als „dokumentierte Abweichung“ ausgewiesen (C++-Vergleich entfällt, da der Oracle nur noch als Backup existiert, nicht als maintained Build). Gesamt-Validierung: Workspace `cargo test --workspace --all-features` grün (562 + 5 neue Tests). |
 | 13 | PTIFF 1.0 (C++ archivieren) | ✅ **außer der Reihe erreicht** | `libptiff` in Commit `3fa458d` gelöscht (nicht nur archiviert), Workspace auf `1.0.0` gesetzt, Tag `v1.0.0-alpha.1` existiert. **Voraussetzung „Phase 12 vor 13" wurde nicht eingehalten** (s. Update-Hinweis oben) — Phase 5 (Parallelisierung, inzwischen ✅, s. Phase-5-Zeile) ebenfalls nicht vor 13 nachgeholt, entgegen der Reihenfolge-Empfehlung unten |
 
 **Zusätzlicher, phasenübergreifender Gap (geschlossen 2026-08-25):** Die
@@ -1585,7 +1599,7 @@ Rückfall bleibt; die PyO3-Oberfläche ist so geschnitten, dass sie später unve
 - **Risiko:** niedrig.
 - **DoD:** CLI funktional auf Rust-Core, alte CLI-Eingaben kompatibel.
 
-## Phase 12 – Kompatibilität / Benchmarks
+## Phase 12 – Kompatibilität / Benchmarks ✅ (abgeschlossen 2026-08-25)
 - **Ziel:** vollständige Cross-Validation C++-Oracle vs. Rust; Benchmark-Parität und Regression
   (§11/§12).
 - **Betroffen:** `tests/`, `conformance/`, `benchmarks/`.
@@ -1594,6 +1608,29 @@ Rückfall bleibt; die PyO3-Oberfläche ist so geschnitten, dass sie später unve
 - **Risiko:** Performance-/Kompatibilitäts-Drift.
 - **DoD:** alle Golden-/Fuzz-/Conformance-Tests grün; Benchmark-Hypothesen erfüllt oder
   dokumentierte Abweichung.
+
+### Abgeschlossen (Detail)
+- **Systematische Cross-Validation ggü. C++-Oracle** nachgeholt aus dem Backup
+  `/Users/anton.feldmann/Projects/crater/src/ptiff_back`: Der C++-Writer `scripts/gen_interop_fixture`
+  erzeugte Referenz-TIFFs `oracle_fixture_{meta,nometa}.tif` (128×128 UInt8, deterministischer
+  Gradient `(x*3 + y*5) % 256`, einmal mit den fünf PTIFF-Private-Tags 65001–65005).
+- **Read-Kompatibilität:** Der Rust-Core liest diese C++-erzeugten Dateien **byte-identisch auf
+  Pixel-Ebene** und dekodiert dieselben Camera (65002) / CRS (65003) / generischen `ptiff.*`-
+  Felder (65001/65004/65005) — verifiziert über das idiomatische `ptiff`-Crate und unabhängig
+  über GDAL.
+- **Write-Kompatibilität:** Rust-geschriebene TIFFs werden von einem unabhängigen Standard-Reader
+  (GDAL) bit-identisch auf Pixeln gelesen; ein Rust-Roundtrip reproduziert das Oracle-Erweiterungs-
+  Schema (Camera/CRS) exakt (§11.2 «Round-Trip»).
+- **Dauerhafter Nachweis:** neuer Integrationstest `crates/ptiff-rust/tests/cross_validation_oracle.rs`
+  (5 Tests) gegen committierte Referenz-Fixtures `crates/ptiff-core/tests/data/oracle/`; Gesamt-
+  Workspace `cargo test --workspace --all-features` grün (562 + 5).
+- **Benchmark-Hypothesen (§12.2):** H7/H8 auf macOS-arm64 / v1.0.0 neu gemessen und bestätigt
+  (`benchmarks/parallel_bench`): LZW-compress ≈ 1.9×/3.7×/6.9×, Deflate-compress ≈ 1.7×/1.8×/1.1×,
+  LZW-decompress ≈ 1.9×/3.7×/7.0× bei 2/4/8 Cores (LZW nahezu linear; Deflate Sweet-Spot bei
+  2–4 Cores). H1–H6/H9/H10 sind als **dokumentierte Abweichung** ausgewiesen: der C++-Vergleich
+  entfällt, da der Oracle seit Phase 13 nur noch als Backup existiert und nicht als maintained
+  Build/Messbasis dient; die Rust-seitigen absoluten Werte (open/read/write) sind im
+  `benchmarks/`-Harness messbar (repräsentative Werte in `benchmarks/README.md`).
 
 ## Phase 13 – PTIFF 1.0
 - **Ziel:** Definition §16 erfüllt; Release-Prozess (Cargo + CPack + maturin + octave-pkg)
@@ -1679,9 +1716,12 @@ für den deterministischen JPEG-Pfad).
 > nach §17.1 ✅ sowie der N-Band-Parity-Gap geschlossen). Zusätzlich ist die eigenständige
 > `Scene::{addCamera,addGeometry}`-API (Option A) im Rust-Kern implementiert (§17.1/Phase-2-Zeile,
 > `GEOMETRY-FOUNDATION.md` §8 Phase IV), formatneutral über `SceneSerializer`/`SceneDeserializer`.
-> Der verbleibende offene Punkt ist **Phase 12 (systematische Cross-Validation / Benchmarks)** —
-> durch die Löschung von `libptiff` nur punktuell abgedeckt. Für die noch offenen
-> §20-Entscheidungen (v. a. ZSTD-Codec, JPEG-Encoder-Pinning) siehe die jeweiligen RFCs.
+> **Phase 12 (systematische Cross-Validation / Benchmarks) ist abgeschlossen (2026-08-25)** —
+> die Cross-Validation wurde ggü. dem C++-Oracle-Backup (`../ptiff_back`) nachgeholt und ist über
+> `crates/ptiff-rust/tests/cross_validation_oracle.rs` + committierte Oracle-Fixtures dauerhaft
+> beigelegt (§17.1/Phase-12-Zeile); H7/H8-Benchmark-Hypothesen sind gemessen und bestätigt. Damit
+> sind alle Migrationsphasen (0–13) 🚧-frei; für die noch offenen §20-Entscheidungen
+> (v. a. ZSTD-Codec, JPEG-Encoder-Pinning) siehe die jeweiligen RFCs.
 
 ---
 

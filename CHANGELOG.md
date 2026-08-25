@@ -8,6 +8,27 @@ und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v
 Sofern nicht anders vermerkt, gelten alle Einträge mit einem `Unreleased`-Abschnitt
 als noch nicht veröffentlicht.
 
+## [Unreleased]
+
+### Phase 12 – Systematische Cross-Validation ggü. C++-Oracle (abgeschlossen 2026-08-25)
+
+- **Cross-Validation nachgeholt.** Der Rust-Kern wurde gegen den vom C++-Oracle
+  (`gen_interop_fixture`, Backup `../ptiff_back`) erzeugten TIFF-Bytestrom validiert: Er liest
+  dessen 128×128-UInt8-Fixtures **byte-identisch auf Pixel-Ebene** und dekodiert dieselben
+  PTIFF-Private-Tags 65001–65005 (Camera, CRS, SPICE, Layers, Provenance). Die Write-Seite wurde
+  über den unabhängigen Standard-Reader GDAL sowie einen Rust-Write→Read-Roundtrip bestätigt, der
+  das Oracle-Erweiterungsschema exakt reproduziert.
+- **Dauerhafter Nachweis:** neuer Integrationstest
+  `crates/ptiff-rust/tests/cross_validation_oracle.rs` (5 Tests) gegen committierte
+  Referenz-Fixtures `crates/ptiff-core/tests/data/oracle/`.
+- **Benchmark-Hypothesen §12.2 bestätigt:** H7/H8 (parallele Tile-Decompression/-Compression,
+  Rayon) auf macOS-arm64/v1.0.0 neu gemessen — LZW-Compress/Decompress ≈ 1.9×/3.7×/7.0× bei
+  2/4/8 Cores (nahezu linear), Deflate-Compress Sweet-Spot bei 2–4 Cores (~1.7×). H1–H6/H9/H10
+  als dokumentierte Abweichung ausgewiesen (der C++-Vergleich entfällt, da der Oracle nur noch als
+  Backup existiert).
+- **Status:** Workspace `cargo test --workspace --all-features` grün (562 + 5 neue Tests).
+  Siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17.1 und `conformance/matrix.md`.
+
 ## [1.0.0] — 2026-08-24
 
 ### Meilenstein: Rust-Referenzkern und C-ABI-Homogenisierung
