@@ -47,13 +47,13 @@ jobs:
       # Set up a single virtualenv for the whole job. The python benchmark runs
       # later in a *different* step (Run benchmark suite), so we cannot rely on
       # pip-installing the PyO3 module into the bare setup-python interpreter
-      # and hoping the next step sees it. A venv on $PATH makes `python3` in
-      # every step resolve to the same environment, and it is what `maturin
-      # develop` requires. Build tools go in here too.
+      # and hoping the next step sees it. We `source` this venv in the steps
+      # that run python (below) instead of relying on GITHUB_PATH: actions/
+      # setup-python puts its bin first on PATH, so a later-append would not
+      # switch `python3`/`pip` to the venv.
       - name: Create virtualenv + install maturin
         run: |
           python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           .venv/bin/python -m pip install --quiet --upgrade pip maturin
 
       # SWIG 4.5.0 via a pip binary wheel (the `swig` PyPI package), NOT the
@@ -87,13 +87,14 @@ jobs:
       - name: Build libptiff_c (Rust)
         run: cargo build -p ptiff-c --release
 
-      # Build the PyO3 Python binding into the active Python env so the python
-      # benchmark can `import ptiff` (the legacy SWIG bindings/python was
-      # removed in favour of crates/ptiff-python + maturin). Use `maturin build`
-      # + pip install (not `maturin develop`, which demands a virtualenv).
+      # Build the PyO3 Python binding into the venv so the python benchmark can
+      # `import ptiff` in the later suite step. Activate the venv explicitly
+      # (GITHUB_PATH cannot override setup-python's bin). `maturin build` +
+      # pip-install the wheel (maturin develop would also work in this venv).
       - name: Build Python binding (PyO3, maturin)
         working-directory: crates/ptiff-python
         run: |
+          source "$GITHUB_WORKSPACE/.venv/bin/activate"
           maturin build --release --out dist/
           pip install --quiet dist/*.whl
 
@@ -114,12 +115,16 @@ jobs:
       # Run the suite (Python/Ruby/Go/Octave/Rust/CLI). Reduced knobs keep CI
       # fast while still exercising every binding and the summary pipeline.
       # run_benchmarks.sh resolves libptiff_c from target/release; no prefix.
+      # Activate the job venv so python3 (used by run_benchmarks.sh, incl. the
+      # 'import ptiff' self-check and make_fixtures) sees the PyO3 module.
       - name: Run benchmark suite
         working-directory: benchmarks
         env:
           BENCH_REPEATS: "5"
           BENCH_ITERS: "10"
-        run: ./run_benchmarks.sh python ruby go octave rust cli
+        run: |
+          source "$GITHUB_WORKSPACE/.venv/bin/activate"
+          ./run_benchmarks.sh python ruby go octave rust cli
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
