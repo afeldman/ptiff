@@ -628,6 +628,21 @@ mod tests {
         m
     }
 
+    /// Grayscale model (samplesPerPixel = 1), defaulting to UInt8.
+    fn gray_model() -> StorageModel {
+        strip_model(2, 2)
+    }
+
+    /// N-band (multispectral) image model with the given sample count.
+    fn nband_model(samples: u32) -> StorageModel {
+        let mut m = StorageModel::new();
+        m.set_field("imageWidth", "2");
+        m.set_field("imageHeight", "2");
+        m.set_field("samplesPerPixel", samples.to_string());
+        m.set_field("pixelType", "UInt8");
+        m
+    }
+
     fn tiled_model(width: u32, height: u32, compression: &str, predictor: &str) -> StorageModel {
         let mut m = StorageModel::new();
         m.set_field("imageWidth", width.to_string());
@@ -696,5 +711,56 @@ mod tests {
                 > plan.images[0].directory.tile_byte_ranges[0].offset
         );
         let _ = ifd0_size;
+    }
+
+    // --- N-band / multispectral (samplesPerPixel > 3) parity with the C++
+    // --- reference `tiff_directory_writer_test.cpp` (libptiff >= 0.4.0).
+
+    #[test]
+    fn accepts_five_band_multispectral_image() {
+        // planTiffWrite accepts a 5-band multispectral image.
+        let plan = plan_tiff_write(&nband_model(5)).unwrap();
+        assert_eq!(plan.directory.samples_per_pixel, 5);
+        // 2 * 2 * 5 * 1 = 20 bytes.
+        assert_eq!(plan.directory.tile_byte_ranges[0].byte_count, 20);
+    }
+
+    #[test]
+    fn emits_extra_samples_for_multispectral_but_not_rgb_or_gray() {
+        // 5-band -> ExtraSamples (tag 338) present.
+        let plan = plan_tiff_write(&nband_model(5)).unwrap();
+        let has_extra_samples = plan
+            .entries
+            .iter()
+            .any(|e| e.tag_id == tag_id(TagId::ExtraSamples));
+        assert!(has_extra_samples, "5-band must emit an ExtraSamples tag");
+
+        // RGB (3 bands) and gray (1 band) must NOT get an ExtraSamples tag.
+        let rgb_plan = plan_tiff_write(&nband_model(3)).unwrap();
+        let rgb_has = rgb_plan
+            .entries
+            .iter()
+            .any(|e| e.tag_id == tag_id(TagId::ExtraSamples));
+        assert!(!rgb_has, "RGB must not emit an ExtraSamples tag");
+
+        let gray_plan = plan_tiff_write(&gray_model()).unwrap();
+        let gray_has = gray_plan
+            .entries
+            .iter()
+            .any(|e| e.tag_id == tag_id(TagId::ExtraSamples));
+        assert!(!gray_has, "grayscale must not emit an ExtraSamples tag");
+    }
+
+    #[test]
+    fn rejects_zero_samples_per_pixel() {
+        let err = plan_tiff_write(&nband_model(0)).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn rejects_samples_per_pixel_above_defensive_cap() {
+        // 513 is above the defensive 512 cap.
+        let err = plan_tiff_write(&nband_model(513)).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
     }
 }
