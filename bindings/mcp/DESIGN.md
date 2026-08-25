@@ -8,30 +8,26 @@
 Ein [MCP](https://modelcontextprotocol.io)-Server, der einem LLM (z. B. Claude
 Code) Zugriff auf [PTIFF](https://github.com/) / `libptiff` ermöglicht: ein
 LLM soll eingebettete PTIFF-/Planetenbild-Metadaten lesen, Tiles/Pixel abfragen
-und kleine Dokumente schreiben können, ohne die C++-API oder das Containerformat
+und kleine Dokumente schreiben können, ohne die C-API oder das Containerformat
 direkt zu fassen.
 
 ## Architektur-Entscheidung: dünne Anwendungsebene
 
 Der MCP-Server ist **kein Kernteil von `libptiff`**. Er ist eine zusätzliche
-Anwendungs-Ebene, die ausschließlich über die vorhandene, sprachneutrale
-C-ABI `libptiff_c` auf die Bibliothek zugreift — konkret über die
-SWIG-Python-Bindings (`bindings/python`). Diese C-ABI wird jetzt vom
-Rust-Crate [`crates/ptiff-c`](../../crates/ptiff-c) gebaut
-(`cargo build -p ptiff-c --release` → `target/release/libptiff_c.*`, Header
-`target/ptiff_c.h`). So gilt:
+Anwendungs-Ebene, die über die Python-Bindung auf die Bibliothek zugreift —
+konkret über die PyO3-Bindung **`ptiff_pyo3`** (`crates/ptiff-python`), die den
+idiomatischen Rust-Core direkt spricht (kein C-ABI-Umweg). Der Server lebt in
+`bindings/mcp/`, analog zu den bestehenden Sprachanbindungen:
 
-- Keine Änderung an `crates/ptiff-c`, `bindings/swig` oder `libptiff` selbst.
-- Der Server lebt in `bindings/mcp/`, analog zu den bestehenden Sprachanbindungen.
+- Keine Änderung an `crates/ptiff-c`, `bindings/swig` oder `crates/ptiff-core`
+  selbst.
 - Neuer fachlicher Bedarf (z. B. ein zusätzliches Feld) wird zuerst als Feature
-  der C-ABI + Python-Bindung umgesetzt, danach als MCP-Tool.
+  der PyO3-Bindung (Rust-Core) umgesetzt, danach als MCP-Tool.
 
 ```
     crates/ptiff-rust + ptiff-core (idiomatischer Rust-Core)
          │
- crates/ptiff-c → libptiff_c  (Rust-extern-"C"-C-ABI)   ←  cargo build -p ptiff-c
-         │
-       bindings/python (SWIG, promoted)  ← ptiff module
+ crates/ptiff-python (PyO3)  ←  `ptiff_pyo3`-Modul (maturin)
          │
              bindings/mcp (dieser Server)
          │
@@ -40,24 +36,23 @@ Rust-Crate [`crates/ptiff-c`](../../crates/ptiff-c) gebaut
 
 ## Laufzeit & Konfiguration
 
-- Python 3.13 (projektpins: `uv`, siehe `bindings/python/pyvenv.cfg`).
+- CPython ≥ 3.9 (getestet mit 3.14).
 - Abhängigkeiten: das offizielle `mcp`-Paket (≥ 2.0) + `numpy` (für
-  Pixel-Sampling). Die Bindbar `ptiff` wird aus `bindings/python/src` geladen.
-- Wie die übrigen Bindings findet der Server `libptiff_c` über die
-  Umgebungsvariablen `PTIFF_C_LIB_DIR` / `PTIFF_LIB_DIR` oder den
-  Rust-Build-Output `target/release` (siehe `bindings/python/README.md` →
-  "Prerequisites"). `cargo build -p ptiff-c --release` erzeugt beides.
+  Pixel-Sampling) + das lokal gebaute `ptiff_pyo3` (nicht auf PyPI; via
+  `maturin develop` in `crates/ptiff-python` installiert).
 - Transport: **stdio** (der einfachste Weg für lokale MCP-Clients). Start:
 
   ```bash
   cd bindings/mcp
-  PTIFF_C_LIB_DIR=../../target/release PTIFF_LIB_DIR=../../target/release \
-  PYTHONPATH=src:../python/src \
   .venv/bin/python -m ptiff_mcp.server
   ```
 
   Alternativ als konfigurierter MCP-Server in `~/.config/.../mcp.json` / Claude
   Code `mcpServers` mit `command` = obiges Kommando.
+
+Wichtig: Die PyO3-Bindung wirft **Python-Exceptions** statt C-ABI-Fehlercodes;
+der Server mappt sie auf MCP-Fehlermeldungen (es gibt keine `PTIFF_ERROR_*`-
+Codes mehr auf dieser Ebene).
 
 ## Tool-Oberfläche
 
@@ -89,17 +84,18 @@ Multi-Image/`Scene`-Zugriffe über die C-ABI ausgeprägt sind.
 - **Schreiben** ist tiled und deterministisch (`write_tile` je Tile), kein
   Streaming großer Arrays.
 - **Fehler** : Rückgabe als MCP `CallToolResult` mit `isError=True` und
-  lesbarer Meldung; C-ABI-Fehlercodes werden auf menschenlesbare Texte gemappt.
+  lesbarer Meldung; die PyO3-Bindung wirft Python-Exceptions, die der Server
+  abfängt und als MCP-Fehler weitergibt (keine rohen Fehlercodes).
 - **Kein volles Raster-Dekodieren** im Servercontext über einzelne Tiles hinaus.
-- **Bindungs-Reifegrad** : Die Python-Bindung ist SWIG-generierte
-  "under-construction"-Ausgabe; der Server wird als **experimentell/Preview**
-  markiert, bis die Bindung priorisiert wird.
+- **Bindungs-Reifegrad** : Die PyO3-Bindung `ptiff_pyo3` ist die offizielle
+  Python-Bindung; der Server bleibt als **experimentell/Preview** markiert.
 
 ## Tests
 
 - `test/test_server.py` führt die Tool-Handler **in-process** (ohne echten
-  MCP-Transport) gegen die vorhandene Beispiel-Datei
-  `bindings/python/test/roundtrip_python.tif` aus:
+  MCP-Transport) plus einen echten stdio-MCP-Roundtrip aus. Eine Referenz-TIFF
+  wird on-demand mit `ptiff_pyo3` erzeugt (Fixture `sample_tiff`, keine fremden
+  Dateien):
   - `read_metadata` liefert korrekte Dimensionen,
   - `read_tile`/`read_pixel_sample` liefern Plausibilitäts-Statistiken,
   - `get_version` / `list_backends` geben sinnvolle Werte,

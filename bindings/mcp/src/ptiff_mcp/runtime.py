@@ -1,10 +1,9 @@
 """PTIFF runtime access layer for the MCP server.
 
-Thin, dependency-light wrapper over the idiomatic ``ptiff`` object layer
-(Metadata / Camera / Image / Tile). The raw C-ABI surface stays behind the
-object layer; the MCP uses only the promoted Python objects and the metadata
-they expose (structured camera calibration and PTIFF extension fields
-included).
+Thin, dependency-light wrapper over the PyO3 ``ptiff_pyo3`` object layer
+(Document / Metadata / Camera / Image / Sink). The MCP consumes only the
+promoted Python objects and the metadata they expose (structured camera
+calibration and PTIFF extension fields included).
 """
 
 from __future__ import annotations
@@ -12,11 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import ptiff as _ptiff
+import ptiff_pyo3 as _ptiff
 
-# Pixel type names (mirror the C ABI PTIFF_PIXEL_* values). The MCP exposes
-# lowercase names ("uint8") for LLM ergonomics; the object layer yields the
-# same int codes plus a human name (ptiff.Metadata.pixel_type_name).
+# Pixel type names (mirror the C ABI PTIFF_PIXEL_* / PyO3 PTIFF_PIXEL_* values).
+# The MCP exposes lowercase names ("uint8") for LLM ergonomics; the object
+# layer exposes the same int codes plus a human name (Metadata.pixel_type_name
+# / Image.pixel_type).
 _PIXEL_NAMES: dict[int, str] = {
     _ptiff.PTIFF_PIXEL_UINT8: "uint8",
     _ptiff.PTIFF_PIXEL_UINT16: "uint16",
@@ -32,14 +32,15 @@ _COMPRESSION_NAMES: dict[int, str] = {
     _ptiff.PTIFF_COMPRESSION_JPEG: "jpeg",
 }
 
-# Error code -> human readable text (ptiff_c.h constants; derived from the Rust
-# core's ErrorCode in crates/ptiff-c).
-_ERROR_TEXT: dict[int, str] = {
-    _ptiff.PTIFF_ERROR_NOT_IMPLEMENTED: "not implemented",
-    _ptiff.PTIFF_ERROR_INVALID_ARGUMENT: "invalid argument",
-    _ptiff.PTIFF_ERROR_OUT_OF_RANGE: "out of range",
-    _ptiff.PTIFF_ERROR_NOT_FOUND: "not found",
-    _ptiff.PTIFF_ERROR_UNKNOWN: "unknown error",
+# Bytes per sample for each PTIFF_PIXEL_* code (derived, not read from a
+# getter — the PyO3 Image exposes tile_width/tile_height but the byte size is
+# derived from pixel type × channels).
+_PIXEL_ITEM_SIZE: dict[int, int] = {
+    _ptiff.PTIFF_PIXEL_UINT8: 1,
+    _ptiff.PTIFF_PIXEL_UINT16: 2,
+    _ptiff.PTIFF_PIXEL_UINT32: 4,
+    _ptiff.PTIFF_PIXEL_FLOAT32: 4,
+    _ptiff.PTIFF_PIXEL_FLOAT64: 8,
 }
 
 # Number of samples we ever let a tile statistic produce, to keep LLM context
@@ -48,19 +49,16 @@ MAX_SAMPLE_BUCKETS = 64
 
 
 class PtiffError(RuntimeError):
-    """Raised when a libptiff call fails (maps a negative C error code)."""
+    """Raised when a ptiff operation fails.
+
+    ``ptiff_pyo3`` raises ordinary Python exceptions on failure (there are no
+    C-style error codes any more); this type wraps them in a readable MCP
+    message.
+    """
 
     def __init__(self, message: str, code: int | None = None) -> None:
         super().__init__(message)
         self.code = code
-
-
-def _check_rc(rc: int, what: str) -> None:
-    """Raise a readable error if a libptiff call returned a non-zero code."""
-    if rc == 0:
-        return
-    text = _ERROR_TEXT.get(rc, f"error code {rc}")
-    raise PtiffError(f"{what}: {text}", code=rc)
 
 
 @dataclass
@@ -89,34 +87,31 @@ class Metadata:
 
 def get_version() -> dict[str, str]:
     return {
-        "runtime": _version_str(_ptiff.ptiff_runtime_version()),
-        "compile_time": _version_str(_ptiff.ptiff_compile_time_version()),
+        "runtime": _version_str(_ptiff.runtime_version()),
+        "compile_time": _version_str(_ptiff.compile_time_version()),
     }
 
 
 def _version_str(v: Any) -> str:
-    major = int(getattr(v, "major", 0))
-    minor = int(getattr(v, "minor", 0))
-    patch = int(getattr(v, "patch", 0))
-    return f"{major}.{minor}.{patch}"
+    """Format a (major, minor, patch) tuple/list as ``major.minor.patch``."""
+    try:
+        major, minor, patch = v
+    except (TypeError, ValueError):
+        major = minor = patch = 0
+    return f"{int(major)}.{int(minor)}.{int(patch)}"
 
 
 def list_backends() -> list[str]:
-    names = _ptiff.ptiff_backend_names()
+    # ``ptiff_pyo3.backend_names()`` returns one comma-space-joined string
+    # (e.g. ``"tiff, memory"``), matching the C ABI's ``ptiff_backend_names()``.
+    names = _ptiff.backend_names()
     if not names:
         return []
-    if isinstance(names, str):
-        # SWIG surfaces the C `const char**` as one comma-separated string.
-        return [n.strip() for n in names.split(",") if n.strip()]
-    # Tolerate a pre-split list if the binding ever changes shape.
-    flat: list[str] = []
-    for n in names:
-        flat.extend(part.strip() for part in n.split(",") if part.strip())
-    return flat
+    return [n.strip() for n in str(names).split(",") if n.strip()]
 
 
 def _camera_to_dict(camera: Any) -> dict[str, Any] | None:
-    """Flatten the object-layer Camera (from Path) into a serializable dict.
+    """Flatten the object-layer Camera into a serializable dict.
 
     The object layer returns camera matrices as flat row-major lists
     (intrinsics 9, extrinsics 12, projection 12) via its *_matrix() methods.
@@ -124,8 +119,8 @@ def _camera_to_dict(camera: Any) -> dict[str, Any] | None:
     try:
         if camera is None:
             return None
-        has_i = getattr(camera, "has_intrinsics", 0) == 1
-        has_e = getattr(camera, "has_extrinsics", 0) == 1
+        has_i = bool(getattr(camera, "has_intrinsics", False))
+        has_e = bool(getattr(camera, "has_extrinsics", False))
         if not has_i and not has_e:
             return None
         d: dict[str, Any] = {
@@ -160,57 +155,89 @@ def _camera_to_dict(camera: Any) -> dict[str, Any] | None:
 def read_metadata(path: str) -> Metadata:
     """Read primary-image metadata (core descriptor, extension fields, camera).
 
-    Uses the idiomatic ``ptiff.Metadata`` object layer, which wraps the C ABI
-    ``ptiff_open_path``/``ptiff_open_path_fields`` and ``ptiff_open_path_camera``
-    (the latter via ``ptiff.Camera.from_path``).
+    Uses the PyO3 ``Document`` object (``ptiff_pyo3.open``): ``doc.metadata()``
+    for the core descriptor + extension fields, ``doc.image(0)`` for the tile
+    grid geometry, and ``doc.camera(0)`` for structured calibration when present.
     """
     path = str(path)
     try:
-        md = _ptiff.Metadata(path)
+        with _ptiff.open(path) as doc:
+            md = doc.metadata()
+
+            pixel = str(md.pixel_type_name)
+            fields = {str(k): str(v) for k, v in (md.fields or {}).items()}
+
+            tw = int(md.tile_width) if md.tile_width else None
+            th = int(md.tile_height) if md.tile_height else None
+
+            # Tile grid geometry + byte size come off the primary Image.
+            cols = rows = bs = None
+            try:
+                img = doc.image(0)
+                cols, rows = _tile_grid(img)
+                cols = cols or None
+                rows = rows or None
+                bs = tile_byte_size(img)
+            except Exception:  # noqa: BLE001 -- grid geometry is best-effort
+                pass
+
+            camera: dict[str, Any] | None = None
+            try:
+                cam = doc.camera(0)
+                if cam is not None:
+                    camera = _camera_to_dict(cam)
+            except Exception:  # noqa: BLE001 -- not all files carry calibration
+                camera = None
+
+        return Metadata(
+            path=path,
+            width=int(md.width),
+            height=int(md.height),
+            pixel_type=pixel,
+            channel_count=int(md.channel_count),
+            tile_width=tw,
+            tile_height=th,
+            compression=None,  # not exposed by the PyO3 Metadata; kept optional
+            tile_columns=cols,
+            tile_rows=rows,
+            tile_byte_size=bs,
+            fields=fields,
+            camera=camera,
+        )
+    except PtiffError:
+        raise
     except Exception as exc:
         raise PtiffError(f"read metadata {path}: {exc}") from exc
 
-    pixel_code = int(md.pixel_type)
-    pixel = _PIXEL_NAMES.get(pixel_code, f"unknown({pixel_code})")
 
-    # Extension fields (ptiff.*) and structured camera calibration.
-    fields = md.fields
-    camera: dict[str, Any] | None = None
+def _tile_grid(img: Any) -> tuple[int, int]:
+    """Return (tile_columns, tile_rows) for a PyO3 Image.
+
+    The PyO3 ``Image`` exposes the tile *size* (``tile_width``/``tile_height``)
+    but not the grid dimensions; the grid is derived from the image dims:
+        tile_columns = ceil(width / tile_width),
+        tile_rows = ceil(height / tile_height).
+    """
+    W = _ceil_div(int(img.width), int(img.tile_width)) if int(img.tile_width) else 0
+    H = _ceil_div(int(img.height), int(img.tile_height)) if int(img.tile_height) else 0
+    return W, H
+
+
+def tile_byte_size(img: Any) -> int:
+    """Byte size of one uniform tile, derived from the open Image's layout."""
+    tw = th = ch = code = 0
     try:
-        cam = _ptiff.Camera.from_path(path)
-    except Exception:  # noqa: BLE001 -- not all files carry calibration
-        cam = None
-    if cam is not None:
-        camera = _camera_to_dict(cam)
-
-    tw = int(md.tile_width) if md.tile_width else None
-    th = int(md.tile_height) if md.tile_height else None
-
-    # Source-backed geometry (tile grid + byte size) needs an open image.
-    cols = rows = bs = None
-    try:
-        with _ptiff.Image.open(path) as img:
-            cols = int(img.tile_columns) or None
-            rows = int(img.tile_rows) or None
-            bs = int(img.tile_byte_size) or None
-    except Exception:  # noqa: BLE001, S110 -- metadata read stays best-effort
-        pass
-
-    return Metadata(
-        path=path,
-        width=int(md.width),
-        height=int(md.height),
-        pixel_type=pixel,
-        channel_count=int(md.channel_count),
-        tile_width=tw,
-        tile_height=th,
-        compression=None,  # not exposed by the object layer; kept optional
-        tile_columns=cols,
-        tile_rows=rows,
-        tile_byte_size=bs,
-        fields=fields,
-        camera=camera,
-    )
+        tw = int(img.tile_width)
+        th = int(img.tile_height)
+        ch = int(img.channel_count)
+        # PyO3 exposes ``Image.pixel_type`` as a lowercase name ("uint8") —
+        # map it back to the PTIFF_PIXEL_* code (fall back to 0/uint8).
+        pixel = str(img.pixel_type).lower()
+        code = next((k for k, v in _PIXEL_NAMES.items() if v == pixel), 0)
+    except Exception:  # noqa: BLE001
+        code = 0
+    itemsize = _PIXEL_ITEM_SIZE.get(code, 1)
+    return max(0, tw * th * ch * itemsize)
 
 
 def metadata_to_dict(md: Metadata) -> dict[str, Any]:
@@ -234,84 +261,42 @@ def metadata_to_dict(md: Metadata) -> dict[str, Any]:
     return d
 
 
-def _open_reader(path: str) -> Any:
-    """Open a file for pixel reading via the object layer (source handle)."""
-    try:
-        return _ptiff.Image.open(path)
-    except Exception as exc:
-        raise PtiffError(f"open {path}: {exc}") from exc
-
-
-def _reader_geometry(img: Any) -> tuple[int, int, int]:
-    """Return (tile_columns, tile_rows, tile_byte_size) for an open Image."""
-    cols = int(img.tile_columns)
-    rows = int(img.tile_rows)
-    bs = int(img.tile_byte_size)
-    return cols, rows, bs
-
-
 def read_tile(path: str, column: int, row: int) -> dict[str, Any]:
     """Read one tile/strip and return compact statistics (never raw pixels)."""
-    img = _open_reader(path)
-    try:
-        cols, rows_i, bs = _reader_geometry(img)
+    with _ptiff.open(path) as doc:
+        img = doc.image(0)
+        cols, rows_i = _tile_grid(img)
         if not (0 <= column < cols) or not (0 <= row < rows_i):
             raise PtiffError(
                 f"tile ({column},{row}) out of range 0..{cols - 1}, 0..{rows_i - 1}"
             )
-        tile = img.read_tile(column, row)
-        md = _metadata_for(img, bs)
-        return _analyze_samples(bytes(tile.data), md)
-    finally:
-        img.close()
+        arr = img.read_tile(column, row)
+        md = _metadata_for(img, tile_byte_size(img), str(path))
+        # The tile arrives as a numpy.ndarray (tile_height, tile_width, channels).
+        return _analyze_samples(arr.tobytes(), md)
 
 
-def _metadata_for(img: Any, tile_byte_size: int) -> Metadata:
-    """Build an MCP Metadata from an open object-layer Image (read side).
+def _metadata_for(img: Any, tile_byte_size: int, path: str = "") -> Metadata:
+    """Build an MCP Metadata from an open Image (read side).
 
-    ``image.open`` yields the core descriptor (width/height/pixel/channels)
-    plus tile_columns/rows and tile_byte_size off the open source handle.
-    Extension fields and camera are read separately when needed.
+    The PyO3 ``Image`` exposes width/height/channels + a ``pixel_type`` *name*
+    (lowercase, e.g. "uint8") and the tile *size* (``tile_width``/
+    ``tile_height``); the grid dimensions and byte size are derived.
     """
-    pixel_code = int(img.pixel_type)
-    pixel = _PIXEL_NAMES.get(pixel_code, f"unknown({pixel_code})")
+    pixel = str(img.pixel_type)
+    cols, rows_i = _tile_grid(img)
     return Metadata(
-        path=img.path,
+        path=path,
         width=int(img.width),
         height=int(img.height),
         pixel_type=pixel,
         channel_count=int(img.channel_count),
-        tile_width=None,
-        tile_height=None,
+        tile_width=int(img.tile_width),
+        tile_height=int(img.tile_height),
         compression=None,
-        tile_columns=int(img.tile_columns),
-        tile_rows=int(img.tile_rows),
+        tile_columns=cols,
+        tile_rows=rows_i,
         tile_byte_size=tile_byte_size,
-    )
-
-
-def metadata_from_desc(desc: Any) -> Metadata:
-    """Back-compat: build Metadata from a raw SWIG descriptor (kept for tests)."""
-    has_tile = getattr(desc, "has_tile_info", None)
-    tw = th = None
-    if has_tile and getattr(desc, "tile_info", None) is not None:
-        tw = int(getattr(desc.tile_info, "tile_width", 0))
-        th = int(getattr(desc.tile_info, "tile_height", 0))
-    comp = None
-    if getattr(desc, "has_compression", None):
-        comp = _COMPRESSION_NAMES.get(int(getattr(desc, "compression", 0)), "unknown")
-    return Metadata(
-        path="",
-        width=int(desc.width),
-        height=int(desc.height),
-        pixel_type=_PIXEL_NAMES.get(int(desc.pixel_type), "unknown"),
-        channel_count=int(desc.channel_count),
-        tile_width=tw or None,
-        tile_height=th or None,
-        compression=comp,
-        tile_columns=None,
-        tile_rows=None,
-        tile_byte_size=None,
     )
 
 
@@ -409,28 +394,24 @@ def read_pixel_sample(path: str, x: int, y: int, radius: int = 2) -> dict[str, A
     For simplicity, we read the tile containing (x, y) and report its local
     statistics plus the requested coordinate.
     """
-    img = _open_reader(path)
-    try:
-        md = _metadata_for(img, int(img.tile_byte_size))
+    with _ptiff.open(path) as doc:
+        img = doc.image(0)
+        md = _metadata_for(img, tile_byte_size(img), str(path))
         if not (0 <= x < md.width) or not (0 <= y < md.height):
             raise PtiffError(f"pixel ({x},{y}) outside {md.width}x{md.height}")
-        # Determine the tile containing (x, y). Tile width/height are derived
-        # from the image dims + grid when the object layer does not expose them.
-        cols = int(img.tile_columns)
-        rows = int(img.tile_rows)
-        twidth = _ceil_div(md.width, cols) if cols else md.width
-        theight = _ceil_div(md.height, rows) if rows else md.height
+        # Determine the tile containing (x, y). Tile width/height come straight
+        # off the Image; the grid position follows from x//tile_width.
+        twidth = int(img.tile_width) or _ceil_div(md.width, 1)
+        theight = int(img.tile_height) or _ceil_div(md.height, 1)
         col = x // twidth
         row = y // theight
-        tile = img.read_tile(col, row)
-        analysis = _analyze_samples(bytes(tile.data), md)
+        arr = img.read_tile(col, row)
+        analysis = _analyze_samples(arr.tobytes(), md)
         analysis["x"] = x
         analysis["y"] = y
         analysis["tile"] = {"column": col, "row": row}
         analysis["note"] = "stats reported for the tile containing the requested pixel"
         return analysis
-    finally:
-        img.close()
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -441,7 +422,7 @@ def _ceil_div(a: int, b: int) -> int:
 # Write side
 # ---------------------------------------------------------------------------
 
-# Map MCP param -> object-layer / C constants.
+# Map MCP param -> PyO3 pixel / compression codes.
 _PIXEL_CODES = {v: k for k, v in _PIXEL_NAMES.items() if v != "float64"}
 _COMPRESSION_CODES = {
     "none": _ptiff.PTIFF_COMPRESSION_NONE,
@@ -451,9 +432,9 @@ _COMPRESSION_CODES = {
 }
 
 # Keep a tiny in-process registry of open sinks so write_tile/close_image can
-# address a sink created via create_image without holding C handles over MCP.
-# Each registry entry is the object-layer Image (write side) plus its info.
-_open_sinks: dict[str, Any] = {}  # sink_key -> ptiff.Image
+# address a sink created via create_image without holding handles over MCP.
+# Each registry entry is the PyO3 Sink plus its info.
+_open_sinks: dict[str, Any] = {}  # sink_key -> ptiff_pyo3.Sink
 _sink_info: dict[str, dict[str, Any]] = {}
 
 
@@ -470,8 +451,8 @@ def create_image(
 ) -> dict[str, Any]:
     """Create a new tiled TIFF/BigTIFF file; returns the open sink info.
 
-    Uses the object-layer ``Image.create`` (which persists a camera when given)
-    and keeps the write-side Image in the in-process registry.
+    Uses ``ptiff_pyo3.create_image`` (which persists a Camera when given) and
+    keeps the write-side Sink in the in-process registry.
     """
     if pixel_type not in _PIXEL_CODES:
         raise PtiffError(
@@ -492,24 +473,25 @@ def create_image(
         raise PtiffError(f"unsupported compression '{compression}'")
 
     try:
-        img = _ptiff.Image.create(
+        sink = _ptiff.create_image(
             str(path),
             int(width),
             int(height),
             pixel_type=_PIXEL_CODES[pixel_type],
+            channel_count=int(channel_count),
             tile_width=int(tile_width),
             tile_height=int(tile_height),
-            channel_count=int(channel_count),
+            compression=comp_code,
             camera=_camera_to_struct(camera) if camera else None,
         )
     except Exception as exc:
         raise PtiffError(f"create {path}: {exc}") from exc
 
-    cols = int(img.tile_columns) or 0
-    rows = int(img.tile_rows) or 0
-    bs = int(img.tile_byte_size) or 0
+    cols = int(sink.tile_columns) or 0
+    rows = int(sink.tile_rows) or 0
+    bs = int(sink.tile_byte_size) or 0
     sink_key = f"sink:{path}"
-    _open_sinks[sink_key] = img
+    _open_sinks[sink_key] = sink
     _sink_info[sink_key] = {
         "path": path,
         "pixel_type": pixel_type,
@@ -536,7 +518,7 @@ def create_image(
 
 
 def _camera_to_struct(camera: dict[str, Any]):
-    """Build an object-layer ptiff.Camera from a flat MCP dict, if possible."""
+    """Build a ptiff_pyo3.Camera from a flat MCP dict, if possible."""
     try:
         return _ptiff.Camera(
             focal_length_x=float(camera.get("focal_length_x", 0.0)),
@@ -557,30 +539,30 @@ def _camera_to_struct(camera: dict[str, Any]):
 
 
 def _sink_for(key: str) -> Any:
-    img = _open_sinks.get(key)
-    if img is None:
+    sink = _open_sinks.get(key)
+    if sink is None:
         raise PtiffError(f"no open sink for '{key}' (call create_image first)")
-    return img
+    return sink
 
 
 def write_tile(sink_key: str, column: int, row: int, data: bytes) -> dict[str, Any]:
     """Write one tile of raw sample data to an open sink."""
-    img = _sink_for(sink_key)
+    sink = _sink_for(sink_key)
     info = _sink_info.get(sink_key, {})
     cols = int(info.get("tile_columns", 0))
     rows = int(info.get("tile_rows", 0))
     if cols == 0 or rows == 0:
-        cols = int(img.tile_columns) or 0
-        rows = int(img.tile_rows) or 0
+        cols = int(sink.tile_columns) or 0
+        rows = int(sink.tile_rows) or 0
     if not (0 <= column < cols) or not (0 <= row < rows):
         raise PtiffError(
             f"tile ({column},{row}) out of range 0..{cols - 1}, 0..{rows - 1}"
         )
-    bs = int(img.tile_byte_size)
+    bs = int(sink.tile_byte_size)
     if len(data) != bs:
         raise PtiffError(f"tile data length {len(data)} must equal tile_byte_size {bs}")
     try:
-        img.write_tile(column, row, bytes(data))
+        sink.write_tile(column, row, bytes(data))
     except Exception as exc:
         raise PtiffError(f"write tile ({column},{row}): {exc}") from exc
     return {"sink": sink_key, "column": column, "row": row, "bytes_written": len(data)}
@@ -588,10 +570,10 @@ def write_tile(sink_key: str, column: int, row: int, data: bytes) -> dict[str, A
 
 def close_image(sink_key: str) -> dict[str, Any]:
     """Flush and close an open sink (finalizes the file)."""
-    img = _sink_for(sink_key)
+    sink = _sink_for(sink_key)
     try:
-        img.close()
-    except Exception:  # noqa: BLE001, S110 -- object layer close is idempotent-tolerant
+        sink.close()
+    except Exception:  # noqa: BLE001, S110 -- Sink.close is idempotent-tolerant
         pass
     _open_sinks.pop(sink_key, None)
     _sink_info.pop(sink_key, None)
