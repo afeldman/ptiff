@@ -120,6 +120,33 @@ impl Serializer for SceneSerializer {
             root.add_child(child);
         }
 
+        // Scene-level cameras and geometries are serialized as their own child
+        // nodes (distinct from image children), discriminated by a
+        // `ptiff.scene.object_type` marker. These are format-neutral (they are
+        // not representable in the per-image TIFF tag schema, see
+        // GEOMETRY-FOUNDATION.md §8 Phase IV) and are dropped by a TIFF
+        // round-trip, mirroring `tile_info` / `ground_sample_distance_meters`.
+        for i in 0..scene.camera_count() {
+            let camera = scene.camera_at(i).expect("camera_count() bounds camera_at");
+            let mut child = StorageModel::new();
+            child.set_field("ptiff.scene.object_type", "camera");
+            for (k, v) in crate::geometry::camera_fields(camera) {
+                child.set_field(k, v);
+            }
+            root.add_child(child);
+        }
+        for i in 0..scene.geometry_count() {
+            let geometry = scene
+                .geometry_at(i)
+                .expect("geometry_count() bounds geometry_at");
+            let mut child = StorageModel::new();
+            child.set_field("ptiff.scene.object_type", "geometry");
+            for (k, v) in crate::geometry::geometry_fields(geometry) {
+                child.set_field(k, v);
+            }
+            root.add_child(child);
+        }
+
         Ok(root)
     }
 }

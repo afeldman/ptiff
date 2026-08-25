@@ -310,6 +310,17 @@ later phase without touching the format or the domain values.
 - SPICE `Pose` mapping behind the abstraction; camera pose propagation via `interpolate`.
 - `ptiff-rust` / `ptiff-c` exposure via the stable C ABI (unchanged strategy).
 
+> **Update 2026-08-25 (scene wiring, Option A):** The first line of Phase IV is now
+> **implemented in the Rust core** (`ptiff-core`): `Scene` owns optional scene-level
+> `Camera`/`Geometry` objects via `add_camera`/`add_geometry` (+ typed `CameraId`/`GeometryId`
+> lookups), distinct from the per-image camera/CRS fields. They serialize format-neutrally
+> through `SceneSerializer`/`SceneDeserializer` as their own `StorageModel` child nodes,
+> discriminated by a `ptiff.scene.object_type` marker; `geometry_fields`/`geometry_from_model`
+> in `marshal.rs` carry the geometry kind / source_image / parameters. They are **not**
+> representable in the per-image TIFF tag schema (65002/65003) and so do not survive a TIFF
+> round-trip (mirroring `tile_info`/`ground_sample_distance_meters`). The idiomatic `ptiff`
+> crate re-exports `Scene` + the `Camera`/`Geometry` types + the id handles.
+
 ---
 
 ## 9. Concrete recommendation

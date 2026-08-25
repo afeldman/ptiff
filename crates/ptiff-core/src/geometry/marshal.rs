@@ -35,10 +35,11 @@
 //! representation; parsing it back reproduces the exact value.
 
 use crate::geometry::{
-    Camera, CoordinateReferenceSystem, Ellipsoid, Frame, Planet, Projection, ProjectionKind,
+    Camera, CoordinateReferenceSystem, Ellipsoid, Frame, Geometry, GeometryKind, Planet,
+    Projection, ProjectionKind,
 };
 use crate::io::StorageModel;
-use crate::{Error, Result};
+use crate::{Error, ImageId, Result};
 
 /// Field-name prefixes per domain. The `ptiff.<domain>.` prefix is what
 /// `StorageModel` carries and what the tag codec sees after trimming.
@@ -415,6 +416,83 @@ fn projection_kind_from_str(s: &str) -> Result<ProjectionKind> {
     }
 }
 
+/// Field-name prefix for the scene-level geometry domain.
+///
+/// Scene-level geometries are serialized as their own `StorageModel` child node
+/// (distinct from image children), carrying a `ptiff.scene.object_type` marker
+/// plus the structured fields below. Unlike cameras/CRS there is no legacy
+/// per-image tag mapping, so the schema is defined fresh here (M3 surface).
+const SCENE_GEOMETRY_PREFIX: &str = "ptiff.scene.geometry.";
+
+/// Maps a [`Geometry`] into `ptiff.scene.geometry.*` fields.
+///
+/// Returns a `(key, value)` list callers set on a scene-geometry child node.
+/// `source_image` is stored as a decimal [`crate::ImageId`] value when present;
+/// named parameters are flattened as `ptiff.scene.geometry.param.<key>`.
+pub fn geometry_fields(geometry: &Geometry) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut push = |k: &str, v: String| out.push((format!("{SCENE_GEOMETRY_PREFIX}{k}"), v));
+
+    push("kind", geometry_kind_to_str(geometry.kind()).to_string());
+    if let Some(img) = geometry.source_image() {
+        push("source_image", img.value().to_string());
+    }
+    for (key, value) in geometry.iter() {
+        push(&format!("param.{key}"), value.to_string());
+    }
+    out
+}
+
+/// The canonical storage string for a [`GeometryKind`].
+fn geometry_kind_to_str(kind: GeometryKind) -> &'static str {
+    match kind {
+        GeometryKind::Unspecified => "unspecified",
+    }
+}
+
+/// Parses a canonical [`GeometryKind`] string back.
+fn geometry_kind_from_str(s: &str) -> GeometryKind {
+    match s {
+        "unspecified" => GeometryKind::Unspecified,
+        _ => GeometryKind::Unspecified,
+    }
+}
+
+/// Reconstructs a [`Geometry`] from a scene-geometry child node, if present.
+///
+/// Returns `Ok(None)` when the node carries no `ptiff.scene.geometry.*` fields
+/// at all (mirroring the camera/CRS partial-domain tolerance). A `kind` field is
+/// required; `source_image` and parameters are optional.
+pub fn geometry_from_model(node: &StorageModel) -> Result<Option<Geometry>> {
+    if !domain_present(node, SCENE_GEOMETRY_PREFIX) {
+        return Ok(None);
+    }
+
+    let kind_field = node.field(&format!("{SCENE_GEOMETRY_PREFIX}kind"));
+    let kind = geometry_kind_from_str(
+        kind_field
+            .map(str::to_string)
+            .unwrap_or_else(|_| "unspecified".to_string())
+            .as_str(),
+    );
+
+    let mut geometry = Geometry::new(kind);
+    if let Ok(raw) = node.field(&format!("{SCENE_GEOMETRY_PREFIX}source_image")) {
+        if let Ok(id) = raw.parse::<u64>() {
+            geometry.set_source_image(Some(ImageId::new(id)));
+        }
+    }
+
+    node.for_each_field(|key, value| {
+        if let Some(rest) = key.strip_prefix(SCENE_GEOMETRY_PREFIX) {
+            if let Some(param_key) = rest.strip_prefix("param.") {
+                geometry.set_parameter(param_key, value);
+            }
+        }
+    });
+    Ok(Some(geometry))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,5 +723,29 @@ mod tests {
         model.set_field("ptiff.camera.future_extension", "value");
         let back = camera_from_model(&model).expect("parse").expect("present");
         assert_eq!(back, sample_camera());
+    }
+
+    #[test]
+    fn geometry_round_trips_through_fields() {
+        let mut geometry = Geometry::new(GeometryKind::Unspecified);
+        geometry.set_source_image(Some(ImageId::new(2)));
+        geometry.set_parameter("units", "meters");
+
+        let mut model = StorageModel::new();
+        for (k, v) in geometry_fields(&geometry) {
+            model.set_field(k, v);
+        }
+        let back = geometry_from_model(&model)
+            .expect("parse")
+            .expect("present");
+        assert_eq!(back.kind(), GeometryKind::Unspecified);
+        assert_eq!(back.source_image(), Some(ImageId::new(2)));
+        assert_eq!(back.parameter("units").unwrap(), "meters");
+    }
+
+    #[test]
+    fn geometry_fields_are_absent_when_node_has_none() {
+        let model = model_with(vec![("imageWidth".to_string(), "64".to_string())]);
+        assert_eq!(geometry_from_model(&model).expect("parse"), None);
     }
 }

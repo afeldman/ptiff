@@ -65,6 +65,32 @@ impl Deserializer for SceneDeserializer {
         let mut scene = Scene::new();
 
         for node in model.children() {
+            // Scene-level cameras/geometries are stored as their own child
+            // nodes carrying a `ptiff.scene.object_type` marker (see
+            // `SceneSerializer`). Reconstruct and continue before the image
+            // path below, which assumes image fields (`imageWidth`, ...).
+            if let Ok(obj_type) = node.field("ptiff.scene.object_type") {
+                match obj_type {
+                    "camera" => {
+                        if let Some(camera) = crate::geometry::camera_from_model(node)? {
+                            scene.add_camera(camera);
+                        }
+                        continue;
+                    }
+                    "geometry" => {
+                        if let Some(geometry) = crate::geometry::geometry_from_model(node)? {
+                            scene.add_geometry(geometry);
+                        }
+                        continue;
+                    }
+                    unknown => {
+                        return Err(Error::invalid_argument(format!(
+                            "SceneDeserializer: unknown ptiff.scene.object_type \"{unknown}\""
+                        )));
+                    }
+                }
+            }
+
             let width = parse_u32(node, "imageWidth")?;
             let height = parse_u32(node, "imageHeight")?;
             let channels = parse_u32(node, "samplesPerPixel")?;
@@ -132,6 +158,7 @@ impl Default for SceneDeserializer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::{Camera, Geometry, GeometryKind};
     use crate::io::Serializer;
     use crate::ErrorCode;
 
@@ -460,6 +487,80 @@ mod tests {
                 .get("ptiff.crs.planet_name")
                 .map(String::as_str),
             Some("Moon")
+        );
+    }
+
+    #[test]
+    fn scene_level_camera_and_geometry_round_trip() {
+        // Scene-level cameras/geometries serialize as their own child nodes
+        // (marked `ptiff.scene.object_type`) and must round-trip through the
+        // format-neutral Serializer/Deserializer, distinct from images.
+        use crate::geometry::{Extrinsics, GeometryKind, Intrinsics, Quaternion, Vec3};
+
+        let mut scene = Scene::new();
+        scene
+            .add_image(ImageDescriptor::new(16, 16))
+            .expect("append image");
+        let cam_id = scene.add_camera(Camera::from_model(
+            "pinhole",
+            Intrinsics::new(500.0, 501.0, 8.0, 8.0),
+            Extrinsics::new(Quaternion::IDENTITY, Vec3::new(1.0, 2.0, 3.0)),
+            "2026-08-21T12:00:00Z",
+        ));
+        let mut geom = Geometry::new(GeometryKind::Unspecified);
+        geom.set_parameter("units", "meters");
+        let geom_id = scene.add_geometry(geom);
+
+        let model = crate::io::SceneSerializer.serialize(&scene).unwrap();
+        // Three child nodes: one image + one camera + one geometry.
+        assert_eq!(model.child_count(), 3);
+        let camelike = model
+            .children()
+            .iter()
+            .find(|c| c.field("ptiff.scene.object_type") == Ok("camera"))
+            .expect("camera child present");
+        assert!(camelike.field("ptiff.camera.model").is_ok());
+        let geometry_child = model
+            .children()
+            .iter()
+            .find(|c| c.field("ptiff.scene.object_type") == Ok("geometry"))
+            .expect("geometry child present");
+        assert_eq!(
+            geometry_child.field("ptiff.scene.geometry.kind").unwrap(),
+            "unspecified"
+        );
+        assert_eq!(
+            geometry_child
+                .field("ptiff.scene.geometry.param.units")
+                .unwrap(),
+            "meters"
+        );
+
+        let back = SceneDeserializer.deserialize(&model).unwrap();
+        assert_eq!(back.image_count(), 1);
+        assert_eq!(back.camera_count(), 1);
+        assert_eq!(back.geometry_count(), 1);
+        let cam = back.camera(cam_id).unwrap();
+        assert_eq!(cam.model_name(), "pinhole");
+        assert_eq!(cam.intrinsics().focal_length_pixels_x, 500.0);
+        let geom = back.geometry(geom_id).unwrap();
+        assert_eq!(geom.kind(), GeometryKind::Unspecified);
+        assert_eq!(geom.parameter("units").unwrap(), "meters");
+    }
+
+    #[test]
+    fn unknown_scene_object_type_is_invalid_argument() {
+        let mut model = StorageModel::new();
+        let mut child = StorageModel::new();
+        child.set_field("ptiff.scene.object_type", "mesh3d");
+        model.add_child(child);
+        let err = SceneDeserializer
+            .deserialize(&model)
+            .expect_err("must fail");
+        assert_eq!(err.code(), ErrorCode::InvalidArgument);
+        assert_eq!(
+            err.message(),
+            "SceneDeserializer: unknown ptiff.scene.object_type \"mesh3d\""
         );
     }
 }
