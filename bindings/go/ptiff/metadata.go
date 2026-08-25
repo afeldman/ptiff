@@ -38,7 +38,7 @@ typedef struct ptiff_camera {
 	char     timestamp[64];
 	int      has_lens;
 	char     lens_kind[32];
-	uint32_t lens_param_count;
+	unsigned int lens_param_count;
 	char     lens_param_key[8][16];
 	double   lens_param_value[8];
 } ptiff_camera;
