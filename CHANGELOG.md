@@ -58,6 +58,9 @@ als noch nicht veröffentlicht.
   Sprach-Bridges (Python/Octave/Go/Ruby/C++-Wrapper) inkl. Determinismus-Isolation von der
   pure-Rust-Default-Paarung, Version-Pinning und Konformitäts-/Test-Regeln. (Back-Referenz aus
   §20/Q2 / RFC-0011 §6.2.)
+- **RFC-0013 (Conformance) v0.2.0:** dokumentiert, dass die Post-1.0-Pfade (RFC-0016 ZSTD-
+  TIFF, RFC-0017 libjpeg-turbo-Bridge) **eigene Konformitäts-Runden** in die Stufen-Leiter
+  bringen und erst bei Adoption ergänzt werden — nie in die 1.0-Kern-Suite gefaltet.
 
 ## [1.0.0] — 2026-08-24
 
