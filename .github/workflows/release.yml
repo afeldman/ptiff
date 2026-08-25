@@ -156,9 +156,28 @@ jobs:
           path: ${{ github.workspace }}/dist/
           if-no-files-found: error
 
+  # Single, aggregation job that publishes the GitHub Release. Publishing from
+  # inside the 5-way packaging matrix races: each cell writes the same release
+  # object at once, and softprops/action-gh-release intermittently fails with
+  # "Not Found ... delete a release asset" when cells collide on asset list
+  # bookkeeping. One job, after all packages are uploaded, is deterministic.
+  release-publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    if: always() && needs.package.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          pattern: ptiff-*
+          merge-multiple: true
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ github.workspace }}/dist/*
+          files: dist/**
           fail_on_unmatched_files: false
