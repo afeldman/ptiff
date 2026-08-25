@@ -16,6 +16,14 @@ zwei-Sichten-Modell) und Plattform-/Packaging-Ziele in §16 (16.2a, 16.5).
 > mit der Implementierung beginnen können, ohne die grundlegenden Architekturentscheidungen
 > noch einmal treffen zu müssen.
 
+> **Update 2026-08-25 (Parity-Lücken geschlossen):** Die N-Band-Multispektral-Erweiterung
+> (`samplesPerPixel` > 3) ist im Rust-Kern nachgezogen und der phase-übergreifende, letzte
+> bekannte Parity-Gap zwischen C++-Referenz-Datenmodell und Rust-Kern ist geschlossen (Commits
+> `82720be` + `677a421`, s. §17.1). CAMERA/CRS-Fachverdrahtung über `ImageDescriptor` übersteht
+> den vollen Scene→TIFF→Scene-Roundtrip. Der Phase-2-Status in §17.1 ist entsprechend von 🚧 auf
+> ✅ korrigiert; die bewusst aufgeschobene eigenständige `Scene::{addCamera,addGeometry}`-API ist
+> als M3-RFC-Designfrage ausgewiesen (s. `GEOMETRY-FOUNDATION.md` §8 Phase IV).
+
 > **Update 2026-08-24 (Stufen 2+3 der C-ABI-Migration umgesetzt):** Die früheren Abschnitte
 > zur C-ABI lesen sich teils so, als sei `bindings/c/` die Single Source of Truth und cbindgen
 > dürfe nur ergänzend laufen. **Das ist nicht mehr der Fall.** `bindings/c/` wurde **gelöscht**
@@ -1313,7 +1321,14 @@ die aktuelle Referenzimplementierung ist C++ `libptiff`, Zielimplementierung ab 
 Rust-Core – Details siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17“). Die Meilenstein-Beschreibungen
 selbst bleiben unverändert gültig.
 
-## 17.1 Migrations-Status (Stand: 2026-08-24, aktualisiert)
+## 17.1 Migrations-Status (Stand: 2026-08-25, aktualisiert)
+
+> **Update 2026-08-25 (Parity-Lücken geschlossen):** Die N-Band-Multispektral-Erweiterung
+> (`samplesPerPixel` > 3) ist im Rust-Kern nachgezogen (Commit `82720be`); der Scene-Camera/CRS-
+> Roundtrip-Test ist als Integrationszeugnis beigetreten (Commit `677a421`). Phase 2 ist damit
+> auf ✅ gesetzt (s. Tabellenzeile); die Phase-6-fachliche Camera/CRS-Verdrahtung am
+> `ImageDescriptor` (Tags 65002/65003) war bereits ✅ und ist nun auch auf Scene-Ebene roundtrip-
+> belegt (428 lib + alle Integrations-Tests grün).
 
 > **Update 2026-08-24 (nachmittags): `libptiff` ist bereits gelöscht.** Commit `3fa458d`
 > ("refactor: replace C++ libptiff with pure-Rust workspace (Phases B-D)") hat `libptiff/`
@@ -1339,7 +1354,7 @@ verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace -
 |-------|------|--------|-----------|
 | 0 | Analyse | ✅ | dieses Dokument |
 | 1 | Workspace + Grundgerüst | 🚧 | `ptiff-core` + `ptiff` (Rust-API, `crates/ptiff-rust`) + `ptiff-c` (C-ABI, Version/Error/Pixel-Type-/Compression-Enums/Image/Backend) da — Workspace kompiliert und testet; Grundgerüst i. W. fertig |
-| 2 | Datenmodell (StorageModel + Domain-Typen) | 🚧 | `Scene`/`Image`/`StorageModel`/`Serializer`/`Deserializer` fertig; `Camera`/`CoordinateReferenceSystem`/`Geometry` existieren als eigenständige Rust-Typen, sind aber **nicht** in `Scene` verdrahtet (kein `addCamera`/`addGeometry`) — DoD nicht vollständig erfüllt |
+| 2 | Datenmodell (StorageModel + Domain-Typen) | ✅ | `Scene`/`Image`/`StorageModel`/`Serializer`/`Deserializer` fertig; `Camera`/`CoordinateReferenceSystem`/`Geometry` existieren als eigenständige Rust-Typen. **Fachliche Verdrahtung** der Camera/CRS-Domäne über `ImageDescriptor` (→ TIFF-Tags 65002/65003) ist ✅ (Phase 6, `marshal.rs`) und übersteht den vollen `Scene` → StorageModel → TIFF → StorageModel → `Scene`-Roundtrip (`tests/scene_tiff_roundtrip.rs`, Commit `677a421`). Eine **eigenständige** `Scene::{addCamera,addGeometry}`-API ist nach `GEOMETRY-FOUNDATION.md` §8 Phase IV bewusst nicht als C++-Portierung vorhanden (C++-Oracle hat sie nicht, M3 steht als offenes RFC) und wird als M3-RFC-Designfrage separat getrackt, nicht als Phase-2-Rückstand. DoD ("Domain-Modell-Tests grün, Metadaten-Vergleich-Roundtrips grün") erfüllt |
 | 3 | TIFF/BigTIFF-Kern | ✅ | TIFF/BigTIFF-Header/IFD/Directory/Tile-Layer fertig (`TiffBackend`, IFD-Kette lesen/schreiben, Mehrbild); **ISIS3 CUB-, PDS4-, OpenEXR- und Zarr-Backend alle fertig** (2026-08-24, `crates/ptiff-core/src/io/backend/{isis,pds4,openexr,zarr}/`) — **alle 4 C++-Backends sind damit portiert, C++-Gegenstück existiert nicht mehr** (s. Update oben). Plus: Cloud-Object-Storage-Lesetransport (`HttpRangeBinaryReader`) laut `ROADMAP.md` Meilenstein 2 ebenfalls fertig, war in dieser Phasenliste ursprünglich nicht vorgesehen. Verifiziert via `cargo build --all-features` + `clippy` + `fmt`, 515/515 Tests grün im Gesamt-Workspace |
 | 4 | Kompression | ✅ | PackBits/LZW/Predictor (dependency-frei) fertig; **Zarr-ZSTD fertig** (in `backend/zarr/codec.rs`, als Zarr-Chunk-Kompression via `zstd`/`flate2`); **Deflate fertig** (`backend/tiff/compression/deflate.rs`, via `flate2`/zlib); **JPEG fertig** (`backend/tiff/compression/jpeg.rs`, reines Rust via `jpeg-encoder`/`jpeg-decoder`, feature-gated hinter `tiff-codecs`); alle Codecs roundtrip- und (verlustfrei) golden-getestet; **ZSTD als TIFF-Codec offen** (RFC-0011) |
 | 5 | Tiles / parallele Verarbeitung (Rayon) | ✅ | **Parallele Tile-Kompression/-Dekompression via Rayon** (2026-08-24) implementiert: `parallel`-Feature (rayon) in `ptiff-core`, `parallel.rs` (deterministischer `par_iter` + geordneter `collect`), `TiffImageSink::write_compressed_tiles_parallel` (parallele CPU-Kompression, sequentielles Schreiben in Offset-Reihenfolge, §6.2 Pt. 4) + `TiffImageSource::read_all_tiles_parallel` (sequentielles I/O, parallele Dekompression, §6.2 Pt. 3). Ergebnisse garantiert byte-identisch zum sequentiellen Pfad (§6.5 Bestimmtheit; Rayon geordneter `collect` liefert Input-Reihenfolge). Feature-optional (Default-Build dependency-frei, rayon nicht eingezogen). **Idiomatische Rust-Facade (`ptiff`, 2026-08-24):** `parallel`-Feature forwardet `ptiff-core/parallel` und exponiert `Tiff::read_all_tiles_parallel` / `Tiff::read_image_pixels_parallel` (paralleles Dekomprimieren) sowie `Tiff::to_bytes_with_pixels_parallel` (paralleles Komprimieren). Der gemeinsame Write-Kernel (`write_pixels_to_writer` + `WriteMode`-Enum) ist sequentiell/parallel byte-identisch und unterstützt **single-image tiled+compressed** (via `plan_tiff_write`); multi-image tiled+compressed bleibt (wie im Kern) nicht kombinierbar. Verifiziert: 5 neue Facade-Tests (byte-identity seq↔par write/read, parallel write→parallel read roundtrip, out-of-range, Threshold-Fallback). DoD erfüllt: Parallel-Mode aktiv, deterministisch; 8 Modul- + 6 Integrations-Tests (Kern) + 5 Facade-Tests (parallel vs. sequentiell byte-identisch, LZW/Deflate/PackBits, Write+Read-Roundtrip, Threshold-Fallback); **H7/H8-Benchmark-Messung gegen C++** ist Phase-12 (Benchmarks) vorbehalten, da C++-Orcale nicht mehr gebaut wird |
@@ -1352,11 +1367,17 @@ verifiziert (`cargo build --workspace --all-features`, `cargo test --workspace -
 | 12 | Kompatibilität / Benchmarks (Cross-Validation ggü. C++-Oracle) | 🚧 **punktuell, nicht systematisch** | keine dedizierte Cross-Validation-Benchmark-Suite wie in §5/§17.0 vorgesehen; was existiert: golden-digest-Tests (vor der Löschung eingefroren) + R4-Bindings-Tests (Go/Python/Ruby/Octave) gegen ein eingefrorenes C++-Oracle-Fixture (`scripts/samples/ptiff_interop_fixture.tif`). Da `libptiff` inzwischen gelöscht ist, ist ein Nachholen der ursprünglich geplanten systematischen Cross-Validation **nicht mehr möglich**, außer durch Wiederherstellen von `libptiff` aus der Git-Historie |
 | 13 | PTIFF 1.0 (C++ archivieren) | ✅ **außer der Reihe erreicht** | `libptiff` in Commit `3fa458d` gelöscht (nicht nur archiviert), Workspace auf `1.0.0` gesetzt, Tag `v1.0.0-alpha.1` existiert. **Voraussetzung „Phase 12 vor 13" wurde nicht eingehalten** (s. Update-Hinweis oben) — Phase 5 (Parallelisierung, inzwischen ✅, s. Phase-5-Zeile) ebenfalls nicht vor 13 nachgeholt, entgegen der Reihenfolge-Empfehlung unten |
 
-**Zusätzlicher, phasenübergreifender Gap:** Die N-Band-Multispektral-Erweiterung von
-`samplesPerPixel` (C++ `libptiff` ≥ 0.4.0, motiviert durch anstehende Merkur-Spektrenbilddaten,
-s. `documents/paper/ptiff/ptiff.tex` §Begrenzungen) ist im C++-Kern implementiert und getestet,
-im Rust-Kern (Phase 3/4) **noch nicht nachgezogen** — weiterer, konkreter Parity-Gap zwischen den
-beiden Implementierungen, unabhängig von den 13 Phasen oben zu schließen.
+**Zusätzlicher, phasenübergreifender Gap (geschlossen 2026-08-25):** Die
+N-Band-Multispektral-Erweiterung von `samplesPerPixel` (C++ `libptiff` ≥ 0.4.0, motiviert durch
+anstehende Merkur-Spektrenbilddaten, s. `documents/paper/ptiff/ptiff.tex` §Begrenzungen) ist
+inzwischen im Rust-Kern (Phase 3/4) **vollständig nachgezogen** (Commits `82720be`
+"feat(tiff): multispectral (N-band) directory planning and tiled write parity" und `677a421`
+"test(tiff): end-to-end Scene camera/CRS round-trip through the TIFF backend"): der
+`directory_writer` plant N-band-Images (`samplesPerPixel` ∈ {N}), emittiert das `ExtraSamples`-Tag
+nur für multispektral (nicht RGB/Graustufen), lehnt `samplesPerPixel == 0` und Werte über dem
+defensiven Cap von 512 ab, und ein 6-Band-Tile-Roundtrip (`tiled_write`) ist grün. Damit ist der
+einzige noch bekannte, konkrete Parity-Abstand zwischen C++-Referenz-Datenmodell und Rust-Kern
+geschlossen.
 
 **Reihenfolge-Empfehlung:** Phase 7 vor 8–11 (alle Bindings-Phasen hängen an der C-ABI); Phase 12
 vor 13 zwingend (kein „libptiff löschen“ ohne bewiesene Parität). Phase 5 (Parallelisierung)
@@ -1654,8 +1675,12 @@ kompiliert“, sondern weil Cargo Feature-basiert nur das Nötige baut und schwe
 durch kleinere, reine-Rust-Crates ersetzt (libjpeg-turbo bleibt als einzige schwere C-Dependency
 für den deterministischen JPEG-Pfad).
 
-**Nächster Schritt:** Phase-1/Workshop, Architekturentscheidungen aus §20 votieren, dann Phase
-1 starten.
+> **Stand 2026-08-25:** Die Migration ist inzwischen weit fortgeschritten (Phasen 1–11 und 13
+> nach §17.1 ✅ sowie der N-Band-Parity-Gap geschlossen). Der verbleibende offene Punkt ist
+> **Phase 12 (systematische Cross-Validation / Benchmarks)** — durch die Löschung von `libptiff`
+> nur punktuell abgedeckt; sowie als M3-RFC-Designfrage die eigenständige
+> `Scene::{addCamera,addGeometry}`-API (§17.1/`GEOMETRY-FOUNDATION.md`). Für die noch offenen
+> §20-Entscheidungen (v. a. ZSTD-Codec, JPEG-Encoder-Pinning) siehe die jeweiligen RFCs.
 
 ---
 
