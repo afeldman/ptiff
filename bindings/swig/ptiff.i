@@ -4,8 +4,15 @@
    bound only to the extern "C" surface of libptiff_c: no C++ runtime, no
    C++ headers, no libstdc++ involvement.
 
-   One .i drives FOUR targets (Python, Go, Ruby, Octave) -- pick with
-   `swig -python`, `-go`, `-ruby` or `-octave` (see the Makefile).
+   One .i drives TWO active targets today (Go, Ruby) -- pick with `swig -go`
+   or `swig -ruby` (see the Makefile). This is the *generic* SWIG path for
+   "any language other than Python and Octave": Python is bound natively via
+   PyO3 (crates/ptiff-python), and Octave via the hand-written C++ MEX adapter
+   (bindings/octave/mex), so neither is a SWIG target. Adding another language
+   (e.g. `swig -csharp`, `-java`, `-perl`, `-lua`, `-julia (...)`) only needs a
+   new language guard block in typemaps.i -- see the note at the top of that
+   file for the exact C-ABI patterns each language must map.
+
    Buffer/out-param typemaps are pulled from typemaps.i and guarded per-language
    (see the note at the top of that file).
 
