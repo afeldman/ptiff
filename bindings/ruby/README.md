@@ -81,7 +81,7 @@ cd test && RUBYLIB=../lib ruby test_roundtrip.rb
 ```bash
 gem build ptiff.gemspec
 # local install
-gem install ./ptiff-1.0.1.gem
+gem install ./ptiff-1.1.0.gem
 # or with Bundler from this directory
 bundle install
 ```

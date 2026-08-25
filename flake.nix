@@ -10,7 +10,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        ptiff = (import ./default.nix { inherit pkgs; version = "1.0.1"; });
+        ptiff = (import ./default.nix { inherit pkgs; version = "1.1.0"; });
       in {
         packages = {
           default = ptiff;

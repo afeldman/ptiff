@@ -5,7 +5,7 @@ Planetary TIFF
 An open TIFF-compatible scientific image standard for planetary imagery,
 stereo vision, GIS, AI and 3D reconstruction.
 
-**Status: `1.0.0`** — die Referenzimplementierung ist eine reine Rust-Workspace
+**Status: `1.1.0`** — die Referenzimplementierung ist eine reine Rust-Workspace
 (`ptiff-core` → `ptiff-rust` → `ptiff-cli` / `ptiff-c`). Sie liest und schreibt
 TIFF/BigTIFF inklusive Kompression und Mehrbild-Dokumente, bietet mehrere
 weitere echte Backends und einen Lese-Transport für Cloud-Object-Storage. Der
@@ -16,8 +16,11 @@ nicht mehr nur Grau/RGB) für multispektrale Daten, inkl. korrektem
 `ExtraSamples`-Tag. Die PTIFF-spezifischen Private-Tags **65001–65005** (SPICE,
 Kamera-Geometrie, CRS, Scientific-Layer, Provenienz) sind als konkreter
 TIFF-Tag-Output implementiert und roundtrip-fest getestet.
+Neu in 1.1.0: eine native **Julia-Bindung** `Ptiff.jl` (`bindings/julia`), die
+`libptiff_c` über `ccall` direkt anspricht — Teil der Benchmark-Suite
+(`bench_julia.jl`) und der CI (`julia-bindings.yml`).
 
-## Features (Stand 1.0.0)
+## Features (Stand 1.1.0)
 
 - **TIFF/BigTIFF lesen und schreiben** (`TiffBackend` im Rust-Kern): Header/IFD-Parsing,
   Tile-/Strip-Lesen, Mehrbild-Dokumente (IFD-Kette), format-neutrales

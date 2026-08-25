@@ -9,7 +9,7 @@
 # (clang, fmt, spdlog, pugixml, OpenEXR, libcurl, ...) are needed.
 
 { pkgs ? import <nixpkgs> { }
-, version ? "1.0.1"
+, version ? "1.1.0"
 }:
 
 let

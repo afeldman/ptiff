@@ -18,7 +18,7 @@
 # Project information
 # ----------------------------------------------------------------------------
 PROJECT_NAME           = "PTIFF"
-PROJECT_NUMBER         = 1.0.1
+PROJECT_NUMBER         = 1.1.0
 PROJECT_BRIEF          = "Planetary Terrain-sensor Image File Format -- reference implementation"
 PROJECT_LOGO           =
 OUTPUT_DIRECTORY       = build/docs
