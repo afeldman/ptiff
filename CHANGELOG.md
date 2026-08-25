@@ -29,6 +29,16 @@ als noch nicht veröffentlicht.
 - **Status:** Workspace `cargo test --workspace --all-features` grün (562 + 5 neue Tests).
   Siehe `PTIFF-1.0-RUST-CORE-PLAN.md` §17.1 und `conformance/matrix.md`.
 
+### §20 – Codec-Entscheidungen (Lock 2026-08-25)
+
+- **ZSTD als TIFF-Codec: NEIN für 1.0.** `CompressionKind` bleibt None/Lzw/Deflate/Jpeg; ZSTD
+  bleibt reiner Zarr-Chunk-Codec (kein standardisierter TIFF-Tag-Wert; dependency-light-Ziel
+  bleibt gewahrt). Dokumentiert als Post-1.0-Kandidat. (RFC-0011 §6.1).
+- **JPEG-Encoder-Pinning: pure-Rust.** Für 1.0 ist die deterministische
+  `jpeg-encoder`/`jpeg-decoder`-Paarung gepinnt (Phase-4-Realität, baseline 4:4:4, Pixel-Toleranz-
+  Golden statt byte-exakt). libjpeg-turbo bleibt ein optionaler, feature-gated Post-1.0-Pfad für
+  SIMD-Durchsatz/Parität mit dem C++-Oracle. (RFC-0011 §6.2).
+
 ## [1.0.0] — 2026-08-24
 
 ### Meilenstein: Rust-Referenzkern und C-ABI-Homogenisierung
