@@ -74,6 +74,11 @@ output.
 
 - `RFC-0001-Core.md` — §12 (extensibility), §17 item 9.
 - `RFC-7002` — payload codec.
+- `RFC-0016-ZSTD-TIFF.md` — Post-1.0 reserve: normative gaps (tag value, block/window
+  geometry, scientific losslessness, dependency policy) a future ZSTD-as-TIFF-codec revision
+  must close before any code change.
+- `RFC-0017-JPEG-LibjpegTurbo-Bridge.md` — Post-1.0 reserve: bridge-only, feature-gated
+  libjpeg-turbo path behind the C-ABI, with determinism isolation from the pure-Rust default.
 - Reference implementation: `crates/ptiff-core/src/io/backend/tiff/`
   (Rust; `image_source.rs`, `image_sink.rs`), `specification/core/container-encoding.md` §5.
 
@@ -104,7 +109,10 @@ other value with a clear decoding error (RFC-0011 §4).
 
 **Consequence:** ZSTD-as-a-TIFF-codec stays a documented *Post-1.0* candidate (§7002 / plan §5.2
 "ZSTD als TIFF-Codec offen"); revisiting it requires a normative RFC revision that first defines
-the tag value and conformance rules, not a code-only change.
+the tag value and conformance rules, not a code-only change. **The Post-1.0 reserve — including
+the exact normative gaps to close (tag value 34925 vs. PTIFF-private allocation, block/window
+geometry, scientific losslessness, Pure-Rust dependency policy) — is now written up as
+RFC-0016** (draft; NOT active for 1.0).
 
 ### 6.2 JPEG — pinned to the deterministic pure-Rust encoder/decoder
 
@@ -132,3 +140,5 @@ path behind the C-ABI** (Python/Octave/Go/Ruby/C++-wrapper), per the **Pure-Rust
 (plan §3.1.9: *core & Rust interfaces are pure-Rust; bridges may use native libraries*); it is
 never a Rust-interface/kern dependency. If/when introduced, it must document its pinned minimum
 version and coexist with the pure-Rust default so the deterministic default path is unchanged.
+**The Post-1.0 reserve — the bridge-only boundary, determinism isolation, version pinning, and
+test/conformance rules — is now written up as RFC-0017** (draft; NOT active for 1.0).
