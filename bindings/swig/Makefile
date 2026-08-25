@@ -132,7 +132,7 @@ $(RB_DIR)/ptiff_wrap.c: ptiff.i typemaps.i $(GEN_DIR)
 	$(SWIG) -ruby -outdir $(RB_DIR) -o $(RB_DIR)/ptiff_wrap.c -I$(GEN_DIR) ptiff.i
 
 $(RB_DIR)/ptiff.$(RBDLEXT): $(RB_DIR)/ptiff_wrap.c
-	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared -undefined dynamic_lookup \
+	$(CC) -O2 -fPIC -I$(RBHDR1) -I$(RBHDR2) $(LIBC_CFLAGS) -shared $(UNDEFINED_SYMBOLS) \
 		$(RB_DIR)/ptiff_wrap.c -o $@ $(LIBC_LDFLAGS)
 
 ruby: $(RB_DIR)/ptiff.$(RBDLEXT)
