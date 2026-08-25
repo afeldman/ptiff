@@ -48,7 +48,7 @@ METRICS = [
     ("cli_copy_nac", "cli_copy_nac_ms"),
 ]
 
-ORDER = ["python", "ruby", "go", "octave", "rust", "cli"]
+ORDER = ["python", "ruby", "go", "octave", "julia", "rust", "cli"]
 
 # Exact pixel payload (bytes of decoded tile data) read by each *pixel-read*
 # metric with --nac / --real / default fixtures. Used to compute a MB/s

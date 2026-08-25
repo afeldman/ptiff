@@ -151,6 +151,15 @@ run_octave() {
     --eval "addpath('$REPO/bindings/octave/mex','$REPO/benchmarks/src'); bench_octave('$REPO/benchmarks/$OUT/octave.json', $([ "$REAL" = 1 ] && echo true || echo false), $([ "$NAC" = 1 ] && echo true || echo false));"
 }
 
+run_julia() {
+  log "benchmarking julia"
+  if ! command -v julia >/dev/null; then fail "julia not installed"; return 1; fi
+  if [ ! -f "$C_LIB" ]; then fail "no libptiff_c under target/release (run 'cargo build -p ptiff-c --release')"; return 1; fi
+  if [ ! -f "$REPO/bindings/julia/src/Ptiff.jl" ]; then fail "julia binding missing"; return 1; fi
+  julia --startup-file=no src/bench_julia.jl --out "$OUT/julia.json" \
+    "${EXTRA_ARGS[@]}"
+}
+
 run_rust() {
   log "benchmarking rust"
   if ! command -v cargo >/dev/null; then fail "cargo not installed"; return 1; fi
@@ -180,7 +189,7 @@ run_cli() {
 }
 
 # ---- dispatch ----
-LANG_SELECT="${LANG_ARGS[*]:-python ruby go octave rust cli}"
+LANG_SELECT="${LANG_ARGS[*]:-python ruby go octave julia rust cli}"
 status=0
 for lang in $LANG_SELECT; do
   case "$lang" in
@@ -188,9 +197,10 @@ for lang in $LANG_SELECT; do
     ruby)   run_ruby ;;
     go)     run_go ;;
     octave) run_octave ;;
+    julia)  run_julia ;;
     rust)   run_rust ;;
     cli)    run_cli ;;
-    *) fail "unknown target '$lang' (python|ruby|go|octave|rust|cli)"; status=1 ;;
+    *) fail "unknown target '$lang' (python|ruby|go|octave|julia|rust|cli)"; status=1 ;;
   esac || { fail "$lang benchmark failed (continued)"; status=1; }
 done
 
