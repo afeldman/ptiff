@@ -92,18 +92,18 @@ def write_all_tiles(tmpdir: Path, iters: int) -> None:
 
 def read_all_tiles(path: Path, iters: int) -> None:
     doc = ptiff.open(str(path))
-    try:
-        img = doc.image(0)
-        ncols = img.tile_columns
-        nrows = img.tile_rows
-        for _ in range(iters):
-            for c in range(ncols):
-                for r in range(nrows):
-                    # read_tile returns a fresh numpy.ndarray; discarded here
-                    # (we measure raw tile-read throughput).
-                    img.read_tile(column=c, row=r)
-    finally:
-        doc.close()
+    img = doc.image(0)
+    ncols = img.tile_columns
+    nrows = img.tile_rows
+    for _ in range(iters):
+        for c in range(ncols):
+            for r in range(nrows):
+                # read_tile returns a fresh numpy.ndarray; discarded here
+                # (we measure raw tile-read throughput).
+                img.read_tile(column=c, row=r)
+    # The Document is released on garbage collection (no explicit close);
+    # dropping the references here frees the parser before the next sample.
+    del doc
 
 
 def fixture_info(name: str) -> dict:
@@ -135,14 +135,15 @@ def main() -> int:
     nac = args.nac
 
     # Warm-up: load the module + libptiff backends once before any measurements.
+    # Use a minimal but valid tiled image (tiles must be nonzero multiples of 16).
     ptiff.create_image(
         str(Path(tempfile.gettempdir()) / "_ptiff_warmup.tif"),
-        width=1,
-        height=1,
+        width=16,
+        height=16,
         pixel_type=0,
         channel_count=1,
-        tile_width=1,
-        tile_height=1,
+        tile_width=16,
+        tile_height=16,
         compression=0,
     ).close()
 
