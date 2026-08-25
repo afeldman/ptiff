@@ -14,7 +14,7 @@ median-of-repeats methodology of the rest of the suite.
 Metrics:
     cli_info_uint8_128_ms   `ptiff info fixtures/uint8_128.tif` (tiny file;
                             dominated by process/library load + parse)
-    cli_info_nac_ms         `ptiff info scripts/samples/NAC_DTM_ATLAS2.PYR.TIF`
+    cli_info_nac_ms         `ptiff info benchmarks/data/NAC_DTM_ATLAS2.PYR.TIF`
                             (real ~55 MB NASA LRO-NAC pyramid; large IFD parse)
                             omitted if the sample is not cached locally
     cli_copy_nac_ms         `ptiff copy` of the real LRO-NAC DTM (256x256 tiles);
@@ -51,7 +51,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent  # benchmarks/
 PROJECT = REPO.parent  # repo root
 FIXTURES = REPO / "fixtures"
-SAMPLES = PROJECT / "scripts" / "samples"
+# Real NASA samples, copied here so the benchmark suite runs standalone (same
+# real data as documents/paper/ptiff/experiment/data/, gitignored).
+SAMPLES = REPO / "data"
 
 
 def _run_once(bin_path: str, file: Path) -> float:
@@ -132,12 +134,28 @@ def main() -> int:
                 pass
             return t
 
-        copy_once()  # warm-up
-        metrics["cli_copy_nac_ms"] = median_samples(repeats, copy_once)
+        # The CLI copy can legitimately fail on an edge-case legacy file (e.g.
+        # a tiny top pyramid level stored as a single oversized tile). Failures
+        # degrade gracefully: skip just this metric with a warning rather than
+        # crashing the whole CLI benchmark.
         try:
-            dst.unlink()
-        except OSError:
-            pass
+            copy_once()  # warm-up
+        except subprocess.CalledProcessError as e:
+            print(
+                "[cli] WARN: ptiff copy on NAC DTM failed "
+                f"(exit {e.returncode}); skipping cli_copy_nac_ms",
+                file=sys.stderr,
+            )
+            try:
+                dst.unlink()
+            except OSError:
+                pass
+        else:
+            metrics["cli_copy_nac_ms"] = median_samples(repeats, copy_once)
+            try:
+                dst.unlink()
+            except OSError:
+                pass
     else:
         print("[cli] NAC sample not present; skipping cli_info_nac_ms", file=sys.stderr)
 

@@ -335,18 +335,30 @@ fn run_copy(src: &PathBuf, dst: &PathBuf, verbose: bool) -> CliResult {
 /// tiled source (a known core caveat), so the on-disk `layout` supplies the
 /// real tile grid when present.
 fn descriptor_of(image: &ptiff::Image, layout: &ptiff::TileLayout) -> ImageDescriptor {
+    // The on-disk `layout` reports how `read_image_pixels` actually decodes the
+    // raster: a grid of `columns(0) x rows(0)` tiles, each of `tile_size`.
+    // `to_bytes_with_pixels` must see the same grid, so the descriptor's tile
+    // info must mirror that layout whenever it describes real tiling.
+    //
     // A TIFF single-strip (untiled) image reports a "layout" whose tile size
     // equals the whole image (width x rows_per_strip) — that is not real
-    // tiling. Only surface a tile grid when the stored tile is strictly
-    // smaller than the image in at least one axis.
+    // tiling, and the natural raster (`image.tile_info()`, usually None) round
+    // trips as a single spanning tile. But a *real* tile grid can be a single
+    // padded tile that is larger than the image (e.g. the 42x222 top level of
+    // a 256x256-tiled pyramid): here the stored tile is strictly smaller than
+    // the image in no axis, yet the reader still returns the full 256x256
+    // block. Surface the on-disk grid whenever the tile does not exactly
+    // equal the whole image, so the copy stays byte-consistent.
     let tile_info =
-        if layout.tile_size.width < image.width() || layout.tile_size.height < image.height() {
+        if layout.tile_size.width == image.width() && layout.tile_size.height == image.height() {
+            // Whole-image single strip / single spanning tile: the natural,
+            // untiled raster. Keep the scene's own tile_info (usually None).
+            image.tile_info()
+        } else {
             Some(TileInfo::new(
                 layout.tile_size.width,
                 layout.tile_size.height,
             ))
-        } else {
-            image.tile_info()
         };
     ImageDescriptorBuilder::new(image.width(), image.height())
         .pixel_type(image.pixel_type())
@@ -722,5 +734,34 @@ mod tests {
         assert_eq!(rebuilt.tile_info, Some(TileInfo::new(16, 16)));
         assert_eq!(rebuilt.width, 34);
         assert_eq!(rebuilt.height, 34);
+    }
+
+    #[test]
+    fn descriptor_of_surfaces_single_oversized_tile_of_small_pyramid_level() {
+        // Regression: a real tile grid can be a single padded tile *larger*
+        // than the image in every axis — the 42x222 top level of a 256x256
+        // tiled pyramid. `read_image_pixels` returns the full 256x256 block
+        // (65536 bytes), so `to_bytes_with_pixels` must see the same 256x256
+        // grid; the descriptor must surface the on-disk tiling rather than
+        // fall back to the scene's (usually None) tile info.
+        let img = ptiff::Image::new(ImageDescriptorBuilder::new(42, 222).build());
+        let layout = ptiff::TileLayout::new(ptiff::TileExtent::new(256, 256), 42, 222, 1);
+        let rebuilt = descriptor_of(&img, &layout);
+        assert_eq!(rebuilt.tile_info, Some(TileInfo::new(256, 256)));
+        assert_eq!(rebuilt.width, 42);
+        assert_eq!(rebuilt.height, 222);
+    }
+
+    #[test]
+    fn descriptor_of_keeps_untiled_when_layout_is_whole_image_single_strip() {
+        // A single-strip (untiled) image reports a layout whose tile size
+        // equals the whole image — that is not real tiling, so the natural
+        // (None) tile info must be preserved.
+        let img = ptiff::Image::new(ImageDescriptorBuilder::new(42, 222).build());
+        let layout = ptiff::TileLayout::new(ptiff::TileExtent::new(42, 222), 42, 222, 1);
+        let rebuilt = descriptor_of(&img, &layout);
+        assert_eq!(rebuilt.tile_info, None);
+        assert_eq!(rebuilt.width, 42);
+        assert_eq!(rebuilt.height, 222);
     }
 }
