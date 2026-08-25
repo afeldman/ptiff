@@ -827,6 +827,11 @@ mod tests {
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
             timestamp: [0 as c_char; 64],
+            has_lens: 1,
+            lens_kind: [0 as c_char; 32],
+            lens_param_count: 0,
+            lens_param_key: [[0 as c_char; 16]; crate::camera::K_CAMERA_LENS_MAX_PARAMS],
+            lens_param_value: [0.0; crate::camera::K_CAMERA_LENS_MAX_PARAMS],
         };
 
         let sink = ptiff_sink_create_camera(
@@ -868,6 +873,11 @@ mod tests {
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
             timestamp: [0 as c_char; 64],
+            has_lens: 0,
+            lens_kind: [0 as c_char; 32],
+            lens_param_count: 0,
+            lens_param_key: [[0 as c_char; 16]; crate::camera::K_CAMERA_LENS_MAX_PARAMS],
+            lens_param_value: [0.0; crate::camera::K_CAMERA_LENS_MAX_PARAMS],
         };
         let rc = crate::camera::ptiff_open_path_camera(
             std::ffi::CString::new(path_s).unwrap().as_ptr(),
@@ -933,6 +943,11 @@ mod tests {
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
             timestamp: [0 as c_char; 64],
+            has_lens: 1, // pre-set to detect overwrite
+            lens_kind: [0 as c_char; 32],
+            lens_param_count: 0,
+            lens_param_key: [[0 as c_char; 16]; crate::camera::K_CAMERA_LENS_MAX_PARAMS],
+            lens_param_value: [0.0; crate::camera::K_CAMERA_LENS_MAX_PARAMS],
         };
         let rc = crate::camera::ptiff_open_path_camera(
             std::ffi::CString::new(path_s).unwrap().as_ptr(),

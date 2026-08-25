@@ -36,6 +36,11 @@ typedef struct ptiff_camera {
 	double   extrinsics[12];
 	double   projection[12];
 	char     timestamp[64];
+	int      has_lens;
+	char     lens_kind[32];
+	uint32_t lens_param_count;
+	char     lens_param_key[8][16];
+	double   lens_param_value[8];
 } ptiff_camera;
 
 int ptiff_open_path_camera(const char* path, ptiff_camera* out);
@@ -117,6 +122,11 @@ type Camera struct {
 	Extrinsics    [12]float64 // 3x4 [R|t] (row-major)
 	Projection    [12]float64 // 3x4 P = K * [R|t] (row-major)
 	Timestamp     string      // ISO-8601 UTC, empty when unset
+	// Lens (distortion) model: canonical kind ("pinhole" | "fisheye" |
+	// "pushbroom") plus named double distortion parameters (e.g. k1/k2/p1).
+	HasLens        bool
+	LensKind       string
+	LensParameters map[string]float64
 }
 
 // OpenPathCamera opens the TIFF/BigTIFF file at path and returns the structured
@@ -147,6 +157,8 @@ func OpenPathCamera(path string) (Camera, error) {
 		PositionY:     float64(cam.position_y),
 		PositionZ:     float64(cam.position_z),
 		Timestamp:     C.GoString(&cam.timestamp[0]),
+		HasLens:       cam.has_lens != 0,
+		LensKind:      C.GoString(&cam.lens_kind[0]),
 	}
 	for i := range cam.intrinsics {
 		out.Intrinsics[i] = float64(cam.intrinsics[i])
@@ -156,6 +168,21 @@ func OpenPathCamera(path string) (Camera, error) {
 	}
 	for i := range cam.projection {
 		out.Projection[i] = float64(cam.projection[i])
+	}
+	// Copy the fixed lens-parameter arrays into a Go map. The C writer caps at
+	// 8 parameters; an old reader/foreign writer leaves count 0.
+	n := int(cam.lens_param_count)
+	if n > 8 {
+		n = 8
+	}
+	if n > 0 {
+		out.LensParameters = make(map[string]float64, n)
+		for i := 0; i < n; i++ {
+			key := C.GoString(&cam.lens_param_key[i][0])
+			if key != "" {
+				out.LensParameters[key] = float64(cam.lens_param_value[i])
+			}
+		}
 	}
 	return out, nil
 }

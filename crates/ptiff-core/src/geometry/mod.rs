@@ -35,7 +35,7 @@ pub use ellipsoid::Ellipsoid;
 pub use extrinsics::Extrinsics;
 pub use frames::{Frame, FramePair};
 pub use intrinsics::Intrinsics;
-pub use lens_model::{LensModel, LensModelKind};
+pub use lens_model::{lens_model_kind_from_str, lens_model_kind_str, LensModel, LensModelKind};
 /// Typed marshalling between the camera / CRS / geometry domain classes
 /// (`camera_fields`, `camera_from_model`, `crs_fields`, `crs_from_model`,
 /// `geometry_fields`, `geometry_from_model`) and the flat

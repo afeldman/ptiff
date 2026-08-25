@@ -307,6 +307,19 @@
     rb_hash_aset(h, rb_str_new2("projection"), p);
   }
   rb_hash_aset(h, rb_str_new2("timestamp"), rb_str_new2((const char*)cam_tmp2.timestamp));
+  /* Lens (distortion) model: kind string + named parameter hash. */
+  rb_hash_aset(h, rb_str_new2("has_lens"), INT2NUM(cam_tmp2.has_lens));
+  rb_hash_aset(h, rb_str_new2("lens_kind"), rb_str_new2((const char*)cam_tmp2.lens_kind));
+  {
+    VALUE lp = rb_hash_new();
+    for (uint32_t i = 0; i < cam_tmp2.lens_param_count && i < 8; ++i) {
+      if (cam_tmp2.lens_param_key[i][0] != 0) {
+        rb_hash_aset(lp, rb_str_new2((const char*)cam_tmp2.lens_param_key[i]),
+                     DBL2NUM(cam_tmp2.lens_param_value[i]));
+      }
+    }
+    rb_hash_aset(h, rb_str_new2("lens_parameters"), lp);
+  }
   /* Same SWIG_VERSION branch (>= 4.3.0) as the fields typemap. */
 #if SWIG_VERSION >= 0x040300
   vresult = SWIG_Ruby_AppendOutput(vresult, h, 0);

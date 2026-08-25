@@ -55,3 +55,38 @@ def test_camera_absent_is_empty(tmp_path):
     cam = ptiff.open(path).camera(0)
     assert cam.has_intrinsics is False
     assert cam.has_extrinsics is False
+
+
+def test_camera_lens_model_round_trip(tmp_path):
+    cam = ptiff.Camera(focal_length_x=900.0, principal_x=320.0)
+    cam.lens_kind = "fisheye"
+    cam.set_lens_parameter("k1", -0.1)
+    cam.set_lens_parameter("k2", 0.05)
+    assert cam.lens_kind == "fisheye"
+    params = cam.lens_parameters()
+    assert params == {"k1": -0.1, "k2": 0.05}
+
+    path = str(tmp_path / "lens.tif")
+    sink = ptiff.create_image(
+        path,
+        width=64,
+        height=32,
+        tile_width=64,
+        tile_height=32,
+        camera=cam,
+    )
+    data = np.arange(64 * 32, dtype=np.uint8) % 251
+    sink.write_tile(0, 0, data.tobytes())
+    sink.close()
+
+    c2 = ptiff.open(path).camera(0)
+    assert c2.lens_kind == "fisheye"
+    params2 = c2.lens_parameters()
+    assert params2.get("k1") == -0.1
+    assert params2.get("k2") == 0.05
+
+
+def test_camera_default_lens_is_pinhole():
+    cam = ptiff.Camera()
+    assert cam.lens_kind == "pinhole"
+    assert cam.lens_parameters() == {}

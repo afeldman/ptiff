@@ -90,6 +90,11 @@ typedef struct ptiff_camera {
     double extrinsics[12];
     double projection[12];
     char timestamp[64];
+    int32_t has_lens;
+    char lens_kind[32];
+    uint32_t lens_param_count;
+    char lens_param_key[8][16];
+    double lens_param_value[8];
 } ptiff_camera;
 
 typedef struct ptiff_version {
