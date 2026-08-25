@@ -48,7 +48,7 @@ static void test_version(void) {
     ptiff_version ct = ptiff_compile_time_version();
     ptiff_version rt = ptiff_runtime_version();
 
-    /* The workspace intends 1.0.0 as the release version. */
+    /* The workspace intends 1.0.1 as the release version. */
     CHECK(ct.major == 1, "compile-time major == 1");
     CHECK(ct.minor == 0, "compile-time minor == 0");
     CHECK(rt.major == ct.major && rt.minor == ct.minor && rt.patch == ct.patch,
@@ -57,9 +57,9 @@ static void test_version(void) {
     /* Out-param variants, including NULL-able pairs. */
     int m = -1, n = -1, p = -1;
     ptiff_runtime_version_out(&m, &n, &p);
-    CHECK(m == 1 && n == 0 && p == 0, "runtime_version_out == 1.0.0");
+    CHECK(m == 1 && n == 0 && p == 1, "runtime_version_out == 1.0.1");
     ptiff_compile_time_version_out(&m, &n, &p);
-    CHECK(m == 1 && n == 0 && p == 0, "compile_time_version_out == 1.0.0");
+    CHECK(m == 1 && n == 0 && p == 1, "compile_time_version_out == 1.0.1");
 
     /* Either pointer may be NULL. */
     ptiff_runtime_version_out(NULL, NULL, NULL);

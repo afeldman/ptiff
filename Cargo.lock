@@ -611,14 +611,14 @@ dependencies = [
 
 [[package]]
 name = "ptiff"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ptiff-core",
 ]
 
 [[package]]
 name = "ptiff-c"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "cbindgen",
  "ptiff",
@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "ptiff-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "clap",
  "ptiff",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "ptiff-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "exr",
  "flate2",
