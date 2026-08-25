@@ -40,6 +40,7 @@
 #![warn(missing_docs)]
 
 pub use ptiff_core::tile::{Tile, TileExtent, TileIndex, TileLayout, TileRegion};
+pub use ptiff_core::{lens_model_kind_from_str, lens_model_kind_str};
 /// Core domain types re-exported at the crate root so callers write
 /// `ptiff::Scene` rather than reaching into `ptiff_core`. Includes the
 /// geometry, image, scene, pixel, tile and IO model types.
@@ -47,8 +48,9 @@ pub use ptiff_core::{
     AnnotationId, BackendCapabilities, BackendFactory, BinaryReader, BinaryWriter, Camera,
     CameraId, CompressionKind, CoordinateReferenceSystem, Ellipsoid, Error, ErrorCode, Extrinsics,
     Frame, FramePair, Geometry, GeometryId, GeometryKind, Image, ImageDescriptor,
-    ImageDescriptorBuilder, ImageId, Intrinsics, LayerId, LensModel, PixelType, Planet, Pose,
-    Projection, ProjectionKind, Quaternion, Result, Scene, StorageModel, TileInfo, Vec3,
+    ImageDescriptorBuilder, ImageId, Intrinsics, LayerId, LensModel, LensModelKind, PixelType,
+    Planet, Pose, Projection, ProjectionKind, Quaternion, Result, Scene, StorageModel, TileInfo,
+    Vec3,
 };
 
 /// Runtime-queryable crate version (e.g. for a `ptiff --version` CLI flag).

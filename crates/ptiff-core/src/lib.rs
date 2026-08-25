@@ -35,6 +35,7 @@ pub mod tile;
 pub mod version;
 
 pub use error::{Error, ErrorCode, Result};
+pub use geometry::{lens_model_kind_from_str, lens_model_kind_str};
 pub use geometry::{
     Camera, CoordinateReferenceSystem, Ellipsoid, Extrinsics, ExtrinsicsMatrix, Frame, FramePair,
     Geometry, GeometryKind, Intrinsics, IntrinsicsMatrix, LensModel, LensModelKind, Planet, Pose,

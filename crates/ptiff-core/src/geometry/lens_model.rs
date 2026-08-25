@@ -85,6 +85,32 @@ impl LensModel {
     }
 }
 
+/// Canonical lowercase string for a [`LensModelKind`], used as the value of the
+/// `ptiff.camera.lens_kind` extension field.
+#[must_use]
+pub fn lens_model_kind_str(kind: LensModelKind) -> &'static str {
+    match kind {
+        LensModelKind::Pinhole => "pinhole",
+        LensModelKind::Fisheye => "fisheye",
+        LensModelKind::Pushbroom => "pushbroom",
+    }
+}
+
+/// Parses a canonical [`LensModelKind`] string back into its enum value.
+///
+/// Unknown strings map to [`LensModelKind::Pinhole`] (the least-specific
+/// default), mirroring the forward-compatibility convention used elsewhere in
+/// the extension domains: a foreign/future writer's unhandled kind is tolerated
+/// rather than failing the file.
+#[must_use]
+pub fn lens_model_kind_from_str(s: &str) -> LensModelKind {
+    match s {
+        "fisheye" => LensModelKind::Fisheye,
+        "pushbroom" => LensModelKind::Pushbroom,
+        _ => LensModelKind::Pinhole,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +140,27 @@ mod tests {
         m.set_parameter("a", 1.0);
         let keys: Vec<_> = m.iter().map(|(k, _)| k).collect();
         assert_eq!(keys, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn lens_kind_str_round_trips() {
+        assert_eq!(lens_model_kind_str(LensModelKind::Pinhole), "pinhole");
+        assert_eq!(lens_model_kind_str(LensModelKind::Fisheye), "fisheye");
+        assert_eq!(lens_model_kind_str(LensModelKind::Pushbroom), "pushbroom");
+        // Canonical strings parse back to the matching kind.
+        assert_eq!(lens_model_kind_from_str("pinhole"), LensModelKind::Pinhole);
+        assert_eq!(lens_model_kind_from_str("fisheye"), LensModelKind::Fisheye);
+        assert_eq!(
+            lens_model_kind_from_str("pushbroom"),
+            LensModelKind::Pushbroom
+        );
+    }
+
+    #[test]
+    fn unknown_lens_kind_falls_back_to_pinhole() {
+        assert_eq!(
+            lens_model_kind_from_str("unknown-future-kind"),
+            LensModelKind::Pinhole
+        );
     }
 }

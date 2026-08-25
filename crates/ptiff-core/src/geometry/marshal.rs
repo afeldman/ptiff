@@ -35,8 +35,8 @@
 //! representation; parsing it back reproduces the exact value.
 
 use crate::geometry::{
-    Camera, CoordinateReferenceSystem, Ellipsoid, Frame, Geometry, GeometryKind, Planet,
-    Projection, ProjectionKind,
+    lens_model_kind_from_str, lens_model_kind_str, Camera, CoordinateReferenceSystem, Ellipsoid,
+    Frame, Geometry, GeometryKind, Planet, Projection, ProjectionKind,
 };
 use crate::io::StorageModel;
 use crate::{Error, ImageId, Result};
@@ -71,6 +71,15 @@ pub fn camera_fields(camera: &Camera) -> Vec<(String, String)> {
     push("position_x", e.translation.x.to_string());
     push("position_y", e.translation.y.to_string());
     push("position_z", e.translation.z.to_string());
+
+    // Lens (distortion) model: a structured projection kind plus named double
+    // parameters (e.g. k1/k2/p1). The kind is always emitted; parameters only
+    // when present, flattened as `ptiff.camera.lens.<key>`.
+    let lens = camera.lens_model();
+    push("lens_kind", lens_model_kind_str(lens.kind()).to_string());
+    for (key, value) in lens.iter() {
+        push(&format!("lens.{key}"), value.to_string());
+    }
     out
 }
 
@@ -174,8 +183,23 @@ pub fn camera_from_model(node: &StorageModel) -> Result<Option<Camera>> {
         crate::geometry::Extrinsics::default()
     };
 
-    Ok(Some(Camera::from_model(
-        model, intrinsics, extrinsics, timestamp,
+    // Lens (distortion) model: the kind defaults to pinhole when absent; named
+    // parameters are read from any `ptiff.camera.lens.<key>` fields. An unknown
+    // kind string falls back to pinhole (forward-compatible tolerance); a
+    // malformed *present* lens parameter value is an error (mirrors the other
+    // numeric fields).
+    let lens_kind = lens_model_kind_from_str(field("lens_kind").unwrap_or("pinhole"));
+    let mut lens = crate::geometry::LensModel::new(lens_kind);
+    node.for_each_field(|key, value| {
+        if let Some(param) = key.strip_prefix("ptiff.camera.lens.") {
+            if let Ok(v) = value.parse::<f64>() {
+                lens.set_parameter(param, v);
+            }
+        }
+    });
+
+    Ok(Some(Camera::from_model_with_lens(
+        model, intrinsics, extrinsics, timestamp, lens,
     )))
 }
 
@@ -539,6 +563,65 @@ mod tests {
         }
         let back = camera_from_model(&model).expect("parse").expect("present");
         assert_eq!(back, camera);
+    }
+
+    #[test]
+    fn camera_lens_model_round_trips_through_fields() {
+        // A camera with a fisheye distortion model must round-trip its lens
+        // kind and named parameters losslessly through the flat fields.
+        let mut lens = crate::geometry::LensModel::new(crate::geometry::LensModelKind::Fisheye);
+        lens.set_parameter("k1", -0.1);
+        lens.set_parameter("k2", 0.05);
+        let camera = Camera::from_model_with_lens(
+            "pinhole",
+            crate::geometry::Intrinsics::new(900.0, 901.0, 512.5, 384.25),
+            crate::geometry::Extrinsics::IDENTITY,
+            "2026-08-21T12:34:56.000Z",
+            lens,
+        );
+
+        let mut model = StorageModel::new();
+        for (k, v) in camera_fields(&camera) {
+            model.set_field(k, v);
+        }
+        // The lens kind field must be present and canonical.
+        assert_eq!(model.field("ptiff.camera.lens_kind").unwrap(), "fisheye");
+        // Parameters flattened as ptiff.camera.lens.<key>.
+        assert_eq!(model.field("ptiff.camera.lens.k1").unwrap(), "-0.1");
+
+        let back = camera_from_model(&model).expect("parse").expect("present");
+        assert_eq!(back, camera);
+        assert_eq!(
+            back.lens_model().kind(),
+            crate::geometry::LensModelKind::Fisheye
+        );
+        assert_eq!(back.lens_model().parameter("k1").unwrap(), -0.1);
+        assert_eq!(back.lens_model().parameter("k2").unwrap(), 0.05);
+    }
+
+    #[test]
+    fn camera_lens_kind_defaults_to_pinhole_when_absent() {
+        // A camera field-set without lens_kind (legacy/future writer) parses
+        // with the pinhole default, never failing the file.
+        let model = model_with(vec![
+            ("ptiff.camera.model".to_string(), "pinhole".to_string()),
+            (
+                "ptiff.camera.focal_length_x".to_string(),
+                "700.0".to_string(),
+            ),
+            (
+                "ptiff.camera.focal_length_y".to_string(),
+                "700.0".to_string(),
+            ),
+            ("ptiff.camera.principal_x".to_string(), "64.0".to_string()),
+            ("ptiff.camera.principal_y".to_string(), "64.0".to_string()),
+        ]);
+        let camera = camera_from_model(&model).expect("parse").expect("present");
+        assert_eq!(
+            camera.lens_model().kind(),
+            crate::geometry::LensModelKind::Pinhole
+        );
+        assert!(camera.lens_model().is_empty());
     }
 
     #[test]

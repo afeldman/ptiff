@@ -38,6 +38,10 @@ pub struct Camera {
     position_z: f64,
     #[pyo3(get, set)]
     timestamp: String,
+    // Lens (distortion) model: canonical kind + named double parameters.
+    #[pyo3(get, set)]
+    lens_kind: String,
+    lens_parameters: std::collections::BTreeMap<String, f64>,
     // Read-derived matrices (computed, not settable directly).
     intrinsics: [f64; 9],
     extrinsics: [f64; 12],
@@ -69,6 +73,8 @@ impl Camera {
         let pos = extrin.translation;
         let has_intrinsics = intrin != ptiff::Intrinsics::ZERO;
         let has_extrinsics = extrin != ptiff::Extrinsics::IDENTITY;
+        let lens = cam.lens_model();
+        let lens_parameters = lens.iter().map(|(k, v)| (k.to_string(), v)).collect();
         Camera {
             model: cam.model_name().to_string(),
             has_intrinsics,
@@ -88,6 +94,8 @@ impl Camera {
             extrinsics: cam.extrinsics_matrix(),
             projection: cam.projection_matrix(),
             timestamp: cam.timestamp().to_string(),
+            lens_kind: ptiff::lens_model_kind_str(lens.kind()).to_string(),
+            lens_parameters,
         }
     }
 }
@@ -113,6 +121,8 @@ impl Default for Camera {
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
             timestamp: String::new(),
+            lens_kind: "pinhole".to_string(),
+            lens_parameters: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -170,6 +180,8 @@ impl Camera {
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
             timestamp,
+            lens_kind: "pinhole".to_string(),
+            lens_parameters: std::collections::BTreeMap::new(),
         })
     }
 
@@ -200,10 +212,28 @@ impl Camera {
         self.projection.to_vec()
     }
 
+    /// The name of the projection kind for the attached model
+    /// (`"pinhole"`, `"fisheye"`, `"pushbroom"`).
+    #[getter]
+    fn lens_kind(&self) -> String {
+        self.lens_kind.clone()
+    }
+
+    /// The named double parameters of the lens (distortion) model (e.g.
+    /// `k1`/`k2`/`p1`), as an insertion-ordered `{key: value}` mapping.
+    fn lens_parameters(&self) -> std::collections::BTreeMap<String, f64> {
+        self.lens_parameters.clone()
+    }
+
+    /// Sets (or replaces) one named lens (distortion) parameter.
+    fn set_lens_parameter(&mut self, key: String, value: f64) {
+        self.lens_parameters.insert(key, value);
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "<ptiff.Camera model={} intrinsics={} extrinsics={}>",
-            self.model, self.has_intrinsics, self.has_extrinsics
+            "<ptiff.Camera model={} intrinsics={} extrinsics={} lens={}>",
+            self.model, self.has_intrinsics, self.has_extrinsics, self.lens_kind
         )
     }
 }
@@ -231,7 +261,11 @@ impl Camera {
         );
         let translation = ptiff::Vec3::new(self.position_x, self.position_y, self.position_z);
         let extrinsics = ptiff::Extrinsics::new(rotation, translation);
-        ptiff::Camera::from_model(
+        let mut lens = ptiff::LensModel::new(ptiff::lens_model_kind_from_str(&self.lens_kind));
+        for (k, v) in &self.lens_parameters {
+            lens.set_parameter(k.clone(), *v);
+        }
+        ptiff::Camera::from_model_with_lens(
             if self.model.is_empty() {
                 "pinhole"
             } else {
@@ -240,6 +274,7 @@ impl Camera {
             intrinsics,
             extrinsics,
             self.timestamp.clone(),
+            lens,
         )
     }
 }

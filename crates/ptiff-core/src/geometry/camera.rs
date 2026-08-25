@@ -2,7 +2,7 @@
 //!
 //! Mirrors `ptiff::Camera` (see `libptiff/include/ptiff/geometry/camera.hpp`).
 
-use crate::geometry::{Extrinsics, Intrinsics};
+use crate::geometry::{Extrinsics, Intrinsics, LensModel, LensModelKind};
 
 /// A 3x3 intrinsic (calibration) matrix `K`, row-major (9 doubles).
 pub type IntrinsicsMatrix = [f64; 9];
@@ -37,11 +37,13 @@ pub struct Camera {
     intrinsics: Intrinsics,
     extrinsics: Extrinsics,
     timestamp: String,
+    lens_model: LensModel,
 }
 
 impl Camera {
     /// Constructs a default (identity) camera: model `"pinhole"`, zero
-    /// intrinsics, identity pose, no timestamp.
+    /// intrinsics, identity pose, no timestamp, and a default (pinhole, no
+    /// parameters) lens model.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -49,6 +51,7 @@ impl Camera {
             intrinsics: Intrinsics::default(),
             extrinsics: Extrinsics::IDENTITY,
             timestamp: String::new(),
+            lens_model: LensModel::new(LensModelKind::Pinhole),
         }
     }
 
@@ -58,6 +61,9 @@ impl Camera {
     /// - `intrinsics`: intrinsic parameters (`fx`, `fy`, `cx`, `cy`).
     /// - `extrinsics`: extrinsic pose (rotation + translation).
     /// - `timestamp`: ISO-8601 UTC observation timestamp; empty means unset.
+    ///
+    /// The lens model defaults to [`LensModelKind::Pinhole`] with no
+    /// parameters; use [`Camera::set_lens_model`] to attach a distortion model.
     #[inline]
     pub fn from_model(
         model: impl Into<String>,
@@ -70,6 +76,31 @@ impl Camera {
             intrinsics,
             extrinsics,
             timestamp: timestamp.into(),
+            lens_model: LensModel::new(LensModelKind::Pinhole),
+        }
+    }
+
+    /// Constructs a fully-specified camera including its lens (distortion)
+    /// model.
+    ///
+    /// Identical to [`Camera::from_model`] but additionally attaches `lens`.
+    /// The `model` string is kept for backward compatibility with the plain
+    /// "pinhole" convention; `lens` carries the structured projection kind and
+    /// named distortion parameters.
+    #[inline]
+    pub fn from_model_with_lens(
+        model: impl Into<String>,
+        intrinsics: Intrinsics,
+        extrinsics: Extrinsics,
+        timestamp: impl Into<String>,
+        lens: LensModel,
+    ) -> Self {
+        Self {
+            model: model.into(),
+            intrinsics,
+            extrinsics,
+            timestamp: timestamp.into(),
+            lens_model: lens,
         }
     }
 
@@ -101,6 +132,23 @@ impl Camera {
     #[inline]
     pub fn set_timestamp(&mut self, timestamp: impl Into<String>) {
         self.timestamp = timestamp.into();
+    }
+
+    /// Returns the structured lens (distortion) model attached to this camera.
+    ///
+    /// The default is a [`LensModelKind::Pinhole`] with no parameters. Callers
+    /// that need a distortion model (fisheye / pushbroom coefficients) read it
+    /// from here; the projection kind and named parameters round-trip through
+    /// the PTIFF extension tags.
+    #[inline]
+    pub fn lens_model(&self) -> &LensModel {
+        &self.lens_model
+    }
+
+    /// Sets the structured lens (distortion) model.
+    #[inline]
+    pub fn set_lens_model(&mut self, lens: LensModel) {
+        self.lens_model = lens;
     }
 
     /// Builds the 3x3 intrinsic (calibration) matrix `K` (row-major).
@@ -241,6 +289,38 @@ mod tests {
         assert_eq!(c.intrinsics(), Intrinsics::default());
         assert_eq!(c.extrinsics(), Extrinsics::IDENTITY);
         assert_eq!(c.timestamp(), "");
+        // Default lens model is pinhole with no parameters.
+        assert_eq!(c.lens_model().kind(), LensModelKind::Pinhole);
+        assert!(c.lens_model().is_empty());
+    }
+
+    #[test]
+    fn lens_model_round_trips_through_accessors() {
+        let mut c = Camera::from_model(
+            "pinhole",
+            Intrinsics::new(900.0, 900.0, 512.0, 384.0),
+            Extrinsics::IDENTITY,
+            "",
+        );
+        let mut lens = LensModel::new(LensModelKind::Fisheye);
+        lens.set_parameter("k1", -0.1);
+        lens.set_parameter("k2", 0.05);
+        c.set_lens_model(lens);
+
+        assert_eq!(c.lens_model().kind(), LensModelKind::Fisheye);
+        assert_eq!(c.lens_model().parameter("k1").unwrap(), -0.1);
+        assert_eq!(c.lens_model().parameter("k2").unwrap(), 0.05);
+
+        // from_model_with_lens builds the same object in one call.
+        let lens2 = LensModel::new(LensModelKind::Pushbroom);
+        let c2 = Camera::from_model_with_lens(
+            "pinhole",
+            Intrinsics::ZERO,
+            Extrinsics::IDENTITY,
+            "",
+            lens2,
+        );
+        assert_eq!(c2.lens_model().kind(), LensModelKind::Pushbroom);
     }
 
     #[test]

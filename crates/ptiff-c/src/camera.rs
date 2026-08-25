@@ -22,11 +22,15 @@ use crate::error::{ptiff_error_code, to_c_error};
 ///
 /// A structured view of the `ptiff.camera.*` extension fields: the pinhole
 /// intrinsics (fx, fy, cx, cy), the extrinsics (rotation quaternion + world
-/// translation), the ISO-8601 observation timestamp, and the three derived
-/// matrices. All matrices are row-major `double`s. `has_intrinsics` /
-/// `has_extrinsics` are `0` when the corresponding field group is absent from
-/// the file; `projection` is set whenever both groups are present.
-/// `timestamp` is an empty string when unset.
+/// translation), the ISO-8601 observation timestamp, the three derived
+/// matrices, and the lens (distortion) model. All matrices are row-major
+/// `double`s. `has_intrinsics` / `has_extrinsics` are `0` when the
+/// corresponding field group is absent from the file; `projection` is set
+/// whenever both groups are present. `timestamp` is an empty string when
+/// unset. The lens fields (`has_lens`, `lens_kind`, `lens_param_count`, and
+/// the fixed `lens_param_key`/`lens_param_value` arrays) carry the structured
+/// distortion model: a canonical kind string plus up to
+/// [`K_CAMERA_LENS_MAX_PARAMS`] named double parameters.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct ptiff_camera {
@@ -53,7 +57,22 @@ pub struct ptiff_camera {
     // cbindgen emits `char[64]`, the ABI shape every foreign runtime assigns
     // as a plain string).
     pub timestamp: [c_char; 64],
+    // lens (distortion) model
+    pub has_lens: i32,
+    pub lens_kind: [c_char; 32],
+    pub lens_param_count: u32,
+    pub lens_param_key: [[c_char; 16]; K_CAMERA_LENS_MAX_PARAMS],
+    pub lens_param_value: [f64; K_CAMERA_LENS_MAX_PARAMS],
 }
+
+/// Maximum number of named lens (distortion) parameters carried by the fixed
+/// C-ABI `ptiff_camera` struct. Kept small and bounded so the ABI stays
+/// self-contained (no pointers, no variable-length fields); readers that need
+/// more coefficients work on the flat `ptiff.camera.lens.*` field view instead.
+pub const K_CAMERA_LENS_MAX_PARAMS: usize = 8;
+
+/// Fixed key-buffer length for one lens parameter name.
+pub const K_CAMERA_LENS_KEY_LEN: usize = 16;
 
 impl ptiff_camera {
     /// A zero-initialized camera (all `has_*` flags 0, matrices 0, empty
@@ -77,6 +96,11 @@ impl ptiff_camera {
             extrinsics: [0.0; 12],
             projection: [0.0; 12],
             timestamp: [0 as c_char; 64],
+            has_lens: 0,
+            lens_kind: [0 as c_char; 32],
+            lens_param_count: 0,
+            lens_param_key: [[0 as c_char; K_CAMERA_LENS_KEY_LEN]; K_CAMERA_LENS_MAX_PARAMS],
+            lens_param_value: [0.0; K_CAMERA_LENS_MAX_PARAMS],
         }
     }
 }
@@ -123,6 +147,29 @@ fn camera_to_c(cam: &Camera) -> ptiff_camera {
     }
     // out.timestamp[n..] stays zero (from c_default), i.e. a trailing NUL.
 
+    // Lens (distortion) model: copy the canonical kind string plus up to
+    // K_CAMERA_LENS_MAX_PARAMS named double parameters into the fixed arrays
+    // (truncating key names to K_CAMERA_LENS_KEY_LEN-1, NUL-terminated). A
+    // default pinhole lens with no parameters sets has_lens = 1 so readers
+    // know the kind is explicit; parameters beyond the fixed cap are dropped
+    // on the ABI (the flat `ptiff.camera.lens.*` field view carries them).
+    let lens = cam.lens_model();
+    out.has_lens = 1;
+    write_cstr(
+        &mut out.lens_kind,
+        ptiff::lens_model_kind_str(lens.kind()).as_bytes(),
+    );
+    let mut count = 0u32;
+    for (key, value) in lens.iter() {
+        if count >= K_CAMERA_LENS_MAX_PARAMS as u32 {
+            break;
+        }
+        write_cstr(&mut out.lens_param_key[count as usize], key.as_bytes());
+        out.lens_param_value[count as usize] = value;
+        count += 1;
+    }
+    out.lens_param_count = count;
+
     out
 }
 
@@ -130,9 +177,26 @@ fn camera_to_c(cam: &Camera) -> ptiff_camera {
 ///
 /// The model comes from the C ABI's fixed `"pinhole"` convention (the C++ write
 /// side stores `"pinhole"` as-is), so a non-empty model string is preserved.
+/// The lens (distortion) model is rebuilt from `has_lens` / `lens_kind` /
+/// `lens_param_*`; when `has_lens` is 0 (old writers without lens fields) the
+/// default pinhole lens is used.
 pub fn camera_from_c(cam: &ptiff_camera) -> Camera {
     let timestamp = read_timestamp(&cam.timestamp);
-    Camera::from_model(
+
+    let mut lens = ptiff::LensModel::new(if cam.has_lens == 0 {
+        ptiff::LensModelKind::Pinhole
+    } else {
+        ptiff::lens_model_kind_from_str(&read_fixed_cstr(&cam.lens_kind))
+    });
+    let n = (cam.lens_param_count as usize).min(K_CAMERA_LENS_MAX_PARAMS);
+    for i in 0..n {
+        let key = read_fixed_cstr(&cam.lens_param_key[i]);
+        if !key.is_empty() {
+            lens.set_parameter(key, cam.lens_param_value[i]);
+        }
+    }
+
+    ptiff::Camera::from_model_with_lens(
         "pinhole",
         Intrinsics::new(
             cam.focal_length_x,
@@ -150,7 +214,26 @@ pub fn camera_from_c(cam: &ptiff_camera) -> Camera {
             Vec3::new(cam.position_x, cam.position_y, cam.position_z),
         ),
         timestamp,
+        lens,
     )
+}
+
+/// Copies `bytes` into `out` a fixed char buffer, NUL-terminated and truncated
+/// to fit (leaving the remaining bytes zero from the caller's default init).
+fn write_cstr<const N: usize>(out: &mut [c_char; N], bytes: &[u8]) {
+    let n = bytes.len().min(out.len() - 1);
+    for (i, b) in bytes[..n].iter().enumerate() {
+        out[i] = (*b) as c_char;
+    }
+    // out[n] stays zero (uninitialized tail from caller) -> trailing NUL.
+}
+
+/// Reads a NUL-terminated (or blank-padded) fixed char buffer into a `String`.
+fn read_fixed_cstr<const N: usize>(buf: &[c_char; N]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    #[allow(clippy::unnecessary_cast)]
+    let bytes: Vec<u8> = buf[..end].iter().map(|&b| b as u8).collect();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// Reads a NUL-terminated (or blank-padded) `[c_char; 64]` timestamp into a `String`.
@@ -286,5 +369,51 @@ mod tests {
         assert_eq!(c.projection, cam.projection_matrix());
         assert_eq!(c.rotation_w, 0.7);
         assert_eq!(c.position_z, 3.0);
+        // Default lens: count 0 but has_lens set (kind explicit).
+        assert_eq!(c.has_lens, 1);
+        assert_eq!(read_fixed_cstr(&c.lens_kind), "pinhole");
+        assert_eq!(c.lens_param_count, 0);
+    }
+
+    #[test]
+    fn lens_model_round_trips_through_c_abi() {
+        let mut lens = ptiff::LensModel::new(ptiff::LensModelKind::Fisheye);
+        lens.set_parameter("k1", -0.1);
+        lens.set_parameter("k2", 0.05);
+        let cam = ptiff::Camera::from_model_with_lens(
+            "pinhole",
+            Intrinsics::new(900.0, 901.0, 512.5, 384.25),
+            Extrinsics::IDENTITY,
+            "2026-08-21T12:34:56.000Z",
+            lens,
+        );
+        let c = camera_to_c(&cam);
+        assert_eq!(c.has_lens, 1);
+        assert_eq!(read_fixed_cstr(&c.lens_kind), "fisheye");
+        assert_eq!(c.lens_param_count, 2);
+        // Parameters are sorted by key.
+        assert_eq!(read_fixed_cstr(&c.lens_param_key[0]), "k1");
+        assert_eq!(c.lens_param_value[0], -0.1);
+        assert_eq!(read_fixed_cstr(&c.lens_param_key[1]), "k2");
+        assert_eq!(c.lens_param_value[1], 0.05);
+
+        // camera_from_c must reproduce the lens model.
+        let back = camera_from_c(&c);
+        assert_eq!(back.lens_model().kind(), ptiff::LensModelKind::Fisheye);
+        assert_eq!(back.lens_model().parameter("k1").unwrap(), -0.1);
+        assert_eq!(back.lens_model().parameter("k2").unwrap(), 0.05);
+        // And the camera as a whole equals the original.
+        assert_eq!(back, cam);
+    }
+
+    #[test]
+    fn lens_kind_defaults_to_pinhole_when_has_lens_is_zero() {
+        // A struct from an "old" writer (has_lens == 0, kind all-zero) must
+        // build a camera with the pinhole default, never failing.
+        let mut c = ptiff_camera::c_default();
+        c.has_lens = 0;
+        let cam = camera_from_c(&c);
+        assert_eq!(cam.lens_model().kind(), ptiff::LensModelKind::Pinhole);
+        assert!(cam.lens_model().is_empty());
     }
 }
