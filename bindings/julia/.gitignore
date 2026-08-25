@@ -1,0 +1,4 @@
+# Julia binding has no compiled artifact (it dlopens libptiff_c at runtime).
+# The Manifest is generated locally by `julia --project` when resolving deps
+# for `make test`; the sources in src/ and test/ are versioned.
+Manifest.toml

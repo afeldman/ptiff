@@ -1,0 +1,11 @@
+name = "Ptiff"
+uuid = "9f9c2b95-0c2a-4f1a-8b7e-1e2c5c5d1a10"
+authors = ["PTIFF contributors"]
+version = "1.0.0"
+
+[deps]
+Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+julia = "1.6"

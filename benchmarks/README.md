@@ -63,8 +63,10 @@ applies; `BENCH_ITERS` does not affect them.
 Fixtures are written deterministically via the Python binding itself:
 UInt8 uses the `(x·3+y·5) % 256` gradient (identical formula to the interop
 fixtures), Float32 a normalized ramp. `--real` copies
-`scripts/samples/lola_real_crop_512.tif` into `fixtures/real_lola_512.tif` and
-`--nac` copies `scripts/samples/NAC_DTM_ATLAS2.PYR.TIF` into
+`benchmarks/data/lola_real_crop_512.tif` (gitignored; same real data as
+`documents/paper/ptiff/experiment/data/`, copied here so this suite runs
+standalone) into `fixtures/real_lola_512.tif` and `--nac` copies
+`benchmarks/data/NAC_DTM_ATLAS2.PYR.TIF` into
 `fixtures/nac_dtm.tif`, so every language reads the identical real-data byte
 stream. The NAC metric has a dedicated inner-iteration knob `BENCH_NAC_ITERS`
 (default **2** full passes over the 616 tiles): one pass is already a large
@@ -77,7 +79,7 @@ From `benchmarks/`:
 ```bash
 ./run_benchmarks.sh                 # full suite over all five languages
 ./run_benchmarks.sh python ruby     # subset
-./run_benchmarks.sh --real          # also read a real NASA LOLA crop (needs scripts/samples/)
+./run_benchmarks.sh --real          # also read a real NASA LOLA crop (needs benchmarks/data/)
 ./run_benchmarks.sh --nac           # also read the full real NASA NAC DTM (55 MB)
 BENCH_REPEATS=10 BENCH_ITERS=25 ./run_benchmarks.sh   # shorter/faster run
 ```
@@ -90,8 +92,9 @@ bindings via `make -C bindings/swig go|ruby`, the Octave MEX binding via
 is used — the SWIG Go `cgo_flags.go`, the rpaths and the Rust workspace resolve
 `libptiff_c` / `ptiff` from `target/release` / the cargo workspace directly.
 
-`--real` / `--nac` require the gitignored real samples to be present (see
-`scripts/fetch_sample_tiff.sh`). Without them the corresponding
+`--real` / `--nac` require the real samples to be present in `benchmarks/data/`
+(gitignored; same real data as `documents/paper/ptiff/experiment/data/`, see
+`documents/paper/ptiff/experiment/README.md`). Without them the corresponding
 `read_real_lola_512` / `read_nac_ms` / `cli_info_nac` / `cli_copy_nac` rows are
 simply skipped, so both flags degrade gracefully (they never fail the run).
 

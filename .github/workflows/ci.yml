@@ -77,6 +77,11 @@ jobs:
     needs: [rust-core, rust-cli]
     uses: ./.github/workflows/cpp-bindings.yml
 
+  bindings-julia:
+    name: Phase 2 · Julia bindings (Ptiff.jl)
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/julia-bindings.yml
+
   # ----------------------------------------------------------------------
   # Phase 3: documentation (only when a version number is present = v* tag)
   # ----------------------------------------------------------------------
@@ -88,6 +93,7 @@ jobs:
       - bindings-python-pyo3
       - bindings-ruby
       - bindings-cpp
+      - bindings-julia
     # Docs only run when a version tag (v*) is pushed; on plain branch pushes
     # and pull requests no version number exists, so this phase is skipped.
     if: startsWith(github.ref, 'refs/tags/v')
