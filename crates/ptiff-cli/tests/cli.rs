@@ -172,6 +172,48 @@ fn copy_produces_a_pixel_identical_file() {
 }
 
 #[test]
+fn copy_preserves_single_oversized_tile_of_small_pyramid_level() {
+    // Regression for `ptiff copy` on a tiled image whose last pyramid level is
+    // a single padded tile *larger* than the image in every axis (42x222 in a
+    // 256x256 tile, like the top level of a real 616-tile LRO-NAC pyramid).
+    // `read_image_pixels` returns the full 256x256 block, so the copy must
+    // surface that on-disk grid rather than reconstructing a 42x222 tile that
+    // mismatches `to_bytes_with_pixels`' expected raster length.
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("small_pyr_level.ptiff");
+    let mut scene = Scene::new();
+    scene
+        .add_image(ImageDescriptorBuilder::new(42, 222).tile(256, 256).build())
+        .unwrap();
+    // 1x1 grid of 256x256 tiles = 65536 bytes.
+    let raster: Vec<u8> = (0..256 * 256).map(|i| (i % 256) as u8).collect();
+    let bytes = Tiff::to_bytes_with_pixels(&scene, &[&raster]).unwrap();
+    std::fs::write(&src, bytes).unwrap();
+
+    let dst = dir.path().join("copy.ptiff");
+    let out = ptiff(&["copy", src.to_str().unwrap(), dst.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "copy failed: stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let src_tiff = Tiff::open(&src).unwrap();
+    let dst_tiff = Tiff::open(&dst).unwrap();
+    assert_eq!(dst_tiff.images().count(), 1);
+    assert_eq!(
+        dst_tiff.read_image_pixels(0).unwrap(),
+        src_tiff.read_image_pixels(0).unwrap()
+    );
+    // The copied descriptor must keep the 256x256 tiling so a second copy
+    // (and the benchmark write path) round-trips identically.
+    assert_eq!(
+        dst_tiff.tile_layout(0).unwrap().tile_size,
+        ptiff::TileExtent::new(256, 256)
+    );
+}
+
+#[test]
 fn thumbnail_downscales_the_first_image() {
     let dir = tempfile::tempdir().unwrap();
     let file = write_fixture(dir.path());

@@ -135,14 +135,14 @@ dependencies = [
 
 [[package]]
 name = "ptiff"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ptiff-core",
 ]
 
 [[package]]
 name = "ptiff-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "multicalc",
  "semver",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "ptiff-python"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "numpy",
  "ptiff",
