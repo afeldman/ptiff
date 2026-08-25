@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ptiff-pyo3"
-version = "1.0.0"
+version = "1.0.1"
 description = "PyO3 (maturin) Python binding over the PTIFF 1.0 Rust core"
 readme = "README.md"
 requires-python = ">=3.9"

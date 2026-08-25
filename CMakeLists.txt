@@ -19,7 +19,7 @@ cmake_minimum_required(VERSION 3.26)
 
 project(
     PTIFF
-    VERSION 1.0.0
+    VERSION 1.0.1
     LANGUAGES NONE
 )
 
@@ -266,7 +266,7 @@ set(CPACK_PACKAGE_CONTACT "anton.feldmann@udo.edu")
 include(InstallRequiredSystemLibraries)
 
 # Architecture-qualified package filename so every OS/arch build is distinct
-# (ptiff-1.0.0-<OS>-<arch>). "small CPU"/ARM packages therefore never collide
+# (ptiff-1.0.1-<OS>-<arch>). "small CPU"/ARM packages therefore never collide
 # with their x86 counterparts in the same release.
 set(CPACK_PACKAGE_FILE_NAME "ptiff-${PROJECT_VERSION}-${PLATFORM_OS}-${PTIFF_ARCH}")
 
