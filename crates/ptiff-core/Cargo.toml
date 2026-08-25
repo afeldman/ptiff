@@ -97,7 +97,7 @@ jpeg-encoder = { version = "0.7", optional = true }
 jpeg-decoder = { version = "0.3", default-features = false, optional = true }
 # Optional PDS4 XML label (de)serialization (blessed choice, PTIFF-1.0-RUST-CORE-PLAN.md
 # §5 Dependency Evaluation). Feature-gated behind `pds4-backend`.
-quick-xml = { version = "0.36", optional = true }
+quick-xml = { version = "0.41", optional = true }
 # Optional Zarr chunk compression (zstd), the blessed choice for Zarr chunk
 # codecs (PTIFF-1.0-RUST-CORE-PLAN.md §5 Dependency Evaluation). Feature-gated
 # behind `zarr-backend`. Zlib chunk compression reuses the already-optional
