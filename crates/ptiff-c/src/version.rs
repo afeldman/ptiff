@@ -111,11 +111,13 @@ mod tests {
     fn abi_version_is_initial_and_positive() {
         // §7.5: PTIFF_ABI_VERSION is a monotonic break counter, distinct from
         // the crate SemVer. It must be >= 1 from the first stable ABI onwards.
-        assert!(PTIFF_ABI_VERSION >= 1, "ABI version starts at 1");
+        // These are compile-time constants, so check them in `const` blocks:
+        // clippy::assertions_on_constants flags them as constant-value asserts.
+        const { assert!(PTIFF_ABI_VERSION >= 1, "ABI version starts at 1") };
         // Stable surface is contract-pinned by the cbindgen-exported header;
         // the value is also a `#define` in target/ptiff_c.h (asserted by the
         // header-level test in the C-ABI test suite).
-        assert_eq!(PTIFF_ABI_VERSION, 1);
+        const { assert!(PTIFF_ABI_VERSION == 1) };
     }
 
     #[test]
