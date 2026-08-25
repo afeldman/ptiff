@@ -8,6 +8,16 @@
 #
 # Directory values are relative to the repository root and require the
 # directory to contain the ecosystem's manifest (Cargo.toml, go.mod, ...).
+#
+# Hardening policy:
+#   - Rust: minor & patch-only by default. Major bumps (including pre-1.0
+#     `0.x` jumps such as the quick-xml 0.36 -> 0.41 case) are excluded so a
+#     dependency never force-skips breaking API migrations. Those are handled
+#     deliberately, with code changes, in dedicated PRs.
+#   - GitHub Actions: the `dtolnay/rust-toolchain` reference is pinned to the
+#     project MSRV (currently 1.97). Dependabot must not reinterpret that
+#     pinned toolchain as an "action release" to bump (it has generated a
+#     non-existent `1.100` toolchain before and broken CI).
 
 version: 2
 updates:
@@ -27,6 +37,9 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: "/crates/ptiff-python"
@@ -38,6 +51,9 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: "/benchmarks/rust_bench"
@@ -49,6 +65,9 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: "/benchmarks/parallel_bench"
@@ -60,6 +79,9 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # ---------------------------------------------------------------------------
   # Go
@@ -132,6 +154,8 @@ updates:
   # ---------------------------------------------------------------------------
   # GitHub Actions
   #  - Keep the workflow files themselves up to date (action version bumps).
+  #  - The pinned `dtolnay/rust-toolchain@<MSRV>` reference covers the toolchain
+  #    VERSION, not an action release tag, and must not be auto-bumped.
   # ---------------------------------------------------------------------------
   - package-ecosystem: github-actions
     directory: "/"
@@ -143,3 +167,5 @@ updates:
       github-actions:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
