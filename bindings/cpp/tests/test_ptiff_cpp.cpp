@@ -60,7 +60,7 @@ void test_version() {
     CHECK(ct.major == 1, "compile-time major == 1");
     CHECK(rt.major == ct.major && rt.minor == ct.minor && rt.patch == ct.patch,
             "runtime == compile-time version");
-    CHECK(ct.toString() == "1.0.1", "version string == 1.0.1");
+    CHECK(ct.toString() == "1.1.0", "version string == 1.1.0");
 }
 
 void test_error_code_mapping() {

@@ -20,7 +20,7 @@ fn compile_time_version() -> (u64, u64, u64) {
     runtime_version()
 }
 
-/// The PTIFF version as a `semver` string (e.g. `"1.0.1"`).
+/// The PTIFF version as a `semver` string (e.g. `"1.1.0"`).
 #[pyfunction]
 fn version_string() -> String {
     ptiff::VERSION_STR.to_string()

@@ -62,6 +62,35 @@ als noch nicht veröffentlicht.
   TIFF, RFC-0017 libjpeg-turbo-Bridge) **eigene Konformitäts-Runden** in die Stufen-Leiter
   bringen und erst bei Adoption ergänzt werden — nie in die 1.0-Kern-Suite gefaltet.
 
+
+## [1.1.0] — 2026-08-25
+
+### Neues Feature: native Julia-Bindung `Ptiff.jl`
+
+Die Bindung erhöht die Zahl der getesteten Brücken um Julia. `Ptiff.jl`
+(`bindings/julia`) spricht `libptiff_c` direkt über `ccall` an (kein SWIG, kein
+C/C++-Adapter) und ist damit ein weiterer Testkandidat für die C-ABI. Im Detail:
+
+- **Neue Julia-Bindung** `bindings/julia/` (`Ptiff.jl`): `open_source`/`read_tile`/
+  `close_source`, `create_sink`/`write_tile`/`close_sink`, `read_info`, `read_metadata`,
+  `read_camera`, PixelType-/Compression-/LogLevel-Enums sowie die Versions- und
+  Logger-Fläche, aufgebaut auf `libptiff_c` aus `target/release/`.
+- **31 Julia-Tests** (`make -C bindings/julia test`), die C-ABI-Fläche abdecken.
+- **CI**: neuer Caller-Job `bindings-julia` in `.github/workflows/ci.yml` über
+  `julia-bindings.yml` (Matrix: Ubuntu auf Julia 1.6, macOS auf Julia LTS wegen
+  fehlender aarch64-Binaries für 1.6/1.7).
+- **Benchmark-Suite**: `bench_julia.jl` ergänzt `run_benchmarks.sh` um einen
+  Julia-Lauf (gleiche Metriken/Median-Methodik wie Ruby/Python/Go/Octave);
+  `summary.py` faltet die Julia-Zeile in `summary.md`/`.csv`; der
+  `benchmarks.yml`-Workflow führt Julia mit aus.
+
+Folge dessen wird die Workspace-Version auf **1.1.0** angehoben (neues Feature =
+Minor-Bump, SemVer). Rust-/C-/C++-ABI- und Versionsflächen, `CITATION.cff`,
+`Cargo.lock`, die Binding-Pakete (Ruby `version.rb`, Python/MCP `pyproject.toml`,
+Julia `Project.toml`), CMake/Doxyfile/Nix-Metadaten und die Versionstests wurden
+entsprechend auf 1.1.0 aktualisiert. `PTIFF_ABI_VERSION` bleibt unverändert bei
+`1` (reine Additions, kein ABI-Break).
+
 ## [1.0.0] — 2026-08-24
 
 ### Meilenstein: Rust-Referenzkern und C-ABI-Homogenisierung
