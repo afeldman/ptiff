@@ -2,9 +2,9 @@ name: Benchmarks
 
 # Runs the cross-language benchmark suite (benchmarks/run_benchmarks.sh) as a
 # regression check: it builds libptiff_c (Rust, crates/ptiff-c) + all language
-# bindings, then measures read/write throughput across Python/Ruby/Go/Octave/Rust
-# and the ptiff CLI. Median times are saved as a workflow artifact so you can
-# diff cycles or releases.
+# bindings, then measures read/write throughput across
+# Python/Ruby/Go/Octave/Julia/Rust and the ptiff CLI. Median times are saved as
+# a workflow artifact so you can diff cycles or releases.
 #
 # Deliberately runs ONLY on version tags (v*) and via manual workflow_dispatch
 # (not on every push/PR): this suite builds every binding, so running it on each
@@ -78,6 +78,11 @@ jobs:
         with:
           go-version: "1.22"
 
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.6"
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -113,8 +118,8 @@ jobs:
       - name: Build Rust binding + CLI
         run: cargo build -p ptiff-cli --release
 
-      # Run the suite (Python/Ruby/Go/Octave/Rust/CLI). Reduced knobs keep CI
-      # fast while still exercising every binding and the summary pipeline.
+      # Run the suite (Python/Ruby/Go/Octave/Julia/Rust/CLI). Reduced knobs keep
+      # CI fast while still exercising every binding and the summary pipeline.
       # run_benchmarks.sh resolves libptiff_c from target/release; no prefix.
       # Activate the job venv so python3 (used by run_benchmarks.sh, incl. the
       # 'import ptiff_pyo3' self-check and make_fixtures) sees the PyO3 module.
@@ -125,7 +130,7 @@ jobs:
           BENCH_ITERS: "10"
         run: |
           source "$GITHUB_WORKSPACE/.venv/bin/activate"
-          ./run_benchmarks.sh python ruby go octave rust cli
+          ./run_benchmarks.sh python ruby go octave julia rust cli
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
