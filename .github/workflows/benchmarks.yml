@@ -82,10 +82,13 @@ jobs:
 
       # Build the PyO3 Python binding into the active Python env so the python
       # benchmark can `import ptiff` (the legacy SWIG bindings/python was
-      # removed in favour of crates/ptiff-python + maturin).
+      # removed in favour of crates/ptiff-python + maturin). Use `maturin build`
+      # + pip install (not `maturin develop`, which demands a virtualenv).
       - name: Build Python binding (PyO3, maturin)
         working-directory: crates/ptiff-python
-        run: maturin develop --release
+        run: |
+          maturin build --release --out dist/
+          pip install --quiet dist/*.whl
 
       # --- Build every language binding against the freshly built C ABI ---
       # (bindings/swig/Makefile links the Rust-built libptiff_c by default)
