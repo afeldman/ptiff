@@ -17,6 +17,7 @@ benchmarks/
 │   ├── bench_ruby.rb          # SWIG Ruby binding benchmark
 │   ├── bench_go.go            # SWIG Go binding benchmark  (+ benchmarks/go.mod)
 │   ├── bench_octave.m         # Octave MEX binding benchmark
+│   ├── bench_julia.jl         # Ptiff.jl (ccall) binding benchmark
 │   ├── bench_cli.py           # ptiff CLI end-to-end (fresh subprocess) benchmark
 │   └── summary.py             # folds per-language JSONs into summary.md/.csv
 ├── rust_bench/                # Rust binding benchmark crate (Cargo project)
@@ -77,7 +78,7 @@ sample, so a small multiplier keeps the ~55 MB read affordable.
 From `benchmarks/`:
 
 ```bash
-./run_benchmarks.sh                 # full suite over all five languages
+./run_benchmarks.sh                 # full suite over all six languages
 ./run_benchmarks.sh python ruby     # subset
 ./run_benchmarks.sh --real          # also read a real NASA LOLA crop (needs benchmarks/data/)
 ./run_benchmarks.sh --nac           # also read the full real NASA NAC DTM (55 MB)
@@ -87,7 +88,9 @@ BENCH_REPEATS=10 BENCH_ITERS=25 ./run_benchmarks.sh   # shorter/faster run
 The script needs the language bindings built against the Rust-built C ABI
 (`cargo build -p ptiff-c --release` → `target/release/libptiff_c.*`): the SWIG
 bindings via `make -C bindings/swig go|ruby`, the Octave MEX binding via
-`make -C bindings/octave/mex build`. The `cli` step builds the CLI
+`make -C bindings/octave/mex build`. The Julia binding needs no adapter
+compile step (Ptiff.jl calls `libptiff_c` directly via `ccall`, resolving
+`target/release/` by default). The `cli` step builds the CLI
 (`crates/ptiff-cli`) automatically if needed. No pkg-config or installed prefix
 is used — the SWIG Go `cgo_flags.go`, the rpaths and the Rust workspace resolve
 `libptiff_c` / `ptiff` from `target/release` / the cargo workspace directly.
