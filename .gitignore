@@ -199,13 +199,16 @@ benchmarks/data/
 
 .goose
 
-# docs/ is versioned for its committed Markdown/design files, but the
-# Doxygen build output (build/docs/) stays ignored. Only the hand-written
-# Doxygen sources under docs/doxygen/ are additionally tracked.
-docs/*
-!docs/.gitkeep
-!docs/doxygen/
-!docs/doxygen/**
+##############################################
+# Documentation
+##############################################
+
+# docs/ is committed in full: docs/README.md (entry point), the hand-written
+# Doxygen overview pages (docs/doxygen/) and rustdoc notes (docs/rustdoc/).
+# Generated documentation is written OUTSIDE docs/ and must never be
+# committed -- regenerate it instead:
+#   - Doxygen HTML/XML -> build/docs/   (root Doxyfile, OUTPUT_DIRECTORY)
+#   - rustdoc HTML     -> target/doc/   (cargo doc, covered by target/ below)
 
 # Generated Doxygen output
 build/docs/

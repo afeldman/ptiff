@@ -18,7 +18,7 @@ use crate::{Error, Result};
 /// **The "no tiling" sentinel:** a layout whose `tile_size.width` or
 /// `tile_size.height` is zero represents "no tiling": [`Self::columns`] /
 /// [`Self::rows`] return 0 and the query operations report
-/// [`ErrorCode::OutOfRange`]. This is the natural result of default
+/// [`crate::ErrorCode::OutOfRange`]. This is the natural result of default
 /// construction and is how non-tiled images are represented internally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileLayout {
@@ -101,7 +101,7 @@ impl TileLayout {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::OutOfRange`] if `level` is outside this layout's
+    /// Returns [`crate::ErrorCode::OutOfRange`] if `level` is outside this layout's
     /// level count, or if `index` is outside this layout's grid at its level.
     pub fn region_for(&self, index: TileIndex) -> Result<TileRegion> {
         if index.level >= self.level_count {
@@ -125,7 +125,7 @@ impl TileLayout {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::OutOfRange`] if `level` is outside this layout's
+    /// Returns [`crate::ErrorCode::OutOfRange`] if `level` is outside this layout's
     /// level count, if `(x, y)` is outside the image at that level, or if the
     /// layout is non-tiled (a tile dimension is zero).
     pub fn index_for(&self, x: u32, y: u32, level: u32) -> Result<TileIndex> {
@@ -157,7 +157,7 @@ impl TileLayout {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::InvalidArgument`] if `descriptor` has no `tile_info`
+    /// Returns [`crate::ErrorCode::InvalidArgument`] if `descriptor` has no `tile_info`
     /// (i.e. the image isn't tiled).
     pub fn from_descriptor(descriptor: &ImageDescriptor) -> Result<TileLayout> {
         let Some(tile_info) = descriptor.tile_info else {

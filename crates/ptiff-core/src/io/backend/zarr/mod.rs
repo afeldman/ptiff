@@ -7,7 +7,7 @@
 //! slots holding zstd/zlib-compressed (or raw) chunks (chunk == tile for this
 //! phase). Unlike isis/pds4 it does NOT reuse the memory-pixel-tier: chunks
 //! are individually compressed, so it carries its own
-//! [`ZarrImageSource`]/[`ZarrImageSink`]. Serializes a single image (root with
+//! `ZarrImageSource`/`ZarrImageSink`. Serializes a single image (root with
 //! one child in the Scene convention); multi-image entry points are not
 //! supported, mirroring the C++ `serializeModelList` /
 //! `openImageSinkAt` / `openImageSourceAt` remaining `NotImplemented`.

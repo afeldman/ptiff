@@ -88,7 +88,7 @@ impl BackendFactory {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::InvalidArgument`] if `name` is already registered
+    /// Returns [`crate::ErrorCode::InvalidArgument`] if `name` is already registered
     /// (registration is idempotency-checked and errors on a clash).
     pub fn register(&self, name: &str, builder: Builder) -> Result<()> {
         let mut registry = self
@@ -108,7 +108,7 @@ impl BackendFactory {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::NotFound`] if `name` was never registered.
+    /// Returns [`crate::ErrorCode::NotFound`] if `name` was never registered.
     pub fn create(&self, name: &str) -> Result<Box<dyn StorageBackend>> {
         let registry = self
             .registry

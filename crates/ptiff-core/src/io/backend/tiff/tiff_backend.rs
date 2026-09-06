@@ -8,7 +8,7 @@
 //!
 //! Call [`StorageBackend::serialize_model_list`] (or
 //! [`StorageBackend::serialize_model`] for one image) before a pixel-data
-//! write: it writes the header/IFD chain, and [`Self::open_image_sink_at`]
+//! write: it writes the header/IFD chain, and [`StorageBackend::open_image_sink_at`]
 //! re-derives the same layout to position per-image pixel-data writes.
 //!
 //! This module is only compiled when the `tiff-backend` feature is enabled.

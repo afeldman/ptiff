@@ -1,7 +1,7 @@
 //! [`ImageSink`] over one image's pixel region of a Memory ("PMEM") document.
 //!
 //! Mirrors `libptiff/src/io/backend/memory/memory_image_sink.cpp`. Writes each
-//! tile's raw, uncompressed bytes at the linear offset its [`TileLayout`]
+//! tile's raw, uncompressed bytes at the linear offset its [`crate::tile::TileLayout`]
 //! implies (seeking as needed), so tiles may be written in any order. The byte
 //! count per tile must equal the layout-derived `tile_bytes`; edge tiles are
 //! written padded to the full tile size, matching the system-wide contract.

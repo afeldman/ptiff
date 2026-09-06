@@ -102,7 +102,7 @@ impl SpiceState {
         )
     }
 
-    /// The velocity part as a PTIFF [`Screw`] (twist wrapper).
+    /// The velocity part as a PTIFF [`crate::geometry::Screw`] (twist wrapper).
     #[must_use]
     pub fn screw(&self) -> crate::geometry::Screw {
         crate::geometry::Screw::from_twist(self.twist())

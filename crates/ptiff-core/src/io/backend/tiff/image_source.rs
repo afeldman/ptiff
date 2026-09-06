@@ -234,7 +234,7 @@ impl<'a> TiffImageSource<'a> {
     /// # Errors
     ///
     /// A tile read or decode error, or
-    /// [`ErrorCode::OutOfRange`] if a tile index is outside the byte-range
+    /// [`crate::ErrorCode::OutOfRange`] if a tile index is outside the byte-range
     /// table.
     #[cfg(feature = "parallel")]
     pub fn read_all_tiles_parallel(&mut self) -> Result<Vec<Vec<u8>>> {

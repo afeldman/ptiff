@@ -2,10 +2,11 @@
 # PTIFF -- Doxygen configuration
 # ----------------------------------------------------------------------------
 # Generates HTML + XML documentation for the PTIFF C ABI (the cbindgen
-# generated `target/ptiff_c.h`) and the project-wide Markdown sources. See
+# generated `target/ptiff_c.h`), the header-only C++ binding under
+# bindings/cpp/include, and the project-wide Markdown sources. See
 # docs/doxygen/ for the hand-written pages. The primary API documentation for
 # the Rust workspace is rustdoc (`cargo doc`); this Doxygen site complements
-# it for the C ABI and the concept/overview pages.
+# it for the C ABI, the C++ binding, and the concept/overview pages.
 #
 # Generate interactively with:
 #     doxygen Doxyfile
@@ -32,7 +33,8 @@ ALLOW_UNICODE_NAMES    = YES
 INPUT                  = README.md \
                          ARCHITECTURE.md \
                          docs/doxygen \
-                         target/ptiff_c.h
+                         target/ptiff_c.h \
+                         bindings/cpp/include
 
 INPUT_ENCODING         = UTF-8
 
@@ -41,6 +43,7 @@ RECURSIVE              = YES
 
 # File patterns to scan for documentation
 FILE_PATTERNS          = *.h \
+                         *.hpp \
                          *.md \
                          *.dox
 

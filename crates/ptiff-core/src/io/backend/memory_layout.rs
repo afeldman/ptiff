@@ -79,7 +79,7 @@ fn checked_mul(a: u64, b: u64) -> Result<u64> {
 ///
 /// # Errors
 ///
-/// Returns [`ErrorCode::InvalidArgument`] if a required field is
+/// Returns [`crate::ErrorCode::InvalidArgument`] if a required field is
 /// missing/non-numeric/out of range, if the image is not tiled, if the
 /// pixelType is unrecognized, if the compression is not `None`, or if the
 /// derived geometry overflows.

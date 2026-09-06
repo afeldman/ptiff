@@ -55,7 +55,7 @@ pub use ptiff_core::{
 
 /// Runtime-queryable crate version (e.g. for a `ptiff --version` CLI flag).
 ///
-/// [`APP_VERSION`] is the parsed, comparable [`semver::Version`] (use
+/// [`APP_VERSION`] is the parsed, comparable `semver::Version` (use
 /// `.major`/`.minor`/`.patch` comparisons); [`VERSION_STR`] is the raw
 /// `"x.y.z"` string from `Cargo.toml`, best for display/logging.
 pub use ptiff_core::{APP_VERSION, VERSION_STR};

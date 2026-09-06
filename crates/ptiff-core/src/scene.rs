@@ -74,7 +74,7 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::NotFound`] if `id` was never returned by
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
     /// `add_image`.
     pub fn image(&self, id: ImageId) -> Result<&Image> {
         self.images
@@ -86,7 +86,7 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::OutOfRange`] if `index` is not in `[0, image_count())`.
+    /// Returns [`crate::ErrorCode::OutOfRange`] if `index` is not in `[0, image_count())`.
     pub fn image_at(&self, index: usize) -> Result<&Image> {
         self.images
             .get(index)
@@ -116,7 +116,7 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::NotFound`] if `id` was never returned by
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
     /// `add_camera`.
     pub fn camera(&self, id: CameraId) -> Result<&Camera> {
         self.cameras
@@ -128,7 +128,7 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::OutOfRange`] if `index` is not in `[0, camera_count())`.
+    /// Returns [`crate::ErrorCode::OutOfRange`] if `index` is not in `[0, camera_count())`.
     pub fn camera_at(&self, index: usize) -> Result<&Camera> {
         self.cameras
             .get(index)
@@ -158,7 +158,7 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::NotFound`] if `id` was never returned by
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
     /// `add_geometry`.
     pub fn geometry(&self, id: GeometryId) -> Result<&Geometry> {
         self.geometries
@@ -170,7 +170,7 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::OutOfRange`] if `index` is not in `[0, geometry_count())`.
+    /// Returns [`crate::ErrorCode::OutOfRange`] if `index` is not in `[0, geometry_count())`.
     pub fn geometry_at(&self, index: usize) -> Result<&Geometry> {
         self.geometries
             .get(index)

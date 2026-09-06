@@ -328,7 +328,7 @@ fn run_copy(src: &PathBuf, dst: &PathBuf, verbose: bool) -> CliResult {
     Ok(())
 }
 
-/// Reconstruct an [`ImageDescriptor`] from a read [`Image`] so a copy
+/// Reconstruct an [`ImageDescriptor`] from a read [`ptiff::Image`] so a copy
 /// preserves the full metadata surface (extension domains included).
 ///
 /// `image.tile_info()` is the scene's view and is *not* reconstructed for a

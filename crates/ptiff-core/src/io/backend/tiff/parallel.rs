@@ -10,7 +10,7 @@
 //!
 //! ## Deterministic results
 //!
-//! Completely `parallel_iter` over an [`rayon_par_iter`] + `.collect()` into a
+//! A fully parallel `par_iter()` + `.collect()` into a
 //! `Vec` is guaranteed by Rayon to yield its results **in the same order as the
 //! input** — even though individual elements may be processed concurrently. So
 //! every result in one tile-set is produced concurrently, but the assembled
@@ -40,8 +40,8 @@ pub type TileCodec = dyn Fn(&[u8]) -> Result<Vec<u8>> + Send + Sync;
 /// preserves input order while scheduling elements across the pool.
 ///
 /// When `tiles` has few elements the pool startup cost can outweigh the win; a
-/// caller may short-circuit via [`SerialOverflowGuard::run`] or simply gate by
-/// count. This function itself always parallelizes.
+/// caller may short-circuit via the sequential path or simply gate by count
+/// (see [`threshold::should_parallelize`]). This function itself always parallelizes.
 ///
 /// # Errors
 ///

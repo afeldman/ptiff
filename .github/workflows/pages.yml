@@ -12,6 +12,10 @@ name: Pages
 # The single source of truth for the docs is the hand-written `Doxyfile` in the
 # repo root (`doxygen Doxyfile` writes HTML into build/docs/html), matching the
 # `docs` CMake target. A dedicated formatter is not required by the page build.
+#
+# Doxygen INPUT includes the cbindgen-generated C ABI header
+# (`target/ptiff_c.h`); the header only exists after `cargo build -p ptiff-c`
+# runs its build.rs, so this job builds it before running Doxygen.
 
 on:
   workflow_call:
@@ -26,6 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate C ABI header (target/ptiff_c.h)
+        run: cargo build -p ptiff-c
 
       - name: Install Doxygen
         run: |

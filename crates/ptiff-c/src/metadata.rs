@@ -14,7 +14,7 @@
 //! map. Domains absent from the file simply contribute no entries.
 //!
 //! The flat field view is read by re-deriving the format-neutral
-//! [`ptiff::StorageModel`] through the core [`TiffBackend::deserialize_model`]
+//! [`ptiff::StorageModel`] through the core `TiffBackend::deserialize_model`
 //! — the same lossless `ptiff.*` field archive the write path emits — rather
 //! than the structural `Scene`/`Image` camera/CRS domains, so every extension
 //! domain (including `spice`/`layers`/`provenance`, which are not part of the

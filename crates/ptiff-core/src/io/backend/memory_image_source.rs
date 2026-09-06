@@ -2,7 +2,7 @@
 //!
 //! Mirrors `libptiff/src/io/backend/memory/memory_image_source.cpp`. Reads each
 //! tile's raw, uncompressed bytes directly from a [`BinaryReader`] on demand,
-//! at the linear offset computed from the image's [`TileLayout`] — no upfront
+//! at the linear offset computed from the image's [`crate::tile::TileLayout`] — no upfront
 //! full-image read.
 
 use crate::id::TileId;

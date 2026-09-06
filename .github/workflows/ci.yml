@@ -18,6 +18,10 @@ name: CI
 #                        when a *version number exists*, i.e. on a `v*` tag
 #                        (see the `if:` on `docs-build`).
 #
+# A lightweight `docs-check` (Doxygen + rustdoc on a clean checkout) runs on
+# every push/PR in parallel with Phase 2, so documentation configuration is
+# validated even when no version tag exists; only the *deploy* is tag-gated.
+#
 # GitHub-specific constraints that shape this file:
 #   - `actions/deploy-pages` (the GitHub Pages deployment) is NOT permitted
 #     inside reusable workflows -- it requires the `pages:` environment and an
@@ -81,6 +85,15 @@ jobs:
     name: Phase 2 · Julia bindings (Ptiff.jl)
     needs: [rust-core, rust-cli]
     uses: ./.github/workflows/julia-bindings.yml
+
+  # ----------------------------------------------------------------------
+  # Documentation validation on every push/PR (parallel to Phase 2). The
+  # tag-gated Pages deploy happens in Phase 3 below.
+  # ----------------------------------------------------------------------
+  docs-check:
+    name: Documentation check
+    needs: [rust-core, rust-cli]
+    uses: ./.github/workflows/docs-check.yml
 
   # ----------------------------------------------------------------------
   # Phase 3: documentation (only when a version number is present = v* tag)

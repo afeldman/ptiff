@@ -79,19 +79,19 @@ pub trait StorageBackend {
     ///
     /// Multi-image aware backends (e.g. TIFF's IFD chain) write `models` in
     /// order as one file; backends that only understand a single image return
-    /// [`ErrorCode::NotImplemented`]. [`serialize_model`] on a single image is
+    /// [`crate::ErrorCode::NotImplemented`]. [`serialize_model`] on a single image is
     /// equivalent to this with `models.len() == 1`, so callers may use either
     /// path.
     ///
-    /// The default implementation returns [`ErrorCode::NotImplemented`] — the
+    /// The default implementation returns [`crate::ErrorCode::NotImplemented`] — the
     /// C++ oracle's default behavior.
     ///
     /// # Errors
     ///
-    /// The default returns [`ErrorCode::NotImplemented`].
+    /// The default returns [`crate::ErrorCode::NotImplemented`].
     ///
     /// [`serialize_model`]: StorageBackend::serialize_model
-    /// [`ErrorCode::NotImplemented`]: crate::ErrorCode::NotImplemented
+    /// [`crate::ErrorCode::NotImplemented`]: crate::ErrorCode::NotImplemented
     fn serialize_model_list(
         &self,
         _models: &[StorageModel],
@@ -106,14 +106,14 @@ pub trait StorageBackend {
     ///
     /// Multi-image aware backends return a sink positioned for the
     /// `image_index`-th image's data region; single-image backends return
-    /// [`ErrorCode::NotImplemented`].
+    /// [`crate::ErrorCode::NotImplemented`].
     ///
-    /// The default implementation returns [`ErrorCode::NotImplemented`] — the
+    /// The default implementation returns [`crate::ErrorCode::NotImplemented`] — the
     /// C++ oracle's default behavior.
     ///
     /// # Errors
     ///
-    /// The default returns [`ErrorCode::NotImplemented`].
+    /// The default returns [`crate::ErrorCode::NotImplemented`].
     fn open_image_sink_at<'a>(
         &self,
         _writer: &'a mut dyn BinaryWriter,
@@ -129,14 +129,14 @@ pub trait StorageBackend {
     ///
     /// Multi-image aware backends return a source for the `image_index`-th
     /// directory of the IFD chain; single-image backends return
-    /// [`ErrorCode::NotImplemented`].
+    /// [`crate::ErrorCode::NotImplemented`].
     ///
-    /// The default implementation returns [`ErrorCode::NotImplemented`] — the
+    /// The default implementation returns [`crate::ErrorCode::NotImplemented`] — the
     /// C++ oracle's default behavior.
     ///
     /// # Errors
     ///
-    /// The default returns [`ErrorCode::NotImplemented`].
+    /// The default returns [`crate::ErrorCode::NotImplemented`].
     fn open_image_source_at<'a>(
         &self,
         _reader: &'a mut dyn BinaryReader,

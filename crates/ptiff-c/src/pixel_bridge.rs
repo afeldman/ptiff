@@ -394,7 +394,7 @@ pub extern "C" fn ptiff_sink_create(
 /// camera calibration `ptiff.camera.*` into the file's metadata (private tag
 /// 65002). The camera's intrinsics (fx/fy/cx/cy), extrinsics (rotation
 /// quaternion + world translation) and ISO-8601 timestamp are written as
-/// metadata fields, so a later [`ptiff_open_path_camera`] on the file returns
+/// metadata fields, so a later [`crate::camera::ptiff_open_path_camera`] on the file returns
 /// the same calibration. `camera` must be non-NULL; pass `NULL` to fall back
 /// to [`ptiff_sink_create`] (no camera metadata).
 ///

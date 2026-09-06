@@ -1,0 +1,57 @@
+name: Docs check
+
+# Lightweight documentation validation on every push/PR.
+#
+# The Pages deployment (pages.yml) only runs on version tags (v*) as Phase 3
+# of ci.yml, so without this job documentation configuration would never be
+# exercised on regular commits. This reusable workflow is invoked from the
+# central `ci.yml` orchestrator and checks that both documentation sets still
+# build on a clean checkout:
+#
+#   1. Doxygen site (C ABI header + C++ binding + concept pages).
+#      The C ABI header is generated first (`cargo build -p ptiff-c`); the
+#      Doxyfile INPUT includes target/ptiff_c.h, which only exists after the
+#      build script runs. Warnings are printed (not fatal: Doxygen's output
+#      depends on the distro version).
+#   2. rustdoc site (workspace library crates). Gated with
+#      RUSTDOCFLAGS="-D warnings" so broken intra-doc links / missing-doc
+#      regressions fail the job, matching the `-D warnings` clippy gate used
+#      elsewhere in this repo.
+#
+# Generated output (build/docs/, target/doc/) stays inside the runner's
+# working tree and is never uploaded or committed.
+
+on:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Doxygen INPUT includes the cbindgen-generated C ABI header
+      # (target/ptiff_c.h); a fresh runner has none, so build it first.
+      - name: Generate C ABI header (target/ptiff_c.h)
+        run: cargo build -p ptiff-c
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Build Doxygen documentation
+        run: |
+          mkdir -p build/docs
+          doxygen Doxyfile
+
+      - name: Verify Doxygen HTML output
+        run: test -f build/docs/html/index.html
+
+      - name: Build rustdoc documentation (workspace, all features)
+        run: cargo doc --workspace --all-features --no-deps --lib
+        env:
+          RUSTDOCFLAGS: "-D warnings"

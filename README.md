@@ -95,15 +95,15 @@ and closed-source products. See [`LICENSE`](LICENSE) and
 
 ## Documentation
 
-The public Rust API is documented with `rustdoc` (`cargo doc --workspace
---no-deps`). Additionally, a Doxygen site for the C-ABI and project-concepts
-can be built from the repo-root `Doxyfile`; hand-written overview pages live
-under `docs/doxygen/`.
+Der Einstieg in die Software-Dokumentation ist [`docs/README.md`](docs/README.md):
+Überblick, Werkzeug-Anforderungen, CI-Verhalten und die vollständigen
+Generierungs-Anweisungen für beide Dokumentations-Sets.
 
-```bash
-# rustdoc (primary)
-cargo doc --workspace --no-deps --open
+- **Rust-API (primär):** `cargo doc --workspace --all-features --no-deps --lib`
+  (Ausgabe: `target/doc/`; Notizen: `docs/rustdoc/`)
+- **C-ABI + C++-Binding + Konzeptseiten:** `mkdir -p build/docs && doxygen
+  Doxyfile` aus dem Repo-Root, alternativ `cmake --build build --target docs`
+  (Ausgabe: `build/docs/html`); die handgeschriebenen Doxygen-Seiten liegen
+  unter `docs/doxygen/`.
 
-# Doxygen (optional, for C-ABI + concept pages)
-doxygen Doxyfile            # output: build/docs/html, build/docs/xml
-```
+Generierte Ausgaben (`build/docs/`, `target/doc/`) werden nie eingecheckt.

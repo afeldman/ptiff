@@ -1,4 +1,4 @@
-//! Capability flags advertised by a [`StorageBackend`].
+//! Capability flags advertised by a [`crate::io::StorageBackend`].
 //!
 //! Mirrors `ptiff::io::BackendCapabilities` (see
 //! `libptiff/include/ptiff/io/backend_capabilities.hpp`).
