@@ -1,9 +1,14 @@
+<div align="center">
+  <img src="docs/ptiff.png" alt="Projekt Logo" width="250" height="auto" />
+
 # PTIFF
 
 Planetary TIFF
 
 An open TIFF-compatible scientific image standard for planetary imagery,
 stereo vision, GIS, AI and 3D reconstruction.
+
+</div>
 
 **Status: `1.1.0`** — die Referenzimplementierung ist eine reine Rust-Workspace
 (`ptiff-core` → `ptiff-rust` → `ptiff-cli` / `ptiff-c`). Sie liest und schreibt
@@ -102,7 +107,7 @@ Generierungs-Anweisungen für beide Dokumentations-Sets.
 - **Rust-API (primär):** `cargo doc --workspace --all-features --no-deps --lib`
   (Ausgabe: `target/doc/`; Notizen: `docs/rustdoc/`)
 - **C-ABI + C++-Binding + Konzeptseiten:** `mkdir -p build/docs && doxygen
-  Doxyfile` aus dem Repo-Root, alternativ `cmake --build build --target docs`
+Doxyfile` aus dem Repo-Root, alternativ `cmake --build build --target docs`
   (Ausgabe: `build/docs/html`); die handgeschriebenen Doxygen-Seiten liegen
   unter `docs/doxygen/`.
 
