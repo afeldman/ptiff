@@ -61,6 +61,7 @@ pub fn create_image(
         1 => Some(ptiff::CompressionKind::Lzw),
         2 => Some(ptiff::CompressionKind::Deflate),
         3 => Some(ptiff::CompressionKind::Jpeg),
+        4 => Some(ptiff::CompressionKind::PackBits),
         other => {
             return Err(PyValueError::new_err(format!(
                 "unknown compression code {other}"

@@ -81,6 +81,7 @@ impl Serializer for SceneSerializer {
                     let value = match c {
                         CompressionKind::None => "None",
                         CompressionKind::Lzw => "LZW",
+                        CompressionKind::PackBits => "PackBits",
                         CompressionKind::Deflate => "Deflate",
                         CompressionKind::Jpeg => "Jpeg",
                     };

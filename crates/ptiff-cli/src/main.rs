@@ -105,7 +105,7 @@ struct MakeArgs {
     /// Tiling in pixels as WxH (optional).
     #[arg(long, value_name = "WxH")]
     tile: Option<String>,
-    /// Compression scheme: none, lzw, zip/deflate, jpeg (optional).
+    /// Compression scheme: none, lzw, packbits, zip/deflate, jpeg (optional).
     #[arg(short = 'z', long = "compression")]
     compression: Option<String>,
 }
@@ -584,6 +584,7 @@ fn parse_compression(s: &str) -> std::result::Result<CompressionKind, String> {
     match s.to_ascii_lowercase().as_str() {
         "none" => Ok(CompressionKind::None),
         "lzw" => Ok(CompressionKind::Lzw),
+        "packbits" => Ok(CompressionKind::PackBits),
         "zip" | "deflate" => Ok(CompressionKind::Deflate),
         "jpeg" => Ok(CompressionKind::Jpeg),
         other => Err(format!("unknown compression {other:?}")),
@@ -618,6 +619,7 @@ fn compression_name(c: CompressionKind) -> &'static str {
     match c {
         CompressionKind::None => "none",
         CompressionKind::Lzw => "lzw",
+        CompressionKind::PackBits => "packbits",
         CompressionKind::Deflate => "deflate",
         CompressionKind::Jpeg => "jpeg",
         _ => "unknown",

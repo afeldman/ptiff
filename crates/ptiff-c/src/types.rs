@@ -23,7 +23,7 @@ pub enum ptiff_pixel_type {
 }
 
 /// Mirror of the C `ptiff_compression_kind` enum (`ptiff_image_bridge.h`).
-/// Ordering matches `ptiff::CompressionKind` (None=0 … Jpeg=3).
+/// Ordering matches `ptiff::CompressionKind` (None=0 … Jpeg=3, PackBits=4).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ptiff_compression_kind {
@@ -31,6 +31,7 @@ pub enum ptiff_compression_kind {
     PTIFF_COMPRESSION_LZW = 1,
     PTIFF_COMPRESSION_DEFLATE = 2,
     PTIFF_COMPRESSION_JPEG = 3,
+    PTIFF_COMPRESSION_PACKBITS = 4,
 }
 
 /// Mirror of the C `ptiff_tile_info` struct (`ptiff_image_bridge.h`).
@@ -232,6 +233,7 @@ pub fn compression_to_c(c: CompressionKind) -> ptiff_compression_kind {
     match c {
         CompressionKind::None => ptiff_compression_kind::PTIFF_COMPRESSION_NONE,
         CompressionKind::Lzw => ptiff_compression_kind::PTIFF_COMPRESSION_LZW,
+        CompressionKind::PackBits => ptiff_compression_kind::PTIFF_COMPRESSION_PACKBITS,
         CompressionKind::Deflate => ptiff_compression_kind::PTIFF_COMPRESSION_DEFLATE,
         CompressionKind::Jpeg => ptiff_compression_kind::PTIFF_COMPRESSION_JPEG,
         _ => ptiff_compression_kind::PTIFF_COMPRESSION_NONE,
@@ -242,6 +244,9 @@ pub fn compression_to_c(c: CompressionKind) -> ptiff_compression_kind {
 pub fn compression_from_c(v: i32) -> CompressionKind {
     match v {
         x if x == ptiff_compression_kind::PTIFF_COMPRESSION_LZW as i32 => CompressionKind::Lzw,
+        x if x == ptiff_compression_kind::PTIFF_COMPRESSION_PACKBITS as i32 => {
+            CompressionKind::PackBits
+        }
         x if x == ptiff_compression_kind::PTIFF_COMPRESSION_DEFLATE as i32 => {
             CompressionKind::Deflate
         }
