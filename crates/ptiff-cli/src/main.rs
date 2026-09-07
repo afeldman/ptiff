@@ -574,6 +574,8 @@ fn parse_pixel_type(s: &str) -> std::result::Result<PixelType, String> {
         "uint8" | "u8" => Ok(PixelType::UInt8),
         "uint16" | "u16" => Ok(PixelType::UInt16),
         "uint32" | "u32" => Ok(PixelType::UInt32),
+        "int16" | "i16" => Ok(PixelType::Int16),
+        "int32" | "i32" => Ok(PixelType::Int32),
         "float32" | "f32" | "float" => Ok(PixelType::Float32),
         "float64" | "f64" | "double" => Ok(PixelType::Float64),
         other => Err(format!("unknown pixel type {other:?}")),
@@ -611,6 +613,8 @@ fn pixel_name(p: PixelType) -> &'static str {
         PixelType::UInt32 => "uint32",
         PixelType::Float32 => "float32",
         PixelType::Float64 => "float64",
+        PixelType::Int16 => "int16",
+        PixelType::Int32 => "int32",
         _ => "unknown",
     }
 }
@@ -671,6 +675,8 @@ mod tests {
         assert_eq!(parse_pixel_type("u16").unwrap(), PixelType::UInt16);
         assert_eq!(parse_pixel_type("FLOAT32").unwrap(), PixelType::Float32);
         assert_eq!(parse_pixel_type("u32").unwrap(), PixelType::UInt32);
+        assert_eq!(parse_pixel_type("i16").unwrap(), PixelType::Int16);
+        assert_eq!(parse_pixel_type("int32").unwrap(), PixelType::Int32);
         assert_eq!(parse_pixel_type("f64").unwrap(), PixelType::Float64);
         assert!(parse_pixel_type("bogus").is_err());
     }

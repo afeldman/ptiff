@@ -510,6 +510,8 @@ mod tests {
             PixelType::UInt32 => (32, 1),
             PixelType::Float32 => (32, 3),
             PixelType::Float64 => (64, 3),
+            PixelType::Int16 => (16, 2),
+            PixelType::Int32 => (32, 2),
         };
         let mut entries = vec![
             long(256, vec![width]),         // ImageWidth

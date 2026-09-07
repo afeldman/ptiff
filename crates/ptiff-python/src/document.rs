@@ -235,6 +235,8 @@ pub(crate) fn ptiff_pixel_type_name(code: u32) -> &'static str {
         2 => "uint32",
         3 => "float32",
         4 => "float64",
+        5 => "int16",
+        6 => "int32",
         _ => "unknown",
     }
 }

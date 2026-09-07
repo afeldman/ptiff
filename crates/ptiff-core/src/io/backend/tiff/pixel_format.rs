@@ -6,34 +6,44 @@ use crate::pixel_type::PixelType;
 use crate::{Error, Result};
 
 /// Maps TIFF's (BitsPerSample, SampleFormat) pair to [`PixelType`], for this
-/// backend's supported subset: unsigned int at 8/16/32 bits, or IEEE float at
-/// 32 or 64 bits. SampleFormat: 1 = unsigned int (TIFF's default when the tag
-/// is absent), 3 = IEEE float. Any other SampleFormat, or a BitsPerSample
-/// unsupported for the given format, is [`crate::ErrorCode::InvalidArgument`].
+/// backend's supported subset: unsigned int at 8/16/32 bits, signed int
+/// (two's complement) at 16/32 bits, or IEEE float at 32 or 64 bits.
+/// SampleFormat: 1 = unsigned int (TIFF's default when the tag is absent),
+/// 2 = signed int, 3 = IEEE float. Any other SampleFormat, or a
+/// BitsPerSample unsupported for the given format, is
+/// [`crate::ErrorCode::InvalidArgument`].
 pub fn resolve_pixel_type(bits_per_sample: u64, sample_format: u64) -> Result<PixelType> {
-    if sample_format != 1 && sample_format != 3 {
-        return Err(Error::invalid_argument(
-            "resolve_pixel_type: unsupported SampleFormat",
-        ));
-    }
-    if sample_format == 3 {
-        // IEEE float: 32-bit (Float32) or 64-bit (Float64). Float64 must be
-        // accepted here so files written with Float64 pixels (BitsPerSample 64,
-        // SampleFormat 3, emitted by `sample_format_for`) can be read back.
-        return match bits_per_sample {
+    match sample_format {
+        1 => match bits_per_sample {
+            8 => Ok(PixelType::UInt8),
+            16 => Ok(PixelType::UInt16),
+            32 => Ok(PixelType::UInt32),
+            _ => Err(Error::invalid_argument(
+                "resolve_pixel_type: unsigned SampleFormat requires 8-bit, 16-bit or 32-bit BitsPerSample",
+            )),
+        },
+        2 => match bits_per_sample {
+            // Signed integer samples are stored as two's-complement binary
+            // sample values (TIFF SampleFormat 2). Int8/Int64 are outside the
+            // supported subset and stay rejected.
+            16 => Ok(PixelType::Int16),
+            32 => Ok(PixelType::Int32),
+            _ => Err(Error::invalid_argument(
+                "resolve_pixel_type: signed SampleFormat requires 16-bit or 32-bit BitsPerSample",
+            )),
+        },
+        3 => match bits_per_sample {
+            // IEEE float: 32-bit (Float32) or 64-bit (Float64). Float64 must be
+            // accepted here so files written with Float64 pixels (BitsPerSample 64,
+            // SampleFormat 3, emitted by `sample_format_for`) can be read back.
             32 => Ok(PixelType::Float32),
             64 => Ok(PixelType::Float64),
             _ => Err(Error::invalid_argument(
                 "resolve_pixel_type: float SampleFormat requires 32-bit or 64-bit BitsPerSample",
             )),
-        };
-    }
-    match bits_per_sample {
-        8 => Ok(PixelType::UInt8),
-        16 => Ok(PixelType::UInt16),
-        32 => Ok(PixelType::UInt32),
+        },
         _ => Err(Error::invalid_argument(
-            "resolve_pixel_type: unsupported BitsPerSample",
+            "resolve_pixel_type: unsupported SampleFormat",
         )),
     }
 }
@@ -58,8 +68,8 @@ pub fn require_uniform_bits_per_sample(values: &[u64]) -> Result<()> {
 }
 
 /// The StorageModel field-value string for `pixel_type` (e.g. "UInt8",
-/// "Float32") -- the inverse of the BitsPerSample/SampleFormat mapping, used by
-/// the TIFF directory's `to_storage_model`.
+/// "Int16", "Float32") -- the inverse of the BitsPerSample/SampleFormat
+/// mapping, used by the TIFF directory's `to_storage_model`.
 #[must_use]
 pub const fn pixel_type_field_value(pixel_type: PixelType) -> &'static str {
     match pixel_type {
@@ -68,6 +78,8 @@ pub const fn pixel_type_field_value(pixel_type: PixelType) -> &'static str {
         PixelType::UInt32 => "UInt32",
         PixelType::Float32 => "Float32",
         PixelType::Float64 => "Float64",
+        PixelType::Int16 => "Int16",
+        PixelType::Int32 => "Int32",
     }
 }
 
@@ -78,8 +90,8 @@ pub const fn pixel_type_field_value(pixel_type: PixelType) -> &'static str {
 pub const fn bytes_per_sample(pixel_type: PixelType) -> u8 {
     match pixel_type {
         PixelType::UInt8 => 1,
-        PixelType::UInt16 => 2,
-        PixelType::UInt32 | PixelType::Float32 => 4,
+        PixelType::UInt16 | PixelType::Int16 => 2,
+        PixelType::UInt32 | PixelType::Int32 | PixelType::Float32 => 4,
         PixelType::Float64 => 8,
     }
 }
@@ -98,6 +110,8 @@ pub fn pixel_type_from_field_value(value: &str) -> Result<PixelType> {
         "UInt32" => Ok(PixelType::UInt32),
         "Float32" => Ok(PixelType::Float32),
         "Float64" => Ok(PixelType::Float64),
+        "Int16" => Ok(PixelType::Int16),
+        "Int32" => Ok(PixelType::Int32),
         _ => Err(Error::invalid_argument(
             "pixel_type_from_field_value: unrecognized pixelType field value",
         )),
@@ -112,12 +126,14 @@ pub fn bits_per_sample_for(pixel_type: PixelType) -> u16 {
 }
 
 /// The TIFF SampleFormat value to write for `pixel_type` (1 = unsigned int,
-/// 3 = IEEE float) -- the inverse (together with [`bits_per_sample_for`]) of
-/// [`resolve_pixel_type`].
+/// 2 = signed int, 3 = IEEE float) -- the inverse (together with
+/// [`bits_per_sample_for`]) of [`resolve_pixel_type`].
 #[must_use]
 pub fn sample_format_for(pixel_type: PixelType) -> u16 {
     if matches!(pixel_type, PixelType::Float32 | PixelType::Float64) {
         3
+    } else if matches!(pixel_type, PixelType::Int16 | PixelType::Int32) {
+        2
     } else {
         1
     }
@@ -136,6 +152,12 @@ mod tests {
     }
 
     #[test]
+    fn resolve_signed_integer_formats() {
+        assert_eq!(resolve_pixel_type(16, 2).unwrap(), PixelType::Int16);
+        assert_eq!(resolve_pixel_type(32, 2).unwrap(), PixelType::Int32);
+    }
+
+    #[test]
     fn resolve_32_bit_float() {
         assert_eq!(resolve_pixel_type(32, 3).unwrap(), PixelType::Float32);
     }
@@ -143,6 +165,15 @@ mod tests {
     #[test]
     fn resolve_64_bit_float() {
         assert_eq!(resolve_pixel_type(64, 3).unwrap(), PixelType::Float64);
+    }
+
+    #[test]
+    fn reject_signed_int_at_unsupported_bit_depth() {
+        // Int8 and Int64 are not part of the supported signed subset.
+        let e = resolve_pixel_type(8, 2).unwrap_err();
+        assert_eq!(e.code(), ErrorCode::InvalidArgument);
+        let e = resolve_pixel_type(64, 2).unwrap_err();
+        assert_eq!(e.code(), ErrorCode::InvalidArgument);
     }
 
     #[test]
@@ -160,8 +191,8 @@ mod tests {
 
     #[test]
     fn reject_unsupported_sample_format() {
-        // 2 = signed int, unsupported.
-        let e = resolve_pixel_type(8, 2).unwrap_err();
+        // 4 = undefined; nothing maps to it.
+        let e = resolve_pixel_type(16, 4).unwrap_err();
         assert_eq!(e.code(), ErrorCode::InvalidArgument);
     }
 
@@ -189,6 +220,8 @@ mod tests {
         assert_eq!(pixel_type_field_value(PixelType::UInt32), "UInt32");
         assert_eq!(pixel_type_field_value(PixelType::Float32), "Float32");
         assert_eq!(pixel_type_field_value(PixelType::Float64), "Float64");
+        assert_eq!(pixel_type_field_value(PixelType::Int16), "Int16");
+        assert_eq!(pixel_type_field_value(PixelType::Int32), "Int32");
     }
 
     #[test]
@@ -198,6 +231,8 @@ mod tests {
         assert_eq!(bytes_per_sample(PixelType::UInt32), 4);
         assert_eq!(bytes_per_sample(PixelType::Float32), 4);
         assert_eq!(bytes_per_sample(PixelType::Float64), 8);
+        assert_eq!(bytes_per_sample(PixelType::Int16), 2);
+        assert_eq!(bytes_per_sample(PixelType::Int32), 4);
     }
 
     #[test]
@@ -208,6 +243,8 @@ mod tests {
             PixelType::UInt32,
             PixelType::Float32,
             PixelType::Float64,
+            PixelType::Int16,
+            PixelType::Int32,
         ] {
             assert_eq!(
                 pixel_type_from_field_value(pixel_type_field_value(t)).unwrap(),
@@ -230,6 +267,8 @@ mod tests {
             PixelType::UInt32,
             PixelType::Float32,
             PixelType::Float64,
+            PixelType::Int16,
+            PixelType::Int32,
         ] {
             assert_eq!(
                 resolve_pixel_type(
@@ -240,5 +279,13 @@ mod tests {
                 t
             );
         }
+    }
+
+    #[test]
+    fn signed_types_encode_sample_format_two() {
+        assert_eq!(sample_format_for(PixelType::Int16), 2);
+        assert_eq!(sample_format_for(PixelType::Int32), 2);
+        assert_eq!(sample_format_for(PixelType::UInt16), 1);
+        assert_eq!(sample_format_for(PixelType::Float64), 3);
     }
 }

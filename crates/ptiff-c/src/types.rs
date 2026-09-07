@@ -20,6 +20,8 @@ pub enum ptiff_pixel_type {
     PTIFF_PIXEL_UINT32 = 2,
     PTIFF_PIXEL_FLOAT32 = 3,
     PTIFF_PIXEL_FLOAT64 = 4,
+    PTIFF_PIXEL_INT16 = 5,
+    PTIFF_PIXEL_INT32 = 6,
 }
 
 /// Mirror of the C `ptiff_compression_kind` enum (`ptiff_image_bridge.h`).
@@ -208,6 +210,8 @@ pub fn pixel_type_to_c(p: PixelType) -> ptiff_pixel_type {
         PixelType::UInt32 => ptiff_pixel_type::PTIFF_PIXEL_UINT32,
         PixelType::Float32 => ptiff_pixel_type::PTIFF_PIXEL_FLOAT32,
         PixelType::Float64 => ptiff_pixel_type::PTIFF_PIXEL_FLOAT64,
+        PixelType::Int16 => ptiff_pixel_type::PTIFF_PIXEL_INT16,
+        PixelType::Int32 => ptiff_pixel_type::PTIFF_PIXEL_INT32,
         // The core list is additive; unknown future sample types fall back to
         // the widest current C-representable one so the ABI stays total.
         _ => ptiff_pixel_type::PTIFF_PIXEL_FLOAT64,
@@ -224,6 +228,8 @@ pub fn pixel_type_from_c(v: i32) -> PixelType {
         x if x == ptiff_pixel_type::PTIFF_PIXEL_UINT32 as i32 => PixelType::UInt32,
         x if x == ptiff_pixel_type::PTIFF_PIXEL_FLOAT32 as i32 => PixelType::Float32,
         x if x == ptiff_pixel_type::PTIFF_PIXEL_FLOAT64 as i32 => PixelType::Float64,
+        x if x == ptiff_pixel_type::PTIFF_PIXEL_INT16 as i32 => PixelType::Int16,
+        x if x == ptiff_pixel_type::PTIFF_PIXEL_INT32 as i32 => PixelType::Int32,
         _ => PixelType::UInt8,
     }
 }
@@ -267,13 +273,17 @@ mod tests {
             PixelType::UInt32,
             PixelType::Float32,
             PixelType::Float64,
+            PixelType::Int16,
+            PixelType::Int32,
         ] {
             let c = pixel_type_to_c(p) as i32;
             assert_eq!(pixel_type_from_c(c), p);
         }
-        // Header-index anchor: UInt8 is 0, Float64 is 4.
+        // Header-index anchor: UInt8 is 0, Float64 is 4, Int32 is 6.
         assert_eq!(pixel_type_to_c(PixelType::UInt8) as i32, 0);
         assert_eq!(pixel_type_to_c(PixelType::Float64) as i32, 4);
+        assert_eq!(pixel_type_to_c(PixelType::Int16) as i32, 5);
+        assert_eq!(pixel_type_to_c(PixelType::Int32) as i32, 6);
     }
 
     #[test]

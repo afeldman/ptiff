@@ -38,6 +38,8 @@ fn parse_pixel_type(value: &str) -> Result<PixelType> {
         "UInt32" => Ok(PixelType::UInt32),
         "Float32" => Ok(PixelType::Float32),
         "Float64" => Ok(PixelType::Float64),
+        "Int16" => Ok(PixelType::Int16),
+        "Int32" => Ok(PixelType::Int32),
         _ => Err(Error::invalid_argument(
             "SceneDeserializer: unrecognized pixelType",
         )),

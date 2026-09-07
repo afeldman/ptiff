@@ -35,6 +35,8 @@ fn pixel_type_storage_value(t: PixelType) -> Option<&'static str> {
         PixelType::UInt32 => Some("UInt32"),
         PixelType::Float32 => Some("Float32"),
         PixelType::Float64 => Some("Float64"),
+        PixelType::Int16 => Some("Int16"),
+        PixelType::Int32 => Some("Int32"),
     }
 }
 
