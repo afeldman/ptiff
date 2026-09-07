@@ -46,6 +46,30 @@ fn tag_id(id: TagId) -> u16 {
     id.as_u16()
 }
 
+/// Field type used for file offsets/byte counts: LONG in classic TIFF,
+/// LONG8 in BigTIFF (per the Adobe BigTIFF specification, offset/byte-count
+/// tags are 8 bytes in BigTIFF).
+fn offset_field_type(is_big_tiff: bool) -> FieldType {
+    if is_big_tiff {
+        FieldType::Long8
+    } else {
+        FieldType::Long
+    }
+}
+
+/// Rejects a value that the classic TIFF container cannot represent. Classic
+/// TIFF addresses file offsets and byte counts with 32-bit LONG values; a
+/// value beyond `u32::MAX` must fail explicitly (never truncate). BigTIFF has
+/// no such limit.
+fn require_classic_u32(value: u64, what: &str) -> Result<()> {
+    if value > u64::from(u32::MAX) {
+        return Err(Error::invalid_argument(format!(
+            "planTiffWrite: {what} {value} exceeds the 32-bit range of the classic TIFF container; select container \"BigTiff\" for files beyond 4 GiB"
+        )));
+    }
+    Ok(())
+}
+
 fn require_uint32_field(model: &StorageModel, key: &str) -> Result<u32> {
     let value = model.field(key).map_err(|_| {
         Error::invalid_argument(format!("planTiffWrite: missing required field \"{key}\""))
@@ -319,6 +343,9 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
             u64::from(bytes_per_sample(pixel_type)),
         )?;
         tile_byte_size = checked_multiply(tile_row_bytes, u64::from(tile_height_value))?;
+        if !is_big_tiff {
+            require_classic_u32(tile_byte_size, "tile byte count")?;
+        }
 
         entries.push(TiffIfdEntryToWrite::new(
             tag_id(TagId::TileWidth),
@@ -330,15 +357,15 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
             FieldType::Long,
             vec![tile_height_value],
         ));
-        entries.push(TiffIfdEntryToWrite::new(
+        entries.push(TiffIfdEntryToWrite::new_u64(
             tag_id(TagId::TileOffsets),
-            FieldType::Long,
-            vec![0; tile_count as usize], // patched below
+            offset_field_type(is_big_tiff),
+            vec![0u64; tile_count as usize], // patched below
         ));
-        entries.push(TiffIfdEntryToWrite::new(
+        entries.push(TiffIfdEntryToWrite::new_u64(
             tag_id(TagId::TileByteCounts),
-            FieldType::Long,
-            vec![tile_byte_size as u32; tile_count as usize],
+            offset_field_type(is_big_tiff),
+            vec![tile_byte_size; tile_count as usize],
         ));
     } else {
         let row_bytes = checked_multiply(
@@ -346,22 +373,25 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
             u64::from(bytes_per_sample(pixel_type)),
         )?;
         strip_byte_count_value = checked_multiply(row_bytes, u64::from(image_height))?;
+        if !is_big_tiff {
+            require_classic_u32(strip_byte_count_value, "strip byte count")?;
+        }
 
-        entries.push(TiffIfdEntryToWrite::new(
+        entries.push(TiffIfdEntryToWrite::new_u64(
             tag_id(TagId::StripOffsets),
-            FieldType::Long,
-            vec![0], // patched below
+            offset_field_type(is_big_tiff),
+            vec![0u64], // patched below
         ));
         entries.push(TiffIfdEntryToWrite::new(
             tag_id(TagId::RowsPerStrip),
             FieldType::Long,
             vec![image_height],
         ));
-        entries.push(TiffIfdEntryToWrite::new(
+        entries.push(TiffIfdEntryToWrite::new_u64(
             tag_id(TagId::StripByteCounts),
-            FieldType::Long,
+            offset_field_type(is_big_tiff),
             vec![if compression == TiffCompression::None {
-                strip_byte_count_value as u32
+                strip_byte_count_value
             } else {
                 0 // placeholder, back-patched by the Sink after encode
             }],
@@ -400,7 +430,10 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
         let mut tile_offsets = Vec::with_capacity(tile_count as usize);
         for i in 0..tile_count {
             let offset = data_offset + i * tile_byte_size;
-            tile_offsets.push(offset as u32);
+            if !is_big_tiff {
+                require_classic_u32(offset, "tile data offset")?;
+            }
+            tile_offsets.push(offset);
             tile_byte_ranges.push(crate::io::backend::tiff::directory::TileByteRange::new(
                 offset,
                 tile_byte_size,
@@ -413,9 +446,12 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
             }
         }
     } else {
+        if !is_big_tiff {
+            require_classic_u32(data_offset, "strip data offset")?;
+        }
         for entry in &mut entries {
             if entry.tag_id == tag_id(TagId::StripOffsets) {
-                entry.values = vec![data_offset as u32];
+                entry.values = vec![data_offset];
             }
         }
         tile_byte_ranges = vec![crate::io::backend::tiff::directory::TileByteRange::new(
@@ -489,6 +525,7 @@ pub fn plan_tiff_write(model: &StorageModel) -> Result<TiffWritePlan> {
         compression,
         predictor,
         endian: Endian::Little,
+        offset_value_bytes: if is_big_tiff { 8 } else { 4 },
         strip_byte_counts_patch_offset: byte_count_patch_offset,
         tile_offsets_value_addresses,
         tile_byte_counts_value_addresses,
@@ -600,7 +637,12 @@ pub fn plan_tiff_write_multi(models: &[StorageModel]) -> Result<TiffFileWritePla
                 || entry.tag_id == tag_id(TagId::TileOffsets)
             {
                 for value in &mut entry.values {
-                    *value = (*value as u64 + data_delta) as u32;
+                    *value = value.checked_add(data_delta).ok_or_else(|| {
+                        Error::invalid_argument("planTiffWriteMulti: offset rebase overflows")
+                    })?;
+                    if !is_big_tiff {
+                        require_classic_u32(*value, "rebased data offset")?;
+                    }
                 }
             }
         }
@@ -762,5 +804,76 @@ mod tests {
         // 513 is above the defensive 512 cap.
         let err = plan_tiff_write(&nband_model(513)).unwrap_err();
         assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
+    }
+
+    // --- P0-01: classic guard + BigTIFF 64-bit offset/count semantics ---
+
+    fn huge_strip_model(container: &str) -> StorageModel {
+        // 100_000 x 100_000 UInt8 = 10^10 bytes: beyond the classic 32-bit
+        // range, but trivially small as metadata.
+        let mut m = StorageModel::new();
+        m.set_field("imageWidth", "100000");
+        m.set_field("imageHeight", "100000");
+        m.set_field("samplesPerPixel", "1");
+        m.set_field("pixelType", "UInt8");
+        m.set_field("container", container.to_string());
+        m
+    }
+
+    #[test]
+    fn classic_rejects_strip_byte_count_beyond_4gib() {
+        let err = plan_tiff_write(&huge_strip_model("Classic")).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
+        assert!(
+            err.message().contains("classic TIFF"),
+            "error must name the classic container: {}",
+            err.message()
+        );
+    }
+
+    #[test]
+    fn bigtiff_strip_plan_uses_long8_offsets_and_counts() {
+        let plan = plan_tiff_write(&huge_strip_model("BigTiff")).unwrap();
+        assert!(plan.is_big_tiff);
+        assert_eq!(plan.directory.offset_value_bytes, 8);
+        assert_eq!(
+            plan.directory.tile_byte_ranges[0].byte_count, 10_000_000_000,
+            "byte range must keep the full 64-bit count"
+        );
+        for entry in &plan.entries {
+            match entry.tag_id {
+                t if t == tag_id(TagId::StripOffsets) || t == tag_id(TagId::StripByteCounts) => {
+                    assert_eq!(
+                        entry.field_type,
+                        FieldType::Long8,
+                        "BigTIFF offset/count tags must be LONG8"
+                    );
+                }
+                _ => {}
+            }
+        }
+        let counts = plan
+            .entries
+            .iter()
+            .find(|e| e.tag_id == tag_id(TagId::StripByteCounts))
+            .expect("StripByteCounts entry");
+        assert_eq!(counts.values, vec![10_000_000_000]);
+    }
+
+    #[test]
+    fn classic_small_strip_plan_keeps_long_offsets_and_four_byte_slots() {
+        let plan = plan_tiff_write(&strip_model(64, 32)).unwrap();
+        assert!(!plan.is_big_tiff);
+        assert_eq!(plan.directory.offset_value_bytes, 4);
+        let offsets = plan
+            .entries
+            .iter()
+            .find(|e| e.tag_id == tag_id(TagId::StripOffsets))
+            .expect("StripOffsets entry");
+        assert_eq!(offsets.field_type, FieldType::Long);
+        assert_eq!(
+            offsets.values,
+            vec![plan.directory.tile_byte_ranges[0].offset]
+        );
     }
 }

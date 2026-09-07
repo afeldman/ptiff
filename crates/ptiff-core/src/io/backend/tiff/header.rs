@@ -120,6 +120,13 @@ pub fn write_tiff_header<W: BinaryWriter + ?Sized>(
     is_big_tiff: bool,
 ) -> Result<()> {
     if !is_big_tiff {
+        // Classic TIFF stores the first-IFD offset as 32 bits; a larger offset
+        // must fail explicitly rather than truncate.
+        if first_ifd_offset > u64::from(u32::MAX) {
+            return Err(crate::Error::invalid_argument(format!(
+                "write_tiff_header: first-IFD offset {first_ifd_offset} exceeds the 32-bit range of the classic TIFF container"
+            )));
+        }
         let mut header = [b'I', b'I', 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00];
         write_u32(&mut header[4..8], first_ifd_offset as u32, Endian::Little);
         return write_and_check(writer, &header);
