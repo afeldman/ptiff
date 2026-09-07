@@ -4,6 +4,7 @@
 
 use crate::geometry::{Camera, Geometry};
 use crate::id::{CameraId, GeometryId, ImageId};
+use crate::identity::ExternalId;
 use crate::image::Image;
 use crate::image::ImageDescriptor;
 use crate::{Error, Result};
@@ -14,6 +15,17 @@ use crate::{Error, Result};
 /// An owning container of [`Image`] objects. Each image is given a
 /// monotonically increasing [`ImageId`] when added (0, 1, 2, ...). Copy is
 /// intentionally not implemented; a `Scene` is cheap to move.
+///
+/// **Identity semantics (P0-05):** the minted ids are PTIFF-local handles.
+/// They are unique within this Scene, stable for the lifetime of the Scene
+/// (adding unrelated images never renumbers earlier ids), and never derived
+/// from TIFF layout. Lookup today is implemented positionally (`ImageId` 0..n
+/// doubles as the backing index), which is an implementation detail of the
+/// 1.x container — physical position is **not** scientific identity. A
+/// Scene-level `ExternalId` may be attached per image in memory (see
+/// [`Scene::attach_external_id`]); its on-disk representation is deferred.
+/// The full separation of local / external / physical identity is specified
+/// in [`crate::identity`].
 ///
 /// A `Scene` also owns optional scene-level [`Camera`] and [`Geometry`] objects
 /// (added via [`Scene::add_camera`] / [`Scene::add_geometry`]), distinct from
@@ -39,6 +51,16 @@ pub struct Scene {
     cameras: Vec<Camera>,
     #[cfg_attr(feature = "serde", serde(skip))]
     geometries: Vec<Geometry>,
+    /// External identifiers attached to images, in deterministic insertion
+    /// order as `(image_id, external_id)` pairs.
+    ///
+    /// **In-memory only:** no serialization exists for these until the
+    /// manifest encoding/location decisions (ADR-011/ADR-012) — attaching an
+    /// external id therefore never changes 1.x TIFF output and never
+    /// survives a storage round-trip (documented deferral, see the `identity`
+    /// module).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    external_ids: Vec<(u64, ExternalId)>,
     next_id: u64,
     next_camera_id: u64,
     next_geometry_id: u64,
@@ -91,6 +113,80 @@ impl Scene {
         self.images
             .get(index)
             .ok_or_else(|| Error::out_of_range("Scene::image_at: index out of range"))
+    }
+
+    /// Attaches an [`ExternalId`] to the image identified by `image`.
+    ///
+    /// An external identifier is a reference into an external system (PDS4,
+    /// ISIS, mission archive, source dataset); it never replaces the
+    /// PTIFF-local [`ImageId`]. One image may carry several external ids, at
+    /// most one per namespace.
+    ///
+    /// This is **in-memory only**: external ids have no on-disk
+    /// representation until the manifest encoding/location decisions
+    /// (ADR-011/ADR-012) — see [`crate::identity`].
+    ///
+    /// # Errors
+    ///
+    /// * [`crate::ErrorCode::NotFound`] if `image` was never returned by
+    ///   [`Scene::add_image`].
+    /// * [`crate::ErrorCode::InvalidArgument`] if the image already carries an
+    ///   external id in the same namespace (conflicting duplicate).
+    pub fn attach_external_id(&mut self, image: ImageId, external: ExternalId) -> Result<()> {
+        let image_index = self.validate_image_id(image)?;
+        if self
+            .external_ids
+            .iter()
+            .any(|(id, e)| *id == image_index && e.namespace() == external.namespace())
+        {
+            return Err(Error::invalid_argument(
+                "Scene::attach_external_id: image already has an external id in this namespace",
+            ));
+        }
+        self.external_ids.push((image_index, external));
+        Ok(())
+    }
+
+    /// Returns the external id attached to `image` under `namespace`, if any.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::ErrorCode::NotFound`] if `image` was never returned by
+    /// [`Scene::add_image`].
+    pub fn external_id(&self, image: ImageId, namespace: &str) -> Result<Option<&ExternalId>> {
+        let image_index = self.validate_image_id(image)?;
+        Ok(self
+            .external_ids
+            .iter()
+            .find(|(id, e)| *id == image_index && e.namespace() == namespace)
+            .map(|(_, e)| e))
+    }
+
+    /// Returns every external id attached to `image`, in attachment order
+    /// (deterministic; never hash-order dependent).
+    ///
+    /// # Errors
+    ///
+    /// [`crate::ErrorCode::NotFound`] if `image` was never returned by
+    /// [`Scene::add_image`].
+    pub fn external_ids_for(&self, image: ImageId) -> Result<Vec<&ExternalId>> {
+        let image_index = self.validate_image_id(image)?;
+        Ok(self
+            .external_ids
+            .iter()
+            .filter(|(id, _)| *id == image_index)
+            .map(|(_, e)| e)
+            .collect())
+    }
+
+    /// Validates that `image` is an id minted by this scene and returns its
+    /// backing index.
+    fn validate_image_id(&self, image: ImageId) -> Result<u64> {
+        let index = image.value();
+        if index >= self.images.len() as u64 {
+            return Err(Error::not_found("Scene: no image with this id"));
+        }
+        Ok(index)
     }
 
     /// Appends a scene-level camera and returns its new [`CameraId`].

@@ -26,6 +26,7 @@
 pub mod error;
 pub mod geometry;
 pub mod id;
+pub mod identity;
 pub mod image;
 pub mod io;
 pub mod logging;
@@ -43,6 +44,7 @@ pub use geometry::{
     ScrewMotion, SpiceState, Vec3,
 };
 pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
+pub use identity::ExternalId;
 pub use image::{
     CompressionKind, Image, ImageDescriptor, ImageDescriptorBuilder, PixelType, TileInfo,
 };

@@ -19,6 +19,26 @@ use std::marker::PhantomData;
 /// scenes. Ids are minted by `Scene::add_image` and friends, not hand-rolled by
 /// callers.
 ///
+/// **Identity contract (P0-05):** an `Id` is the PTIFF-local identity of one
+/// entity inside its issuing Scene. It is *not*:
+///
+/// * an external/persistent identifier (see [`crate::identity::ExternalId`]),
+/// * a physical TIFF property — IFD index, byte offset, tile layout and file
+///   name are container mechanics, never scientific identity,
+/// * a content hash — two identical descriptors are two distinct entities with
+///   distinct ids,
+/// * a global identifier — the same numeric `Id` in two different Scenes names
+///   two different entities.
+///
+/// Uniqueness is guaranteed by the issuing Scene (monotonic minting; there is
+/// no removal), and ids are stable when unrelated entities are added. Because
+/// `Scene` has no clone, an in-memory whole-scene "copy" is not available; a
+/// scientific duplication is expressed by adding a new entity, which mints a
+/// new, distinct id. Copying a PTIFF *file* is byte-identical and re-reads
+/// with the same file-order ids — the 1.x reader mints ids from IFD order, so
+/// reading never fabricates scientific identity (migration tooling owns that
+/// mapping later).
+///
 /// Ids are deliberately constrained: no arithmetic (`+`, `-`, ...) and no
 /// implicit conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
