@@ -7,8 +7,8 @@ use crate::{Error, Result};
 
 /// Maps TIFF's (BitsPerSample, SampleFormat) pair to [`PixelType`], for this
 /// backend's supported subset: unsigned int at 8/16/32 bits, or IEEE float at
-/// 32 bits only. SampleFormat: 1 = unsigned int (TIFF's default when the tag is
-/// absent), 3 = IEEE float. Any other SampleFormat, or a BitsPerSample
+/// 32 or 64 bits. SampleFormat: 1 = unsigned int (TIFF's default when the tag
+/// is absent), 3 = IEEE float. Any other SampleFormat, or a BitsPerSample
 /// unsupported for the given format, is [`crate::ErrorCode::InvalidArgument`].
 pub fn resolve_pixel_type(bits_per_sample: u64, sample_format: u64) -> Result<PixelType> {
     if sample_format != 1 && sample_format != 3 {
@@ -17,12 +17,16 @@ pub fn resolve_pixel_type(bits_per_sample: u64, sample_format: u64) -> Result<Pi
         ));
     }
     if sample_format == 3 {
-        if bits_per_sample != 32 {
-            return Err(Error::invalid_argument(
-                "resolve_pixel_type: float SampleFormat requires 32-bit BitsPerSample",
-            ));
-        }
-        return Ok(PixelType::Float32);
+        // IEEE float: 32-bit (Float32) or 64-bit (Float64). Float64 must be
+        // accepted here so files written with Float64 pixels (BitsPerSample 64,
+        // SampleFormat 3, emitted by `sample_format_for`) can be read back.
+        return match bits_per_sample {
+            32 => Ok(PixelType::Float32),
+            64 => Ok(PixelType::Float64),
+            _ => Err(Error::invalid_argument(
+                "resolve_pixel_type: float SampleFormat requires 32-bit or 64-bit BitsPerSample",
+            )),
+        };
     }
     match bits_per_sample {
         8 => Ok(PixelType::UInt8),
@@ -137,7 +141,13 @@ mod tests {
     }
 
     #[test]
+    fn resolve_64_bit_float() {
+        assert_eq!(resolve_pixel_type(64, 3).unwrap(), PixelType::Float64);
+    }
+
+    #[test]
     fn reject_float_at_unsupported_bit_depth() {
+        // 16-bit float is not part of the supported subset.
         let e = resolve_pixel_type(16, 3).unwrap_err();
         assert_eq!(e.code(), ErrorCode::InvalidArgument);
     }
@@ -178,6 +188,7 @@ mod tests {
         assert_eq!(pixel_type_field_value(PixelType::UInt16), "UInt16");
         assert_eq!(pixel_type_field_value(PixelType::UInt32), "UInt32");
         assert_eq!(pixel_type_field_value(PixelType::Float32), "Float32");
+        assert_eq!(pixel_type_field_value(PixelType::Float64), "Float64");
     }
 
     #[test]
@@ -196,6 +207,7 @@ mod tests {
             PixelType::UInt16,
             PixelType::UInt32,
             PixelType::Float32,
+            PixelType::Float64,
         ] {
             assert_eq!(
                 pixel_type_from_field_value(pixel_type_field_value(t)).unwrap(),
@@ -217,6 +229,7 @@ mod tests {
             PixelType::UInt16,
             PixelType::UInt32,
             PixelType::Float32,
+            PixelType::Float64,
         ] {
             assert_eq!(
                 resolve_pixel_type(
