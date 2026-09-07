@@ -48,6 +48,19 @@
 //! `DerivedFrom` reads "T is derived from S" (canonical ADR-002 verb
 //! orientation). Provenance, axes, serialization and the full vocabulary
 //! remain outside CM-02.
+//!
+//! # Provenance (CM-03)
+//!
+//! Provenance is a **directed process graph** (I-7, D14): per-producing-step
+//! [`ProcessRecord`] nodes connected to CM-01 entities through
+//! [`ProvenanceRelation`] edges of kind [`ProvenanceRelationKind::Used`] or
+//! [`ProvenanceRelationKind::Generated`]. Provenance is deliberately **not**
+//! the CM-02 Relationship layer and not `DerivedFrom` in disguise: an
+//! ordinary semantic edge ("B is derived from A") coexists with explicit
+//! process semantics ("processing record X used A and generated B") without
+//! automatic conversion or inference. Records are immutable and
+//! append-only in this increment (no mutation, no removal, no rewrite).
+//! Provenance remains in-memory and serialization-agnostic.
 
 /// A scientific measurement/acquisition event.
 ///
@@ -249,5 +262,103 @@ impl Relationship {
     #[must_use]
     pub const fn target(&self) -> EntityRef {
         self.target
+    }
+}
+
+/// A provenance process step (D14 "ProcessRecord", the Activity/Process
+/// concept of the Core Model).
+///
+/// A `ProcessRecord` represents one scientific or processing step that acted
+/// upon entities — calibration, photometric correction, geometric processing,
+/// surface reconstruction, derivation, ... It is semantically distinct from
+/// an [`Observation`] (a measurement event), a [`DataObject`], a [`Product`]
+/// and a [`Relationship`]. No domain-specific processing types are encoded in
+/// CM-03.
+///
+/// Records are immutable and append-only: every producing step adds a new
+/// record; history is chained by later records and never rewritten
+/// (in-memory policy; validator ordering is a later concern). The record's
+/// content fields (software, parameters, actor, time, environment — D14) are
+/// intentionally absent here; CM-03 establishes the graph semantics and the
+/// Scene-scoped identity.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct ProcessRecord {}
+
+impl ProcessRecord {
+    /// Creates an empty process record (no content fields yet).
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {}
+    }
+}
+
+/// The kind of a [`ProvenanceRelation`] edge.
+///
+/// Canonical orientation (CM-03): both kinds originate at the
+/// [`ProcessRecord`] and point at the CM-01 entity.
+///
+/// ```text
+/// ProcessRecord ──Used──>     entity (consumed/input by the process)
+/// ProcessRecord ──Generated──> entity (produced/output by the process)
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ProvenanceRelationKind {
+    /// The process used the entity as an input.
+    Used,
+    /// The process generated the entity as an output.
+    Generated,
+}
+
+/// An explicit directed provenance edge:
+/// `process --kind--> entity`.
+///
+/// Distinct from [`Relationship`]: provenance relations always involve a
+/// [`ProcessRecord`] endpoint and describe how entities were produced or
+/// consumed through process activity. Direction is preserved — `process
+/// --Used--> entity` is not equivalent to the reverse — and no inverse edges
+/// are created automatically. The provenance graph holds only explicitly
+/// declared relations (no inference).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvenanceRelation {
+    process: crate::id::ProcessRecordId,
+    kind: ProvenanceRelationKind,
+    entity: EntityRef,
+}
+
+impl ProvenanceRelation {
+    /// Builds a provenance relation value without Scene validation.
+    ///
+    /// Prefer [`crate::Scene::add_provenance_relation`], which validates Scene
+    /// membership and duplicates.
+    #[must_use]
+    pub const fn new(
+        process: crate::id::ProcessRecordId,
+        kind: ProvenanceRelationKind,
+        entity: EntityRef,
+    ) -> Self {
+        Self {
+            process,
+            kind,
+            entity,
+        }
+    }
+
+    /// The process-record endpoint (source).
+    #[must_use]
+    pub const fn process(&self) -> crate::id::ProcessRecordId {
+        self.process
+    }
+
+    /// The provenance kind.
+    #[must_use]
+    pub const fn kind(&self) -> ProvenanceRelationKind {
+        self.kind
+    }
+
+    /// The entity endpoint (target).
+    #[must_use]
+    pub const fn entity(&self) -> EntityRef {
+        self.entity
     }
 }

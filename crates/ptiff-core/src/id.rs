@@ -86,6 +86,7 @@ declare_id_tag! {
     #[doc="Tag for [`ObservationId`]."] ObservationIdTag,
     #[doc="Tag for [`DataObjectId`]."] DataObjectIdTag,
     #[doc="Tag for [`ProductId`]."] ProductIdTag,
+    #[doc="Tag for [`ProcessRecordId`]."] ProcessRecordIdTag,
 }
 
 /// Unique id of an image within its scene.
@@ -106,6 +107,8 @@ pub type ObservationId = Id<ObservationIdTag>;
 pub type DataObjectId = Id<DataObjectIdTag>;
 /// Unique id of a product within its scene (Core Model, CM-01).
 pub type ProductId = Id<ProductIdTag>;
+/// Unique id of a process record within its scene (Core Model, CM-03).
+pub type ProcessRecordId = Id<ProcessRecordIdTag>;
 
 #[cfg(test)]
 mod tests {

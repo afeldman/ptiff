@@ -45,8 +45,8 @@ pub use geometry::{
     ScrewMotion, SpiceState, Vec3,
 };
 pub use id::{
-    AnnotationId, CameraId, DataObjectId, GeometryId, ImageId, LayerId, ObservationId, ProductId,
-    TileId,
+    AnnotationId, CameraId, DataObjectId, GeometryId, ImageId, LayerId, ObservationId,
+    ProcessRecordId, ProductId, TileId,
 };
 pub use identity::ExternalId;
 pub use image::{
@@ -60,5 +60,8 @@ pub use io::{
 pub use logging::LogLevel;
 
 pub use scene::Scene;
-pub use semantic::{DataObject, EntityRef, Observation, Product, Relationship, RelationshipKind};
+pub use semantic::{
+    DataObject, EntityRef, Observation, ProcessRecord, Product, ProvenanceRelation,
+    ProvenanceRelationKind, Relationship, RelationshipKind,
+};
 pub use version::{APP_VERSION, VERSION_STR};

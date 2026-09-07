@@ -3,12 +3,15 @@
 //! Mirrors `ptiff::Scene` (see `libptiff/include/ptiff/scene.hpp`).
 
 use crate::geometry::{Camera, Geometry};
-use crate::id::{CameraId, DataObjectId, GeometryId, ImageId, ObservationId, ProductId};
+use crate::id::{
+    CameraId, DataObjectId, GeometryId, ImageId, ObservationId, ProcessRecordId, ProductId,
+};
 use crate::identity::ExternalId;
 use crate::image::Image;
 use crate::image::ImageDescriptor;
 use crate::semantic::{
-    DataObject, EntityRef, Observation, Product, Relationship, RelationshipKind,
+    DataObject, EntityRef, Observation, ProcessRecord, Product, ProvenanceRelation,
+    ProvenanceRelationKind, Relationship, RelationshipKind,
 };
 use crate::{Error, Result};
 
@@ -77,12 +80,21 @@ pub struct Scene {
     /// insertion order. In-memory only — never serialized (see `semantic`).
     #[cfg_attr(feature = "serde", serde(skip))]
     relationships: Vec<Relationship>,
+    /// Provenance process records (CM-03), in deterministic insertion order.
+    /// Immutable/append-only, in-memory only (see `semantic`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    process_records: Vec<ProcessRecord>,
+    /// Explicit directed provenance edges (CM-03), in deterministic insertion
+    /// order. In-memory only.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    provenance_relations: Vec<ProvenanceRelation>,
     next_id: u64,
     next_camera_id: u64,
     next_geometry_id: u64,
     next_observation_id: u64,
     next_data_object_id: u64,
     next_product_id: u64,
+    next_process_record_id: u64,
 }
 
 impl Scene {
@@ -524,6 +536,130 @@ impl Scene {
                     ))
                 }
             }
+        }
+    }
+
+    /// Appends a provenance [`ProcessRecord`] and returns its new
+    /// [`ProcessRecordId`].
+    ///
+    /// Records are immutable and append-only: each producing step adds a new
+    /// record; nothing mutates or removes an existing record. The id is
+    /// scoped to this scene (starting at 0, monotonic) and independent of
+    /// every other id family. See the `semantic` module.
+    pub fn add_process_record(&mut self, record: ProcessRecord) -> ProcessRecordId {
+        let id = self.next_process_record_id;
+        self.next_process_record_id += 1;
+        self.process_records.push(record);
+        ProcessRecordId::new(id)
+    }
+
+    /// Number of provenance process records in the scene.
+    #[must_use]
+    pub fn process_record_count(&self) -> usize {
+        self.process_records.len()
+    }
+
+    /// Looks up a provenance [`ProcessRecord`] by its [`ProcessRecordId`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
+    /// [`Scene::add_process_record`].
+    pub fn process_record(&self, id: ProcessRecordId) -> Result<&ProcessRecord> {
+        self.process_records
+            .get(id.value() as usize)
+            .ok_or_else(|| {
+                Error::not_found("Scene::process_record: no process record with this id")
+            })
+    }
+
+    /// Adds an explicit directed provenance relation
+    /// `process --kind--> entity`.
+    ///
+    /// Provenance is a separate semantic layer from CM-02 Relationships:
+    /// nothing here reads, writes, infers or converts ordinary relationships,
+    /// and ordinary relationships never create provenance automatically.
+    /// Relations are stored in deterministic insertion order; only explicitly
+    /// declared edges exist.
+    ///
+    /// Validation:
+    ///
+    /// 1. **Membership** — `process` was minted by this Scene and `entity`
+    ///    lies within this Scene's entity domain
+    ///    ([`crate::ErrorCode::NotFound`] otherwise; same documented
+    ///    numeric-handle limitation as relationships — `Id<Tag>` carries no
+    ///    minting provenance).
+    /// 2. **Duplicates** — an identical relation (same process, kind and
+    ///    entity) is rejected ([`crate::ErrorCode::InvalidArgument`]).
+    ///
+    /// # Errors
+    ///
+    /// [`crate::ErrorCode::NotFound`] for foreign endpoints,
+    /// [`crate::ErrorCode::InvalidArgument`] for exact duplicates.
+    pub fn add_provenance_relation(
+        &mut self,
+        process: ProcessRecordId,
+        kind: ProvenanceRelationKind,
+        entity: EntityRef,
+    ) -> Result<()> {
+        self.validate_process_record(process)?;
+        self.validate_entity_ref(entity)?;
+        if self
+            .provenance_relations
+            .iter()
+            .any(|r| r.process() == process && r.kind() == kind && r.entity() == entity)
+        {
+            return Err(Error::invalid_argument(
+                "Scene::add_provenance_relation: duplicate relation (same process, kind and entity)",
+            ));
+        }
+        self.provenance_relations
+            .push(ProvenanceRelation::new(process, kind, entity));
+        Ok(())
+    }
+
+    /// Number of provenance relations in the scene.
+    #[must_use]
+    pub fn provenance_relation_count(&self) -> usize {
+        self.provenance_relations.len()
+    }
+
+    /// All provenance relations in deterministic insertion order.
+    #[must_use]
+    pub fn provenance_relations(&self) -> &[ProvenanceRelation] {
+        &self.provenance_relations
+    }
+
+    /// Provenance relations of one process record, in insertion order.
+    #[must_use]
+    pub fn provenance_relations_of_process(
+        &self,
+        process: ProcessRecordId,
+    ) -> Vec<&ProvenanceRelation> {
+        self.provenance_relations
+            .iter()
+            .filter(|r| r.process() == process)
+            .collect()
+    }
+
+    /// Provenance relations whose entity endpoint equals `entity`, in
+    /// insertion order.
+    #[must_use]
+    pub fn provenance_relations_of_entity(&self, entity: EntityRef) -> Vec<&ProvenanceRelation> {
+        self.provenance_relations
+            .iter()
+            .filter(|r| r.entity() == entity)
+            .collect()
+    }
+
+    /// Validates that `process` was minted by this Scene.
+    fn validate_process_record(&self, process: ProcessRecordId) -> Result<()> {
+        if process.value() < self.process_records.len() as u64 {
+            Ok(())
+        } else {
+            Err(Error::not_found(
+                "Scene::add_provenance_relation: no process record with this id in this scene",
+            ))
         }
     }
 }
