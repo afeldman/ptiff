@@ -3,10 +3,11 @@
 //! Mirrors `ptiff::Scene` (see `libptiff/include/ptiff/scene.hpp`).
 
 use crate::geometry::{Camera, Geometry};
-use crate::id::{CameraId, GeometryId, ImageId};
+use crate::id::{CameraId, DataObjectId, GeometryId, ImageId, ObservationId, ProductId};
 use crate::identity::ExternalId;
 use crate::image::Image;
 use crate::image::ImageDescriptor;
+use crate::semantic::{DataObject, Observation, Product};
 use crate::{Error, Result};
 
 /// A scene: the composition of multiple related images (e.g. a stereo pair, a
@@ -61,9 +62,21 @@ pub struct Scene {
     /// module).
     #[cfg_attr(feature = "serde", serde(skip))]
     external_ids: Vec<(u64, ExternalId)>,
+    /// Core Model entities (CM-01). Purely additive and **never serialized**:
+    /// observations/data objects/products exist only inside the live Scene
+    /// until the manifest layer is designed (see the `semantic` module).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    observations: Vec<Observation>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    data_objects: Vec<DataObject>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    products: Vec<Product>,
     next_id: u64,
     next_camera_id: u64,
     next_geometry_id: u64,
+    next_observation_id: u64,
+    next_data_object_id: u64,
+    next_product_id: u64,
 }
 
 impl Scene {
@@ -271,6 +284,125 @@ impl Scene {
         self.geometries
             .get(index)
             .ok_or_else(|| Error::out_of_range("Scene::geometry_at: index out of range"))
+    }
+
+    /// Appends a Core Model [`Observation`] and returns its new
+    /// [`ObservationId`].
+    ///
+    /// The id is scoped to this scene (starting at 0, monotonic), exactly like
+    /// image/camera/geometry ids, and independent of every other id family:
+    /// an observation id can never be confused with a data-object or product
+    /// id (distinct [`crate::id::Id`] tags), and allocating Core Model entities never
+    /// renumbers existing 1.x ids. See the `semantic` module for the entity
+    /// contract.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ptiff_core::{Scene, Observation};
+    ///
+    /// let mut scene = Scene::new();
+    /// let id = scene.add_observation(Observation::new());
+    /// assert_eq!(scene.observation(id).unwrap().clone(), Observation::new());
+    /// ```
+    pub fn add_observation(&mut self, observation: Observation) -> ObservationId {
+        let id = self.next_observation_id;
+        self.next_observation_id += 1;
+        self.observations.push(observation);
+        ObservationId::new(id)
+    }
+
+    /// Number of Core Model observations in the scene.
+    #[must_use]
+    pub fn observation_count(&self) -> usize {
+        self.observations.len()
+    }
+
+    /// Looks up a Core Model [`Observation`] by its [`ObservationId`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
+    /// [`Scene::add_observation`] (including ids minted by a different Scene).
+    pub fn observation(&self, id: ObservationId) -> Result<&Observation> {
+        self.observations
+            .get(id.value() as usize)
+            .ok_or_else(|| Error::not_found("Scene::observation: no observation with this id"))
+    }
+
+    /// Appends a Core Model [`DataObject`] and returns its new
+    /// [`DataObjectId`]. Independent of every other id family (see
+    /// [`Scene::add_observation`]).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ptiff_core::{Scene, DataObject};
+    ///
+    /// let mut scene = Scene::new();
+    /// let id = scene.add_data_object(DataObject::new());
+    /// assert_eq!(scene.data_object(id).unwrap().clone(), DataObject::new());
+    /// ```
+    pub fn add_data_object(&mut self, data_object: DataObject) -> DataObjectId {
+        let id = self.next_data_object_id;
+        self.next_data_object_id += 1;
+        self.data_objects.push(data_object);
+        DataObjectId::new(id)
+    }
+
+    /// Number of Core Model data objects in the scene.
+    #[must_use]
+    pub fn data_object_count(&self) -> usize {
+        self.data_objects.len()
+    }
+
+    /// Looks up a Core Model [`DataObject`] by its [`DataObjectId`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
+    /// [`Scene::add_data_object`].
+    pub fn data_object(&self, id: DataObjectId) -> Result<&DataObject> {
+        self.data_objects
+            .get(id.value() as usize)
+            .ok_or_else(|| Error::not_found("Scene::data_object: no data object with this id"))
+    }
+
+    /// Appends a Core Model [`Product`] and returns its new [`ProductId`].
+    /// Independent of every other id family (see [`Scene::add_observation`]).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ptiff_core::{Scene, Product};
+    ///
+    /// let mut scene = Scene::new();
+    /// let id = scene.add_product(Product::new());
+    /// assert_eq!(scene.product(id).unwrap().clone(), Product::new());
+    /// ```
+    pub fn add_product(&mut self, product: Product) -> ProductId {
+        let id = self.next_product_id;
+        self.next_product_id += 1;
+        self.products.push(product);
+        ProductId::new(id)
+    }
+
+    /// Number of Core Model products in the scene.
+    #[must_use]
+    pub fn product_count(&self) -> usize {
+        self.products.len()
+    }
+
+    /// Looks up a Core Model [`Product`] by its [`ProductId`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ErrorCode::NotFound`] if `id` was never returned by
+    /// [`Scene::add_product`].
+    pub fn product(&self, id: ProductId) -> Result<&Product> {
+        self.products
+            .get(id.value() as usize)
+            .ok_or_else(|| Error::not_found("Scene::product: no product with this id"))
     }
 }
 

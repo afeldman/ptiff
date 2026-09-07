@@ -83,6 +83,9 @@ declare_id_tag! {
     #[doc="Tag for [`AnnotationId`]."] AnnotationIdTag,
     #[doc="Tag for [`GeometryId`]."] GeometryIdTag,
     #[doc="Tag for [`TileId`]."] TileIdTag,
+    #[doc="Tag for [`ObservationId`]."] ObservationIdTag,
+    #[doc="Tag for [`DataObjectId`]."] DataObjectIdTag,
+    #[doc="Tag for [`ProductId`]."] ProductIdTag,
 }
 
 /// Unique id of an image within its scene.
@@ -97,6 +100,12 @@ pub type AnnotationId = Id<AnnotationIdTag>;
 pub type GeometryId = Id<GeometryIdTag>;
 /// Unique id of a tile within a backend.
 pub type TileId = Id<TileIdTag>;
+/// Unique id of an observation within its scene (Core Model, CM-01).
+pub type ObservationId = Id<ObservationIdTag>;
+/// Unique id of a data object within its scene (Core Model, CM-01).
+pub type DataObjectId = Id<DataObjectIdTag>;
+/// Unique id of a product within its scene (Core Model, CM-01).
+pub type ProductId = Id<ProductIdTag>;
 
 #[cfg(test)]
 mod tests {

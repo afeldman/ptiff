@@ -32,6 +32,7 @@ pub mod io;
 pub mod logging;
 pub mod pixel_type;
 pub mod scene;
+pub mod semantic;
 pub mod tile;
 pub mod version;
 
@@ -43,7 +44,10 @@ pub use geometry::{
     Projection, ProjectionKind, ProjectionMatrix, Quaternion, RotationMatrix, Screw, ScrewAxis,
     ScrewMotion, SpiceState, Vec3,
 };
-pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
+pub use id::{
+    AnnotationId, CameraId, DataObjectId, GeometryId, ImageId, LayerId, ObservationId, ProductId,
+    TileId,
+};
 pub use identity::ExternalId;
 pub use image::{
     CompressionKind, Image, ImageDescriptor, ImageDescriptorBuilder, PixelType, TileInfo,
@@ -56,4 +60,5 @@ pub use io::{
 pub use logging::LogLevel;
 
 pub use scene::Scene;
+pub use semantic::{DataObject, Observation, Product};
 pub use version::{APP_VERSION, VERSION_STR};
