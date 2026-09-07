@@ -60,5 +60,5 @@ pub use io::{
 pub use logging::LogLevel;
 
 pub use scene::Scene;
-pub use semantic::{DataObject, Observation, Product};
+pub use semantic::{DataObject, EntityRef, Observation, Product, Relationship, RelationshipKind};
 pub use version::{APP_VERSION, VERSION_STR};

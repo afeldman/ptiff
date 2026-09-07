@@ -7,7 +7,9 @@ use crate::id::{CameraId, DataObjectId, GeometryId, ImageId, ObservationId, Prod
 use crate::identity::ExternalId;
 use crate::image::Image;
 use crate::image::ImageDescriptor;
-use crate::semantic::{DataObject, Observation, Product};
+use crate::semantic::{
+    DataObject, EntityRef, Observation, Product, Relationship, RelationshipKind,
+};
 use crate::{Error, Result};
 
 /// A scene: the composition of multiple related images (e.g. a stereo pair, a
@@ -71,6 +73,10 @@ pub struct Scene {
     data_objects: Vec<DataObject>,
     #[cfg_attr(feature = "serde", serde(skip))]
     products: Vec<Product>,
+    /// Explicit directed semantic relationships (CM-02), in deterministic
+    /// insertion order. In-memory only — never serialized (see `semantic`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    relationships: Vec<Relationship>,
     next_id: u64,
     next_camera_id: u64,
     next_geometry_id: u64,
@@ -403,6 +409,122 @@ impl Scene {
         self.products
             .get(id.value() as usize)
             .ok_or_else(|| Error::not_found("Scene::product: no product with this id"))
+    }
+
+    /// Adds an explicit directed relationship `source --kind--> target`.
+    ///
+    /// The Scene validates that:
+    ///
+    /// 1. **Membership** — each endpoint lies within this Scene's entity
+    ///    domain ([`crate::ErrorCode::NotFound`] otherwise). Handles carry no
+    ///    minting provenance (P0-05 `Id<Tag>` design): a foreign handle whose
+    ///    numeric value falls inside the local domain is structurally equal
+    ///    to the local id and denotes the local entity — cross-Scene id
+    ///    comparison is meaningless by design, and the graph stays internally
+    ///    coherent. Ids outside the local domain are always rejected.
+    /// 2. **Domain** — the kind permits the source/target combination
+    ///    ([`crate::ErrorCode::InvalidArgument`] otherwise; see
+    ///    [`RelationshipKind::permits`]).
+    /// 3. **Duplicates** — an identical edge (same source, kind and target)
+    ///    is rejected ([`crate::ErrorCode::InvalidArgument`]); different
+    ///    kinds between the same entities are independent edges.
+    ///
+    /// Relationships are in-memory semantic model objects (no serialization,
+    /// no TIFF/manifest impact). See the `semantic` module.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::ErrorCode::NotFound`] for foreign endpoints,
+    /// [`crate::ErrorCode::InvalidArgument`] for disallowed kinds or exact
+    /// duplicates.
+    pub fn add_relationship(
+        &mut self,
+        source: EntityRef,
+        kind: RelationshipKind,
+        target: EntityRef,
+    ) -> Result<()> {
+        self.validate_entity_ref(source)?;
+        self.validate_entity_ref(target)?;
+        if !kind.permits(source, target) {
+            return Err(Error::invalid_argument(
+                "Scene::add_relationship: relationship kind does not permit these endpoints",
+            ));
+        }
+        if self
+            .relationships
+            .iter()
+            .any(|r| r.source() == source && r.kind() == kind && r.target() == target)
+        {
+            return Err(Error::invalid_argument(
+                "Scene::add_relationship: duplicate relationship (same source, kind and target)",
+            ));
+        }
+        self.relationships
+            .push(Relationship::new(source, kind, target));
+        Ok(())
+    }
+
+    /// Number of relationships in the scene.
+    #[must_use]
+    pub fn relationship_count(&self) -> usize {
+        self.relationships.len()
+    }
+
+    /// All relationships in deterministic insertion order.
+    #[must_use]
+    pub fn relationships(&self) -> &[Relationship] {
+        &self.relationships
+    }
+
+    /// Relationships whose source equals `source`, in insertion order.
+    #[must_use]
+    pub fn relationships_from(&self, source: EntityRef) -> Vec<&Relationship> {
+        self.relationships
+            .iter()
+            .filter(|r| r.source() == source)
+            .collect()
+    }
+
+    /// Relationships whose target equals `target`, in insertion order.
+    #[must_use]
+    pub fn relationships_to(&self, target: EntityRef) -> Vec<&Relationship> {
+        self.relationships
+            .iter()
+            .filter(|r| r.target() == target)
+            .collect()
+    }
+
+    /// Validates that `entity` refers to an entity minted by this Scene.
+    fn validate_entity_ref(&self, entity: EntityRef) -> Result<()> {
+        match entity {
+            EntityRef::Observation(id) => {
+                if id.value() < self.observations.len() as u64 {
+                    Ok(())
+                } else {
+                    Err(Error::not_found(
+                        "Scene::add_relationship: no observation with this id in this scene",
+                    ))
+                }
+            }
+            EntityRef::DataObject(id) => {
+                if id.value() < self.data_objects.len() as u64 {
+                    Ok(())
+                } else {
+                    Err(Error::not_found(
+                        "Scene::add_relationship: no data object with this id in this scene",
+                    ))
+                }
+            }
+            EntityRef::Product(id) => {
+                if id.value() < self.products.len() as u64 {
+                    Ok(())
+                } else {
+                    Err(Error::not_found(
+                        "Scene::add_relationship: no product with this id in this scene",
+                    ))
+                }
+            }
+        }
     }
 }
 
