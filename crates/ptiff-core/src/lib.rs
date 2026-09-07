@@ -61,7 +61,7 @@ pub use logging::LogLevel;
 
 pub use scene::Scene;
 pub use semantic::{
-    DataObject, EntityRef, Observation, ProcessRecord, Product, ProvenanceRelation,
-    ProvenanceRelationKind, Relationship, RelationshipKind,
+    AxisDescriptor, AxisKind, DataObject, EntityRef, Observation, ProcessRecord, Product,
+    ProvenanceRelation, ProvenanceRelationKind, Relationship, RelationshipKind,
 };
 pub use version::{APP_VERSION, VERSION_STR};

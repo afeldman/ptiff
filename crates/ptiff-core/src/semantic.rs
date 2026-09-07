@@ -61,6 +61,16 @@
 //! automatic conversion or inference. Records are immutable and
 //! append-only in this increment (no mutation, no removal, no rewrite).
 //! Provenance remains in-memory and serialization-agnostic.
+//!
+//! # Axes (AX-01)
+//!
+//! A [`DataObject`] declares its scientific dimensions as ordered semantic
+//! [`AxisDescriptor`]s ([`AxisKind`]) — never as bare array shape. An axis is
+//! semantic meaning, not a TIFF width/height, not storage order, not CRS.
+//! Coordinate values, units, time systems, spectral calibration and
+//! serialization syntax are all deferred (ADR-003).
+
+use crate::{Error, Result};
 
 /// A scientific measurement/acquisition event.
 ///
@@ -90,17 +100,71 @@ impl Observation {
 /// otherwise present in the Scene: raster data, masks, uncertainty, spectral
 /// arrays, auxiliary scientific arrays. Raster/axis details are later
 /// increments; CM-01 establishes only the entity and its Scene-scoped
-/// identity.
+/// identity, and AX-01 adds the ordered semantic axis declaration.
 ///
 /// `DataObject` is distinct from [`Observation`] and [`Product`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct DataObject {}
+///
+/// Axes are intrinsic semantic descriptors of the data object (ordered,
+/// deterministic, immutable-by-convention), **not** identity: two data
+/// objects with identical axes are distinct entities when their ids differ.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct DataObject {
+    axes: Vec<AxisDescriptor>,
+}
 
 impl DataObject {
-    /// Creates an empty data object (no data-representation fields yet).
+    /// Creates an empty data object (no data-representation fields yet, no
+    /// axes declared).
+    ///
+    /// An empty axis collection means "not yet populated" in this increment;
+    /// the I-5 requirement that conformant data objects declare explicit
+    /// axes is enforced at validation time (VAL-01), not at construction.
     #[must_use]
-    pub const fn new() -> Self {
-        Self {}
+    pub fn new() -> Self {
+        Self { axes: Vec::new() }
+    }
+
+    /// Declares an axis for this data object.
+    ///
+    /// Axes are appended in semantic order: their position in the collection
+    /// is their semantic position (deterministic; no separate ordinal field
+    /// that could drift from the collection).
+    ///
+    /// # Errors
+    ///
+    /// [`crate::ErrorCode::InvalidArgument`] if the data object already
+    /// declares an axis of the same [`AxisKind`] (one axis kind per data
+    /// object), or if `axis` failed its own structural validation.
+    pub fn add_axis(&mut self, axis: AxisDescriptor) -> Result<()> {
+        // Validate the descriptor itself (extent > 0) even though it was
+        // constructed through `AxisDescriptor::new`; this keeps validation
+        // at the single Scene/entity boundary as well.
+        axis.validate()?;
+        if self.axes.iter().any(|a| a.kind() == axis.kind()) {
+            return Err(Error::invalid_argument(
+                "DataObject::add_axis: an axis of this kind is already declared",
+            ));
+        }
+        self.axes.push(axis);
+        Ok(())
+    }
+
+    /// The declared axes in deterministic semantic order.
+    #[must_use]
+    pub fn axes(&self) -> &[AxisDescriptor] {
+        &self.axes
+    }
+
+    /// Number of declared axes.
+    #[must_use]
+    pub fn axis_count(&self) -> usize {
+        self.axes.len()
+    }
+
+    /// The declared axis of `kind`, if any.
+    #[must_use]
+    pub fn axis(&self, kind: AxisKind) -> Option<&AxisDescriptor> {
+        self.axes.iter().find(|a| a.kind() == kind)
     }
 }
 
@@ -119,6 +183,93 @@ impl Product {
     #[must_use]
     pub const fn new() -> Self {
         Self {}
+    }
+}
+
+/// The semantic role of a [`DataObject`] axis (AX-01).
+///
+/// Canonical role vocabulary from the frozen architecture (ADR-003: X, Y,
+/// Band, Time, Polarization, …). These roles name scientific meaning, never
+/// storage layout:
+///
+/// * [`AxisKind::X`] — the spatial sample/column axis.
+/// * [`AxisKind::Y`] — the spatial line/row axis.
+/// * [`AxisKind::Band`] — the band axis (D7 spectral band model; band
+///   coordinates such as wavelength/bandwidth/units are a later concern).
+/// * [`AxisKind::Time`] — the time axis (no time system is implied).
+/// * [`AxisKind::Polarization`] — the polarization/stokes axis.
+///
+/// The role registry is open (ADR-003 open item); this enum is additive and
+/// `#[non_exhaustive]`. X/Y are spatial *semantics* only — longitude/latitude,
+/// projection and CRS are separate (never merged into axes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum AxisKind {
+    /// Spatial sample/column axis (semantic; no CRS implied).
+    X,
+    /// Spatial line/row axis (semantic; no CRS implied).
+    Y,
+    /// Band axis (spectral semantics per D7; coordinates deferred).
+    Band,
+    /// Time axis (no time system implied).
+    Time,
+    /// Polarization/stokes axis.
+    Polarization,
+}
+
+/// A semantic axis descriptor of a [`DataObject`] (AX-01).
+///
+/// ```text
+/// AxisDescriptor
+///     ├── kind    — semantic role (AxisKind)
+///     ├── extent  — logical cardinality along this axis (> 0)
+///     └── order   — position in the DataObject's ordered axis collection
+/// ```
+///
+/// An axis descriptor is a value object: it carries no Scene identity, no
+/// coordinates, no units, no CRS, no calibration. The semantic extent must
+/// not be confused with TIFF width/height or storage dimensions — physical
+/// mapping is a later serialization/storage concern (SR-01).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AxisDescriptor {
+    kind: AxisKind,
+    extent: u64,
+}
+
+impl AxisDescriptor {
+    /// Builds an axis descriptor for `kind` with logical extent `extent`.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::ErrorCode::InvalidArgument`] if `extent` is zero (a declared
+    /// semantic axis must have cardinality ≥ 1). Negative extents are
+    /// unrepresentable by construction (`u64`).
+    pub fn new(kind: AxisKind, extent: u64) -> Result<Self> {
+        let axis = Self { kind, extent };
+        axis.validate()?;
+        Ok(axis)
+    }
+
+    /// Structural validation: extent must be ≥ 1.
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.extent == 0 {
+            return Err(Error::invalid_argument(
+                "AxisDescriptor: extent must be at least 1",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The semantic role of this axis.
+    #[must_use]
+    pub const fn kind(&self) -> AxisKind {
+        self.kind
+    }
+
+    /// The logical cardinality along this axis.
+    #[must_use]
+    pub const fn extent(&self) -> u64 {
+        self.extent
     }
 }
 
