@@ -1,6 +1,6 @@
 # RFC-0001: PTIFF Core
 
-**Status:** Ready for Approval
+**Status:** Approved
 **Category:** Foundational
 **Requires:** None
 **Obsoletes:** None
@@ -14,6 +14,7 @@
 | Version | Date       | Author            | Changes |
 |---------|------------|-------------------|---------|
 | 0.1.0   | 2026-08-03 | PTIFF Maintainers | Prepared for approval: added document metadata, aligned the Status section with the governance process (`GOVERNANCE.md` §4), editorial consistency pass. |
+| 0.1.0   | 2026-09-22 | Anton Feldmann | Approved after the formal review opened 2026-09-08 and closed 2026-09-22; no formal objections were raised. |
 
 ---
 
@@ -37,11 +38,10 @@ Those are deferred to later, more specific RFCs, enumerated in [Section 17](#17-
 
 ## 2. Status
 
-This RFC is a draft submitted for approval under the PTIFF governance process
-([`GOVERNANCE.md`](../GOVERNANCE.md), §4). It has **not** yet been formally approved: it has
-not been ratified by any standardization body, and the governance process has not yet
-transitioned its status from **Draft** to **Approved**. Until that transition occurs, content,
-terminology, and structure MAY still change as a result of the review and voting period.
+This RFC was approved under the PTIFF governance process
+([`GOVERNANCE.md`](../GOVERNANCE.md), §4) on 2026-09-22 by Anton Feldmann, following the
+formal review opened on 2026-09-08. No formal objections were raised. It has not been ratified
+by any standardization body.
 
 Once this RFC is **Approved**, subsequent changes MUST be additive and backward compatible
 (see Section 8, "Backward Compatibility"), or, where that is not appropriate, introduced only
