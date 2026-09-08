@@ -30,6 +30,7 @@ pub mod identity;
 pub mod image;
 pub mod io;
 pub mod logging;
+pub mod mf01;
 pub mod pixel_type;
 pub mod scene;
 pub mod semantic;
@@ -59,6 +60,7 @@ pub use io::{
 };
 pub use logging::LogLevel;
 
+pub use mf01::{ManifestEntityKind, ManifestMetadata, ManifestRef};
 pub use scene::Scene;
 pub use semantic::{
     AxisDescriptor, AxisKind, DataObject, EntityRef, Observation, ProcessRecord, Product,
