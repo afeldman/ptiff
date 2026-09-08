@@ -124,6 +124,16 @@ multicalc = "0.10"
 # version
 semver = "1.0"
 
+# Shortest-round-trip IEEE-754 digit generation for the MF-03B canonical
+# JSON (RFC 8785 / JCS) encoder. RFC 8785 section 3.2.2.3 names Ryu as a
+# compatible
+# number-serialization reference; ryu produces the ECMAScript-compatible
+# shortest digits (including ES tie-breaking, which std::fmt does not match
+# on exact-midpoint doubles). Only the digits are taken from ryu: the
+# ECMAScript Number::toString layout rules are applied by ptiff-core itself.
+# Pure Rust, Apache-2.0 OR BSL-1.0; dependency-free.
+ryu = "1"
+
 [dev-dependencies]
 # Enable the serde / backend features internally so their tests always run.
 ptiff-core = { path = ".", features = ["serde", "memory-backend", "tiff-backend", "tiff-codecs", "isis-backend", "pds4-backend", "zarr-backend", "openexr-backend", "http-range-reader", "parallel"] }

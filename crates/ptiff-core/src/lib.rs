@@ -33,6 +33,7 @@ pub mod logging;
 pub mod mf01;
 pub mod mf02;
 pub mod mf03a;
+pub mod mf03b;
 pub mod pixel_type;
 pub mod scene;
 pub mod semantic;
