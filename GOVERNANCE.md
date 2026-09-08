@@ -24,6 +24,19 @@ Maintainers).
 - **Verhaltenskodex-Meldungen:** über die in `CODE_OF_CONDUCT.md` genannten Kanäle,
   an die Projektleitung.
 
+### Review-Kanal für den RFC-Prozess
+
+Der kanonische Ort für öffentliche RFC-Reviews ist das GitHub-Repository:
+
+```text
+https://github.com/afeldman/ptiff
+```
+
+RFC-Reviews laufen über **GitHub Issues** in diesem Repository. Das zu einem
+RFC gehörende Review-Issue ist das maßgebliche Review-Protokoll: es dient als
+Ankündigung, Diskussionsprotokoll und Entscheidungsprotokoll. GitHub
+Discussions sind für den RFC-Prozess nicht erforderlich.
+
 ## Status
 
 Dieses Dokument ist **vorläufig**. Der Governance-Prozess wird so lange iteriert,
@@ -41,6 +54,26 @@ bis die Spezifikation den "Stable"-Status erreicht und eine breitere Gemeinschaf
 Grundsatz: Jede*r, der sich gemäß `CODE_OF_CONDUCT.md` verhält, kann beitragen.
 Rollen sind verdient, nicht vererbt; die Projektleitung kann sich aus der
 Gemeinschaft heraus erneuern.
+
+### Projektleitung / Maintainer
+
+| Rolle | Person |
+|-------|--------|
+| **Projektleitung / Maintainer** | Anton Feldmann |
+
+- Die genannte Person vertritt die Projektleitung (Maintainer) des Projekts
+  und übt die in §3 und §4 beschriebenen Entscheidungsbefugnisse aus.
+- RFC-Approval-Entscheidungen (Statuswechsel `Draft`/`Ready for Approval` →
+  `Approved`) trifft die Projektleitung / der Maintainer gemäß §4.
+- In jedem Approval-Protokoll wird der entscheidende Maintainer namentlich
+  genannt.
+- Bloße Git-Autorenschaft begründet keine Governance-Befugnis; maßgeblich
+  ist die Eintragung in dieser Liste.
+- Änderungen an dieser Liste dokumentiert die Projektleitung selbst mit
+  Datum und Begründung.
+- Quoren und Abstimmungsgremien sind nicht vorgesehen; Entscheidungen
+  folgen dem Konsensprinzip (§3) und im Bedarfsfall der offen begründeten
+  Entscheidung der Projektleitung.
 
 ## 2. Lizenz
 
@@ -82,6 +115,50 @@ Feld-Erweiterungen, neue Konformitätsstufen — MUST über den RFC-Prozess lauf
 
 Jeder RFC ist unabhängig versioniert; Änderungen an bestehenden RFCs laufen
 rückwärtskompatibel (additiv) bzw. über einen neuen RFC, der einen alten abtrennt.
+
+### Operative Ausführungsregeln (Klarstellungen)
+
+Die folgenden Regeln präzisieren den Ablauf aus §4, damit Reviews
+nachvollziehbar und auditierbar durchgeführt werden können. Sie ändern keine
+bestehende Regel.
+
+- **Review-Issue.** Jeder RFC erhält ein eigenes GitHub-Issue mit dem Titel
+  `RFC review: RFC-XXXX (vX.Y.Z)` in dem unter „Kontakt“ bezeichneten
+  Repository. Das Issue ist Ankündigung, Diskussionsprotokoll und
+  Entscheidungsprotokoll in einem.
+- **Review-Start.** Die Review-Frist beginnt, wenn die Projektleitung / der
+  Maintainer das Review-Issue eröffnet. Der Zeitstempel der Issue-Eröffnung
+  ist der maßgebliche Startzeitpunkt.
+- **Review-Dauer.** Die Review-Frist beträgt mindestens 14 Kalendertage ab
+  Eröffnung des Review-Issues. Das voraussichtliche Fristende wird im Issue
+  festgehalten.
+- **Verlängerungen.** Eine Verlängerung wird durch einen Kommentar des
+  Maintainers mit neuem Enddatum und Begründung im Issue dokumentiert.
+- **Review-Kommentare.** Normale Kommentare sind beratend und blockieren
+  keine Entscheidung.
+- **Formelle Einwände.** Ein formeller Einwand wird ausdrücklich mit
+  `FORMAL OBJECTION:` markiert und benennt den konkreten Anlass sowie die
+  betroffenen RFC-Inhalte. Vor einer Approbation muss jeder formelle Einwand
+  aufgelöst sein durch: (1) Änderung des RFC, (2) Rückzug des Einwands oder
+  (3) ausdrücklichen, schriftlich begründeten Maintainer-Override.
+- **Approval-Entscheidung.** Nach Ablauf der Review-Frist dokumentiert der
+  entscheidende Maintainer die Entscheidung im Review-Issue. Das Protokoll
+  nennt: RFC, Version, Review-Beginn, Review-Ende, Einwände, Auflösung,
+  Entscheidung, entscheidenden Maintainer und Entscheidungsdatum.
+- **Normativer Status.** Nach einer Approbation wird `Status: Approved` im
+  RFC selbst eingetragen; ein Revision-History-Eintrag nennt
+  Approbationsdatum, entscheidenden Maintainer und Review-Zeitraum. Das
+  Review-Issue bleibt das Belegprotokoll.
+- **„Ready for Approval“.** Der Status `Ready for Approval` ist der
+  Vor-Review-Status, den die Projektleitung setzt, bevor das formelle
+  Review-Issue eröffnet wird. Weitere Statuswerte werden nicht eingeführt;
+  die Statusvokabeln bleiben `Draft`, `Ready for Approval`, `Approved`,
+  `Stable`.
+- **RFC-Abhängigkeit.** Die Reihenfolge `RFC-0001 → RFC-7002` bleibt
+  verbindlich: RFC-0001 muss approbiert sein, bevor RFC-7002 in sein
+  Approbationsverfahren eintritt. Jeder RFC durchläuft sein eigenes
+  Review-Issue und seine eigene Review-Frist; RFCs werden nicht in einem
+  gemeinsamen Review zusammengefasst.
 
 ## 5. Verhaltenskodex & Durchsetzung
 
