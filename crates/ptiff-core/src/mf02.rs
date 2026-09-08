@@ -14,8 +14,9 @@
 //! The Manifest is a **representation**, not a second model. It reuses existing
 //! semantic types rather than duplicating them.
 
-use super::mf01::{ManifestEntityKind, ManifestMetadata};
 use crate::semantic::{DataObject, Observation, ProcessRecord, Product, Relationship};
+use crate::semantic::{ProvenanceRelation, ProvenanceRelationKind};
+use crate::{ManifestEntityKind, ManifestMetadata, ManifestRef};
 
 /// A minimal typed internal manifest representation.
 ///
@@ -167,8 +168,9 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::id::{DataObjectId, ObservationId, ProcessRecordId, ProductId};
     use crate::scene::Scene;
-    use crate::semantic::{EntityRef, ProvenanceRelationKind, RelationshipKind};
+    use crate::semantic::{EntityRef, RelationshipKind};
 
     /// Empty Scene produces a valid minimal Manifest representation.
     #[test]
