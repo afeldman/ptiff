@@ -167,7 +167,6 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::{DataObjectId, ObservationId, ProcessRecordId, ProductId};
     use crate::scene::Scene;
     use crate::semantic::{EntityRef, ProvenanceRelationKind, RelationshipKind};
 
@@ -218,26 +217,9 @@ mod tests {
 
         // Entities are cloned but their identity (type) is preserved
         assert_eq!(manifest.observations[0], Observation::new());
-
-        // IDs are position-based in Scene, preserved via Vec references
-        let observed_ids: Vec<u64> = vec![
-            obs_id.value(),
-            dobj_id.value(),
-            prod_id.value(),
-            proc_id.value(),
-        ];
-
-        for (i, id) in observed_ids.iter().enumerate() {
-            if i < manifest.observations.len() {
-                assert_eq!(manifest.observations[i], Observation::new());
-            } else if i < manifest.data_objects.len() {
-                assert_eq!(manifest.data_objects[i], DataObject::new());
-            } else if i < manifest.products.len() {
-                assert_eq!(manifest.products[i], Product::new());
-            } else if i < manifest.process_records.len() {
-                assert_eq!(manifest.process_records[i], ProcessRecord::new());
-            }
-        }
+        assert_eq!(manifest.data_objects[0], DataObject::new());
+        assert_eq!(manifest.products[0], Product::new());
+        assert_eq!(manifest.process_records[0], ProcessRecord::new());
     }
 
     /// Create valid relationships and verify they survive projection unchanged.
@@ -330,7 +312,7 @@ mod tests {
         let mut scene = Scene::new();
 
         // Add a data object (axes are internal to the type)
-        let dobj_id = scene.add_data_object(DataObject::new());
+        let _dobj_id = scene.add_data_object(DataObject::new());
 
         let manifest = Manifest::from_scene(scene);
 
