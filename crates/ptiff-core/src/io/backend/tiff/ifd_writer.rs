@@ -27,10 +27,14 @@ pub const K_BIG_TIFF_NEXT_IFD_SIZE: u64 = 8;
 
 /// One IFD entry to write.
 ///
-/// Values are plain `u32`-range unsigned integers, sufficient for every field
-/// type this backend's writer emits (SHORT, LONG); written as wider on-disk
-/// elements (e.g. LONG8) when `field_type` calls for it, with no precision
-/// loss since values never exceed the `u32` range.
+/// Values are stored as 64-bit unsigned integers so the same entry model can
+/// carry either classic TIFF values (every field type except LONG8; valid
+/// range enforced at serialization) or genuine 64-bit BigTIFF offsets/byte
+/// counts (LONG8). [`TiffIfdEntryToWrite::new`] accepts the classic `u32`
+/// domain; [`TiffIfdEntryToWrite::new_u64`] carries values that may exceed
+/// `u32::MAX` (BigTIFF offsets/counts). Serialization validates that every
+/// value fits the entry's field type and fails with a typed error rather than
+/// truncating.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TiffIfdEntryToWrite {
     /// The 16-bit tag id.
@@ -38,13 +42,24 @@ pub struct TiffIfdEntryToWrite {
     /// The field type governing how each value is written.
     pub field_type: FieldType,
     /// The values to write (one per on-disk element).
-    pub values: Vec<u32>,
+    pub values: Vec<u64>,
 }
 
 impl TiffIfdEntryToWrite {
-    /// Builds a new entry.
+    /// Builds a new entry from classic (`u32`-range) values.
     #[must_use]
-    pub const fn new(tag_id: u16, field_type: FieldType, values: Vec<u32>) -> Self {
+    pub fn new(tag_id: u16, field_type: FieldType, values: Vec<u32>) -> Self {
+        Self {
+            tag_id,
+            field_type,
+            values: values.into_iter().map(u64::from).collect(),
+        }
+    }
+
+    /// Builds a new entry whose values may exceed the `u32` range (genuine
+    /// 64-bit BigTIFF offsets/byte counts, serialized as LONG8).
+    #[must_use]
+    pub const fn new_u64(tag_id: u16, field_type: FieldType, values: Vec<u64>) -> Self {
         Self {
             tag_id,
             field_type,
@@ -68,6 +83,27 @@ const fn element_size(field_type: FieldType) -> u64 {
 #[must_use]
 fn entry_value_byte_size(entry: &TiffIfdEntryToWrite) -> u64 {
     element_size(entry.field_type) * entry.values.len() as u64
+}
+
+/// Validates that `value` is representable in `field_type`'s on-disk width.
+///
+/// Classic field types (BYTE/SHORT/LONG) accept at most their native range;
+/// LONG8 accepts any `u64`. A value that does not fit is a typed error —
+/// never a silent truncation.
+fn validate_value_for_field_type(field_type: FieldType, value: u64) -> Result<()> {
+    let fits = match field_type {
+        FieldType::Byte => value <= 0xFF,
+        FieldType::Short => value <= 0xFFFF,
+        FieldType::Long => value <= u64::from(u32::MAX),
+        FieldType::Long8 => true,
+    };
+    if fits {
+        Ok(())
+    } else {
+        Err(crate::Error::invalid_argument(format!(
+            "write_tiff_ifd: value {value} does not fit field type {field_type:?}"
+        )))
+    }
 }
 
 /// Byte size the IFD built from `entries` will occupy on disk. Classic TIFF
@@ -186,10 +222,16 @@ pub fn value_slot_offsets_relative(
 /// Writes `value` into the first `element_size` bytes of `out`, honoring the
 /// given field type (always little-endian).
 ///
+/// # Errors
+///
+/// Returns a typed error if `value` does not fit the field type's on-disk
+/// width (e.g. a > 32-bit value in a LONG entry) instead of truncating.
+///
 /// # Panics
 ///
 /// Panics if `out.len() < element_size` or the field type is unsupported.
-fn write_element(out: &mut [u8], field_type: FieldType, value: u32) {
+fn write_element(out: &mut [u8], field_type: FieldType, value: u64) -> Result<()> {
+    validate_value_for_field_type(field_type, value)?;
     match field_type {
         FieldType::Byte => {
             out[0] = (value & 0xFF) as u8;
@@ -198,20 +240,25 @@ fn write_element(out: &mut [u8], field_type: FieldType, value: u32) {
             write_u16(out, value as u16, Endian::Little);
         }
         FieldType::Long => {
-            write_u32(out, value, Endian::Little);
+            write_u32(out, value as u32, Endian::Little);
         }
         FieldType::Long8 => {
-            write_u64(out, u64::from(value), Endian::Little);
+            write_u64(out, value, Endian::Little);
         }
     }
+    Ok(())
 }
 
 /// Writes all of `entry`'s values into `out`.
 ///
+/// # Errors
+///
+/// Returns a typed error if any value does not fit the field type's width.
+///
 /// # Panics
 ///
 /// Panics if `out.len() < entry_value_byte_size(entry)`.
-fn write_elements(out: &mut [u8], entry: &TiffIfdEntryToWrite) {
+fn write_elements(out: &mut [u8], entry: &TiffIfdEntryToWrite) -> Result<()> {
     let esize = entry_value_byte_size(entry) as usize;
     assert!(
         out.len() >= esize,
@@ -220,9 +267,10 @@ fn write_elements(out: &mut [u8], entry: &TiffIfdEntryToWrite) {
     let elem = element_size(entry.field_type) as usize;
     let mut cursor = 0;
     for &value in &entry.values {
-        write_element(&mut out[cursor..cursor + elem], entry.field_type, value);
+        write_element(&mut out[cursor..cursor + elem], entry.field_type, value)?;
         cursor += elem;
     }
+    Ok(())
 }
 
 /// Writes a classic 12-byte-entry or BigTIFF 20-byte-entry IFD at `writer`'s
@@ -244,6 +292,16 @@ pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
 ) -> Result<()> {
     // TIFF 6.0 requires entries in ascending tag order.
     entries.sort_by_key(|e| e.tag_id);
+
+    // Validate every value up front so a non-representable offset/count fails
+    // with a typed error BEFORE any byte of the file is written — the
+    // alternative (truncation) is a data-corruption bug, and failing midway
+    // through the IFD would leave a torn file.
+    for entry in &entries {
+        for &value in &entry.values {
+            validate_value_for_field_type(entry.field_type, value)?;
+        }
+    }
 
     let ifd_start = writer.position()?;
     let entry_size = if is_big_tiff {
@@ -278,6 +336,19 @@ pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
             out_of_line_offset += value_bytes;
         }
     }
+    if !is_big_tiff {
+        // Classic TIFF stores every IFD-internal pointer as a 32-bit offset.
+        if next_ifd_offset > u64::from(u32::MAX) {
+            return Err(crate::Error::invalid_argument(format!(
+                "write_tiff_ifd: next-IFD offset {next_ifd_offset} exceeds the 32-bit range of the classic TIFF container"
+            )));
+        }
+        if out_of_line_offset > u64::from(u32::MAX) {
+            return Err(crate::Error::invalid_argument(
+                "write_tiff_ifd: out-of-line value area exceeds the 32-bit range of the classic TIFF container",
+            ));
+        }
+    }
 
     // Entry count field.
     if is_big_tiff {
@@ -310,15 +381,16 @@ pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
                 Endian::Little,
             );
             if value_bytes <= u64::from(value_area) {
-                write_elements(&mut record[12..12 + value_bytes as usize], entry);
+                write_elements(&mut record[12..12 + value_bytes as usize], entry)?;
             } else {
                 write_u64(&mut record[12..20], out_of_line_offsets[i], Endian::Little);
             }
         } else {
             write_u32(&mut record[4..8], entry.values.len() as u32, Endian::Little);
             if value_bytes <= u64::from(value_area) {
-                write_elements(&mut record[8..8 + value_bytes as usize], entry);
+                write_elements(&mut record[8..8 + value_bytes as usize], entry)?;
             } else {
+                // Pre-validated above: out-of-line offsets fit 32 bits here.
                 write_u32(
                     &mut record[8..12],
                     out_of_line_offsets[i] as u32,
@@ -335,6 +407,7 @@ pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
         write_u64(&mut next_ifd_bytes, next_ifd_offset, Endian::Little);
         writer.write(&next_ifd_bytes)?;
     } else {
+        // Pre-validated above: the classic next-IFD offset fits 32 bits.
         let mut next_ifd_bytes = [0u8; 4];
         write_u32(&mut next_ifd_bytes, next_ifd_offset as u32, Endian::Little);
         writer.write(&next_ifd_bytes)?;
@@ -345,7 +418,7 @@ pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
         let value_bytes = entry_value_byte_size(entry);
         if value_bytes > u64::from(value_area) {
             let mut buffer = vec![0u8; value_bytes as usize];
-            write_elements(&mut buffer, entry);
+            write_elements(&mut buffer, entry)?;
             writer.write(&buffer)?;
         }
     }
@@ -356,7 +429,7 @@ pub fn write_tiff_ifd<W: BinaryWriter + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::backend::tiff::{read_u16, read_u32};
+    use crate::io::backend::tiff::{read_tiff_ifd, read_u16, read_u32};
     use crate::io::memory_binary_writer::MemoryBinaryWriter;
 
     fn long_entry(tag: u16, values: Vec<u32>) -> TiffIfdEntryToWrite {
@@ -536,5 +609,117 @@ mod tests {
         assert_eq!(ifd.single_value(258).unwrap(), 8);
         assert_eq!(ifd.single_value(256).unwrap(), 64);
         assert_eq!(ifd.single_value(257).unwrap(), 32);
+    }
+
+    // --- P0-01: 64-bit BigTIFF offset correctness ---
+
+    fn long8_entry(tag: u16, values: Vec<u64>) -> TiffIfdEntryToWrite {
+        TiffIfdEntryToWrite::new_u64(tag, FieldType::Long8, values)
+    }
+
+    /// The real IFD serializer must carry offsets beyond `u32::MAX` as genuine
+    /// 64-bit LONG8 values: write a BigTIFF IFD whose TileOffsets/TileByteCounts
+    /// exceed `0xFFFF_FFFF`, parse it back through the real IFD reader, and
+    /// verify the values (and their exact 8-byte little-endian encoding)
+    /// survive untouched. This is the serialization boundary the old
+    /// `Vec<u32>` entry representation could not cross.
+    #[test]
+    fn big_tiff_long8_offsets_beyond_u32_serialize_and_parse_back() {
+        let offsets = vec![0x1_0000_0100u64, 0x1_0000_0200, 0x1_0000_0300];
+        let counts = vec![0x1_0000_0000u64, 4096, 8192];
+        let next_ifd = 0x1_0000_0FFFu64;
+        let entries = vec![
+            long8_entry(324, offsets.clone()), // TileOffsets
+            long8_entry(325, counts.clone()),  // TileByteCounts
+        ];
+
+        let mut w = MemoryBinaryWriter::new();
+        write_tiff_ifd(&mut w, entries, true, next_ifd).unwrap();
+        let buf = w.take_buffer();
+
+        // The three LONG8 offsets are 24 bytes > the 8-byte BigTIFF inline
+        // area, so the values live out of line; verify their absolute slots
+        // hold the exact 8-byte little-endian encodings.
+        let slots = value_slot_offsets_relative(
+            &[
+                long8_entry(324, offsets.clone()),
+                long8_entry(325, counts.clone()),
+            ],
+            true,
+        );
+        for (k, &expected) in offsets.iter().enumerate() {
+            let address = slots[&324][k] as usize;
+            let raw = crate::io::backend::tiff::read_u64(
+                &buf[address..address + 8],
+                crate::io::backend::tiff::Endian::Little,
+            );
+            assert_eq!(raw, expected, "TileOffsets[{k}] must be encoded as 8 bytes");
+        }
+
+        let mut r = crate::io::memory_binary_reader::MemoryBinaryReader::from_vec(buf);
+        let ifd = read_tiff_ifd(&mut r, 0, Endian::Little, true).unwrap();
+        assert_eq!(ifd.single_value(324).unwrap(), 0x1_0000_0100);
+        assert_eq!(
+            ifd.tag(324).unwrap().to_vec(),
+            offsets,
+            "TileOffsets must survive the BigTIFF IFD round-trip as 64-bit values"
+        );
+        assert_eq!(ifd.tag(325).unwrap().to_vec(), counts);
+    }
+
+    /// A single LONG8 value fits the 8-byte BigTIFF inline value area; its
+    /// 64-bit value must be written inline, not truncated to 32 bits.
+    #[test]
+    fn big_tiff_long8_inline_value_beyond_u32_written_as_8_bytes() {
+        let value = 0x1_0000_0001u64;
+        let entries = vec![long8_entry(273, vec![value])]; // StripOffsets
+        let mut w = MemoryBinaryWriter::new();
+        write_tiff_ifd(&mut w, entries, true, 0).unwrap();
+        let buf = w.take_buffer();
+
+        // BigTIFF: 8 (count) + 1*20 (entry) + 8 (next-IFD) = 36; the single
+        // LONG8 value sits inline at record[12..20] within the entry (offset
+        // 8..28), i.e. buffer[20..28].
+        let raw = crate::io::backend::tiff::read_u64(
+            &buf[20..28],
+            crate::io::backend::tiff::Endian::Little,
+        );
+        assert_eq!(raw, value);
+
+        let mut r = crate::io::memory_binary_reader::MemoryBinaryReader::from_vec(buf);
+        let ifd = read_tiff_ifd(&mut r, 0, Endian::Little, true).unwrap();
+        assert_eq!(ifd.single_value(273).unwrap(), value);
+    }
+
+    /// A > 32-bit value in a LONG entry (classic semantics) must be a typed
+    /// error before any byte is written — never a silent truncation.
+    #[test]
+    fn classic_long_value_beyond_u32_is_rejected() {
+        let entries = vec![TiffIfdEntryToWrite::new_u64(
+            273,
+            FieldType::Long,
+            vec![0x1_0000_0000],
+        )];
+        let mut w = MemoryBinaryWriter::new();
+        let err = write_tiff_ifd(&mut w, entries, false, 0).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
+        assert!(
+            w.take_buffer().is_empty(),
+            "no bytes may be written on error"
+        );
+    }
+
+    /// A classic TIFF next-IFD offset beyond `u32::MAX` must be rejected, not
+    /// truncated to 4 bytes.
+    #[test]
+    fn classic_next_ifd_beyond_u32_is_rejected() {
+        let entries = vec![long_entry(256, vec![64])];
+        let mut w = MemoryBinaryWriter::new();
+        let err = write_tiff_ifd(&mut w, entries, false, 0x1_0000_0000).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
+        assert!(
+            w.take_buffer().is_empty(),
+            "no bytes may be written on error"
+        );
     }
 }

@@ -25,6 +25,13 @@ pub enum PixelType {
     Float32,
     /// IEEE-754 64-bit floating-point sample.
     Float64,
+    /// Signed 16-bit integer sample (two's complement).
+    ///
+    /// Appended after the 1.x types so the discriminants of the existing
+    /// variants (and the PTIFF_PIXEL_* binding codes) remain stable.
+    Int16,
+    /// Signed 32-bit integer sample (two's complement).
+    Int32,
 }
 
 impl PixelType {
@@ -34,19 +41,31 @@ impl PixelType {
         match self {
             PixelType::UInt8 => 1,
             PixelType::UInt16 => 2,
+            PixelType::Int16 => 2,
             PixelType::UInt32 => 4,
+            PixelType::Int32 => 4,
             PixelType::Float32 => 4,
             PixelType::Float64 => 8,
         }
     }
 
-    /// Whether this type is an integer sample.
+    /// Whether this type is an integer sample (signed or unsigned).
     #[must_use]
     pub const fn is_integer(self) -> bool {
         matches!(
             self,
-            PixelType::UInt8 | PixelType::UInt16 | PixelType::UInt32
+            PixelType::UInt8
+                | PixelType::UInt16
+                | PixelType::Int16
+                | PixelType::UInt32
+                | PixelType::Int32
         )
+    }
+
+    /// Whether this type is a signed sample.
+    #[must_use]
+    pub const fn is_signed(self) -> bool {
+        matches!(self, PixelType::Int16 | PixelType::Int32)
     }
 
     /// Whether this type is a floating-point sample.
@@ -62,6 +81,8 @@ impl fmt::Display for PixelType {
             PixelType::UInt8 => "uint8",
             PixelType::UInt16 => "uint16",
             PixelType::UInt32 => "uint32",
+            PixelType::Int16 => "int16",
+            PixelType::Int32 => "int32",
             PixelType::Float32 => "float32",
             PixelType::Float64 => "float64",
         };
@@ -77,14 +98,22 @@ mod tests {
     fn bytes_per_sample() {
         assert_eq!(PixelType::UInt8.bytes_per_sample(), 1);
         assert_eq!(PixelType::UInt16.bytes_per_sample(), 2);
+        assert_eq!(PixelType::Int16.bytes_per_sample(), 2);
         assert_eq!(PixelType::UInt32.bytes_per_sample(), 4);
+        assert_eq!(PixelType::Int32.bytes_per_sample(), 4);
         assert_eq!(PixelType::Float32.bytes_per_sample(), 4);
         assert_eq!(PixelType::Float64.bytes_per_sample(), 8);
     }
 
     #[test]
     fn integer_and_float_classification() {
-        for t in [PixelType::UInt8, PixelType::UInt16, PixelType::UInt32] {
+        for t in [
+            PixelType::UInt8,
+            PixelType::UInt16,
+            PixelType::Int16,
+            PixelType::UInt32,
+            PixelType::Int32,
+        ] {
             assert!(t.is_integer());
             assert!(!t.is_float());
         }
@@ -95,8 +124,26 @@ mod tests {
     }
 
     #[test]
+    fn signed_classification() {
+        for t in [PixelType::Int16, PixelType::Int32] {
+            assert!(t.is_signed());
+        }
+        for t in [
+            PixelType::UInt8,
+            PixelType::UInt16,
+            PixelType::UInt32,
+            PixelType::Float32,
+            PixelType::Float64,
+        ] {
+            assert!(!t.is_signed());
+        }
+    }
+
+    #[test]
     fn display() {
         assert_eq!(PixelType::UInt8.to_string(), "uint8");
+        assert_eq!(PixelType::Int16.to_string(), "int16");
+        assert_eq!(PixelType::Int32.to_string(), "int32");
         assert_eq!(PixelType::Float64.to_string(), "float64");
     }
 }

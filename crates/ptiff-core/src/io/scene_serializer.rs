@@ -24,15 +24,19 @@ pub const FIELD_TILE_HEIGHT: &str = "tileHeight";
 
 /// Maps a [`PixelType`] to its canonical storage string, as the C++ oracle does.
 ///
-/// Returns `None` for [`PixelType::Float64`], which the serializer does not
-/// support.
+/// Float64 is included: the canonical schema represents it as "Float64"
+/// (BitsPerSample 64, SampleFormat 3 on the TIFF substrate), matching the
+/// round-trip support in [`pixel_type_from_field_value`] and the TIFF
+/// directory mapping.
 fn pixel_type_storage_value(t: PixelType) -> Option<&'static str> {
     match t {
         PixelType::UInt8 => Some("UInt8"),
         PixelType::UInt16 => Some("UInt16"),
         PixelType::UInt32 => Some("UInt32"),
         PixelType::Float32 => Some("Float32"),
-        PixelType::Float64 => None,
+        PixelType::Float64 => Some("Float64"),
+        PixelType::Int16 => Some("Int16"),
+        PixelType::Int32 => Some("Int32"),
     }
 }
 
@@ -62,11 +66,9 @@ impl Serializer for SceneSerializer {
             }
             child.set_field(FIELD_SAMPLES_PER_PIXEL, channels.to_string());
 
-            // Float64 cannot be represented in the canonical schema.
-            let pixel_type_value =
-                pixel_type_storage_value(image.pixel_type()).ok_or_else(|| {
-                    Error::invalid_argument("SceneSerializer: unsupported pixelType Float64")
-                })?;
+            // Every supported PixelType (incl. Float64) has a canonical value.
+            let pixel_type_value = pixel_type_storage_value(image.pixel_type())
+                .expect("pixel_type_storage_value covers every PixelType");
             child.set_field(FIELD_PIXEL_TYPE, pixel_type_value);
 
             match image.compression() {
@@ -81,6 +83,7 @@ impl Serializer for SceneSerializer {
                     let value = match c {
                         CompressionKind::None => "None",
                         CompressionKind::Lzw => "LZW",
+                        CompressionKind::PackBits => "PackBits",
                         CompressionKind::Deflate => "Deflate",
                         CompressionKind::Jpeg => "Jpeg",
                     };
@@ -232,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn float64_pixel_type_is_invalid_argument() {
+    fn float64_pixel_type_serializes() {
         let mut scene = Scene::new();
         scene
             .add_image(ImageDescriptor {
@@ -242,12 +245,8 @@ mod tests {
                 ..ImageDescriptor::default()
             })
             .expect("append");
-        let err = SceneSerializer.serialize(&scene).expect_err("must fail");
-        assert_eq!(err.code(), crate::ErrorCode::InvalidArgument);
-        assert_eq!(
-            err.message(),
-            "SceneSerializer: unsupported pixelType Float64"
-        );
+        let model = SceneSerializer.serialize(&scene).expect("serialize");
+        assert_eq!(model.children()[0].field("pixelType").unwrap(), "Float64");
     }
 
     #[test]

@@ -216,6 +216,8 @@ fn bytes_per_sample(pixel_type: PixelType) -> usize {
         PixelType::UInt32 => 4,
         PixelType::Float32 => 4,
         PixelType::Float64 => 8,
+        PixelType::Int16 => 2,
+        PixelType::Int32 => 4,
     }
 }
 

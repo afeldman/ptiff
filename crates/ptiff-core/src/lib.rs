@@ -26,11 +26,17 @@
 pub mod error;
 pub mod geometry;
 pub mod id;
+pub mod identity;
 pub mod image;
 pub mod io;
 pub mod logging;
+pub mod mf01;
+pub mod mf02;
+pub mod mf03a;
+pub mod mf03b;
 pub mod pixel_type;
 pub mod scene;
+pub mod semantic;
 pub mod tile;
 pub mod version;
 
@@ -42,7 +48,11 @@ pub use geometry::{
     Projection, ProjectionKind, ProjectionMatrix, Quaternion, RotationMatrix, Screw, ScrewAxis,
     ScrewMotion, SpiceState, Vec3,
 };
-pub use id::{AnnotationId, CameraId, GeometryId, ImageId, LayerId, TileId};
+pub use id::{
+    AnnotationId, CameraId, DataObjectId, GeometryId, ImageId, LayerId, ObservationId,
+    ProcessRecordId, ProductId, TileId,
+};
+pub use identity::ExternalId;
 pub use image::{
     CompressionKind, Image, ImageDescriptor, ImageDescriptorBuilder, PixelType, TileInfo,
 };
@@ -53,5 +63,11 @@ pub use io::{
 };
 pub use logging::LogLevel;
 
+pub use mf01::{ManifestEntityKind, ManifestMetadata, ManifestRef};
 pub use scene::Scene;
+
+pub use semantic::{
+    AxisDescriptor, AxisKind, DataObject, EntityRef, Observation, ProcessRecord, Product,
+    ProvenanceRelation, ProvenanceRelationKind, Relationship, RelationshipKind,
+};
 pub use version::{APP_VERSION, VERSION_STR};

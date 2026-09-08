@@ -13,10 +13,49 @@ use crate::io::backend::tiff::compression::{
 use crate::io::backend::tiff::compression::{encode_deflate, encode_jpeg};
 use crate::io::backend::tiff::directory::{TiffCompression, TiffDirectory};
 use crate::io::backend::tiff::pixel_format::bytes_per_sample;
-use crate::io::backend::tiff::{write_u32, Endian};
+use crate::io::backend::tiff::{write_u32, write_u64, Endian};
 use crate::io::{BinaryWriter, ImageSink};
 use crate::tile::Tile;
 use crate::{Error, Result};
+
+/// Patches one IFD value slot with `value`, written at the slot's on-disk
+/// width (`bytes` = 4 for classic LONG, 8 for BigTIFF LONG8).
+///
+/// # Errors
+///
+/// Returns a typed error if the value does not fit the slot width (never
+/// truncates) or the seek/write fails.
+fn patch_value_at<W: BinaryWriter + ?Sized>(
+    writer: &mut W,
+    address: u64,
+    value: u64,
+    bytes: u8,
+) -> Result<()> {
+    writer.seek(address)?;
+    match bytes {
+        8 => {
+            let mut bytes = [0u8; 8];
+            write_u64(&mut bytes, value, Endian::Little);
+            writer.write(&bytes)?;
+        }
+        4 => {
+            if value > u64::from(u32::MAX) {
+                return Err(Error::invalid_argument(format!(
+                    "TiffImageSink: patch value {value} exceeds the 32-bit IFD slot width"
+                )));
+            }
+            let mut bytes = [0u8; 4];
+            write_u32(&mut bytes, value as u32, Endian::Little);
+            writer.write(&bytes)?;
+        }
+        other => {
+            return Err(Error::invalid_argument(format!(
+                "TiffImageSink: unsupported IFD value slot width {other}"
+            )));
+        }
+    }
+    Ok(())
+}
 
 /// [`ImageSink`] over one TiffDirectory. Not thread-safe.
 pub struct TiffImageSink<'a> {
@@ -96,16 +135,18 @@ impl ImageSink for TiffImageSink<'_> {
         // Compressed-strip path: encode, patch the single StripByteCounts, and
         // write at the deterministic strip offset.
         let encoded = self.encode_tile(tile)?;
-        if encoded.len() as u64 > u32::MAX as u64 {
+        let slot_bytes = self.directory.offset_value_bytes;
+        if slot_bytes == 4 && encoded.len() as u64 > u64::from(u32::MAX) {
             return Err(Error::invalid_argument(
                 "TiffImageSink::writeTile: compressed strip exceeds uint32 size",
             ));
         }
-        let mut count_bytes = [0u8; 4];
-        write_u32(&mut count_bytes, encoded.len() as u32, Endian::Little);
-        self.writer
-            .seek(self.directory.strip_byte_counts_patch_offset)?;
-        self.writer.write(&count_bytes)?;
+        patch_value_at(
+            self.writer,
+            self.directory.strip_byte_counts_patch_offset,
+            encoded.len() as u64,
+            slot_bytes,
+        )?;
 
         self.writer.seek(range.offset)?;
         let n = self.writer.write(&encoded)?;
@@ -176,7 +217,8 @@ impl<'a> TiffImageSink<'a> {
                 self.next_linear_index
             )));
         }
-        if encoded.len() as u64 > u32::MAX as u64 {
+        let slot_bytes = self.directory.offset_value_bytes;
+        if slot_bytes == 4 && encoded.len() as u64 > u64::from(u32::MAX) {
             return Err(Error::invalid_argument(
                 "TiffImageSink::writeTile: compressed tile exceeds uint32 size",
             ));
@@ -196,7 +238,6 @@ impl<'a> TiffImageSink<'a> {
             ));
         }
         let offset = self.next_write_offset;
-        let byte_count = encoded.len() as u32;
         self.next_write_offset = self
             .next_write_offset
             .checked_add(encoded.len() as u64)
@@ -204,18 +245,20 @@ impl<'a> TiffImageSink<'a> {
                 Error::invalid_argument("TiffImageSink::writeTile: tile layout overflows")
             })?;
 
-        // Back-patch TileOffsets and TileByteCounts for this tile.
-        let mut offset_bytes = [0u8; 4];
-        write_u32(&mut offset_bytes, offset as u32, Endian::Little);
-        let offset_slot = self.directory.tile_offsets_value_addresses[linear_index];
-        self.writer.seek(offset_slot)?;
-        self.writer.write(&offset_bytes)?;
-
-        let mut count_bytes = [0u8; 4];
-        write_u32(&mut count_bytes, byte_count, Endian::Little);
-        let count_slot = self.directory.tile_byte_counts_value_addresses[linear_index];
-        self.writer.seek(count_slot)?;
-        self.writer.write(&count_bytes)?;
+        // Back-patch TileOffsets and TileByteCounts for this tile at the
+        // container's IFD value-slot width (classic 4 bytes, BigTIFF 8).
+        patch_value_at(
+            self.writer,
+            self.directory.tile_offsets_value_addresses[linear_index],
+            offset,
+            slot_bytes,
+        )?;
+        patch_value_at(
+            self.writer,
+            self.directory.tile_byte_counts_value_addresses[linear_index],
+            encoded.len() as u64,
+            slot_bytes,
+        )?;
 
         self.writer.seek(self.next_write_offset)?;
         self.next_linear_index += 1;

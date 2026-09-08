@@ -84,6 +84,12 @@ pub struct TiffDirectory {
     pub predictor: TiffPredictor,
     /// Byte order the file declares.
     pub endian: Endian,
+    /// Width, in bytes, of offset/byte-count value slots this directory's IFD
+    /// uses (4 = classic LONG, 8 = BigTIFF LONG8). Meaningful only on the
+    /// write side: the Sink back-patches TileOffsets/TileByteCounts/
+    /// StripByteCounts at these widths after encode. Set by
+    /// [`crate::io::backend::tiff::directory_writer::plan_tiff_write`].
+    pub offset_value_bytes: u8,
     /// Absolute file offset of the StripByteCounts value area inside the IFD.
     /// Meaningful only when `compression != None`: the Sink patches the
     /// compressed byte count here after encode.
@@ -119,6 +125,7 @@ impl Default for TiffDirectory {
             compression: TiffCompression::None,
             predictor: TiffPredictor::None,
             endian: Endian::Little,
+            offset_value_bytes: 4,
             strip_byte_counts_patch_offset: 0,
             tile_offsets_value_addresses: Vec::new(),
             tile_byte_counts_value_addresses: Vec::new(),
@@ -503,6 +510,8 @@ mod tests {
             PixelType::UInt32 => (32, 1),
             PixelType::Float32 => (32, 3),
             PixelType::Float64 => (64, 3),
+            PixelType::Int16 => (16, 2),
+            PixelType::Int32 => (32, 2),
         };
         let mut entries = vec![
             long(256, vec![width]),         // ImageWidth

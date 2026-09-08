@@ -20,10 +20,12 @@ pub enum ptiff_pixel_type {
     PTIFF_PIXEL_UINT32 = 2,
     PTIFF_PIXEL_FLOAT32 = 3,
     PTIFF_PIXEL_FLOAT64 = 4,
+    PTIFF_PIXEL_INT16 = 5,
+    PTIFF_PIXEL_INT32 = 6,
 }
 
 /// Mirror of the C `ptiff_compression_kind` enum (`ptiff_image_bridge.h`).
-/// Ordering matches `ptiff::CompressionKind` (None=0 … Jpeg=3).
+/// Ordering matches `ptiff::CompressionKind` (None=0 … Jpeg=3, PackBits=4).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ptiff_compression_kind {
@@ -31,6 +33,7 @@ pub enum ptiff_compression_kind {
     PTIFF_COMPRESSION_LZW = 1,
     PTIFF_COMPRESSION_DEFLATE = 2,
     PTIFF_COMPRESSION_JPEG = 3,
+    PTIFF_COMPRESSION_PACKBITS = 4,
 }
 
 /// Mirror of the C `ptiff_tile_info` struct (`ptiff_image_bridge.h`).
@@ -207,6 +210,8 @@ pub fn pixel_type_to_c(p: PixelType) -> ptiff_pixel_type {
         PixelType::UInt32 => ptiff_pixel_type::PTIFF_PIXEL_UINT32,
         PixelType::Float32 => ptiff_pixel_type::PTIFF_PIXEL_FLOAT32,
         PixelType::Float64 => ptiff_pixel_type::PTIFF_PIXEL_FLOAT64,
+        PixelType::Int16 => ptiff_pixel_type::PTIFF_PIXEL_INT16,
+        PixelType::Int32 => ptiff_pixel_type::PTIFF_PIXEL_INT32,
         // The core list is additive; unknown future sample types fall back to
         // the widest current C-representable one so the ABI stays total.
         _ => ptiff_pixel_type::PTIFF_PIXEL_FLOAT64,
@@ -223,6 +228,8 @@ pub fn pixel_type_from_c(v: i32) -> PixelType {
         x if x == ptiff_pixel_type::PTIFF_PIXEL_UINT32 as i32 => PixelType::UInt32,
         x if x == ptiff_pixel_type::PTIFF_PIXEL_FLOAT32 as i32 => PixelType::Float32,
         x if x == ptiff_pixel_type::PTIFF_PIXEL_FLOAT64 as i32 => PixelType::Float64,
+        x if x == ptiff_pixel_type::PTIFF_PIXEL_INT16 as i32 => PixelType::Int16,
+        x if x == ptiff_pixel_type::PTIFF_PIXEL_INT32 as i32 => PixelType::Int32,
         _ => PixelType::UInt8,
     }
 }
@@ -232,6 +239,7 @@ pub fn compression_to_c(c: CompressionKind) -> ptiff_compression_kind {
     match c {
         CompressionKind::None => ptiff_compression_kind::PTIFF_COMPRESSION_NONE,
         CompressionKind::Lzw => ptiff_compression_kind::PTIFF_COMPRESSION_LZW,
+        CompressionKind::PackBits => ptiff_compression_kind::PTIFF_COMPRESSION_PACKBITS,
         CompressionKind::Deflate => ptiff_compression_kind::PTIFF_COMPRESSION_DEFLATE,
         CompressionKind::Jpeg => ptiff_compression_kind::PTIFF_COMPRESSION_JPEG,
         _ => ptiff_compression_kind::PTIFF_COMPRESSION_NONE,
@@ -242,6 +250,9 @@ pub fn compression_to_c(c: CompressionKind) -> ptiff_compression_kind {
 pub fn compression_from_c(v: i32) -> CompressionKind {
     match v {
         x if x == ptiff_compression_kind::PTIFF_COMPRESSION_LZW as i32 => CompressionKind::Lzw,
+        x if x == ptiff_compression_kind::PTIFF_COMPRESSION_PACKBITS as i32 => {
+            CompressionKind::PackBits
+        }
         x if x == ptiff_compression_kind::PTIFF_COMPRESSION_DEFLATE as i32 => {
             CompressionKind::Deflate
         }
@@ -262,13 +273,17 @@ mod tests {
             PixelType::UInt32,
             PixelType::Float32,
             PixelType::Float64,
+            PixelType::Int16,
+            PixelType::Int32,
         ] {
             let c = pixel_type_to_c(p) as i32;
             assert_eq!(pixel_type_from_c(c), p);
         }
-        // Header-index anchor: UInt8 is 0, Float64 is 4.
+        // Header-index anchor: UInt8 is 0, Float64 is 4, Int32 is 6.
         assert_eq!(pixel_type_to_c(PixelType::UInt8) as i32, 0);
         assert_eq!(pixel_type_to_c(PixelType::Float64) as i32, 4);
+        assert_eq!(pixel_type_to_c(PixelType::Int16) as i32, 5);
+        assert_eq!(pixel_type_to_c(PixelType::Int32) as i32, 6);
     }
 
     #[test]

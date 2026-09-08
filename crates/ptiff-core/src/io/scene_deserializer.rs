@@ -38,6 +38,8 @@ fn parse_pixel_type(value: &str) -> Result<PixelType> {
         "UInt32" => Ok(PixelType::UInt32),
         "Float32" => Ok(PixelType::Float32),
         "Float64" => Ok(PixelType::Float64),
+        "Int16" => Ok(PixelType::Int16),
+        "Int32" => Ok(PixelType::Int32),
         _ => Err(Error::invalid_argument(
             "SceneDeserializer: unrecognized pixelType",
         )),
@@ -45,10 +47,17 @@ fn parse_pixel_type(value: &str) -> Result<PixelType> {
 }
 
 /// Parses the canonical compression string (mirrors C++ `parseCompression`).
+///
+/// Accepts every codec the typed [`CompressionKind`] vocabulary defines, in
+/// both the SceneSerializer spelling ("LZW") and the TIFF directory spelling
+/// ("Lzw"); the storage strings "PackBits", "Deflate" and "Jpeg" map 1:1.
 fn parse_compression(value: &str) -> Result<CompressionKind> {
     match value {
         "None" => Ok(CompressionKind::None),
         "LZW" | "Lzw" => Ok(CompressionKind::Lzw),
+        "PackBits" => Ok(CompressionKind::PackBits),
+        "Deflate" => Ok(CompressionKind::Deflate),
+        "Jpeg" => Ok(CompressionKind::Jpeg),
         _ => Err(Error::invalid_argument(
             "SceneDeserializer: unrecognized compression",
         )),
@@ -279,8 +288,9 @@ mod tests {
 
     #[test]
     fn round_trip_scene_serializer_deserializer() {
-        // Jpeg/Deflate are write-only in the canonical schema: the C++ oracle's
-        // `parseCompression` accepts only `None`/`LZW`, so we round-trip Lzw.
+        // Every codec in the typed vocabulary round-trips through the
+        // canonical schema (the C++ oracle's `parseCompression` accepted only
+        // None/LZW; that asymmetry is closed by P0-03).
         let mut scene = Scene::new();
         scene
             .add_image(ImageDescriptor {
@@ -306,22 +316,47 @@ mod tests {
     }
 
     #[test]
-    fn deflate_writes_but_does_not_deserialize_canonical_schema() {
-        // Documents the oracle asymmetry: Deflate serializes, but the canonical
-        // read path cannot reconstruct it.
-        let mut scene = Scene::new();
-        scene
-            .add_image(ImageDescriptor {
-                width: 16,
-                height: 16,
-                pixel_type: PixelType::UInt8,
-                channel_count: 1,
-                compression: Some(CompressionKind::Deflate),
-                ..ImageDescriptor::default()
-            })
-            .unwrap();
+    fn every_typed_codec_round_trips_through_the_canonical_schema() {
+        for codec in [
+            CompressionKind::None,
+            CompressionKind::Lzw,
+            CompressionKind::PackBits,
+            CompressionKind::Deflate,
+            CompressionKind::Jpeg,
+        ] {
+            let mut scene = Scene::new();
+            scene
+                .add_image(ImageDescriptor {
+                    width: 16,
+                    height: 16,
+                    pixel_type: PixelType::UInt8,
+                    channel_count: 1,
+                    compression: Some(codec),
+                    ..ImageDescriptor::default()
+                })
+                .unwrap();
 
-        let model = crate::io::SceneSerializer.serialize(&scene).unwrap();
+            let model = crate::io::SceneSerializer.serialize(&scene).unwrap();
+            let back = SceneDeserializer.deserialize(&model).unwrap();
+            assert_eq!(
+                back.image_at(0).unwrap().compression(),
+                Some(codec),
+                "codec {codec:?} must round-trip through the canonical schema"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_compression_is_invalid_argument() {
+        let mut model = StorageModel::new();
+        let mut child = StorageModel::new();
+        child.set_field("imageWidth", "16");
+        child.set_field("imageHeight", "16");
+        child.set_field("samplesPerPixel", "1");
+        child.set_field("pixelType", "UInt8");
+        child.set_field("compression", "Zstd"); // never silently downgraded
+        model.add_child(child);
+
         let err = SceneDeserializer
             .deserialize(&model)
             .expect_err("must fail");

@@ -16,12 +16,15 @@ pub(crate) const PTIFF_PIXEL_UINT16: u32 = 1;
 pub(crate) const PTIFF_PIXEL_UINT32: u32 = 2;
 pub(crate) const PTIFF_PIXEL_FLOAT32: u32 = 3;
 pub(crate) const PTIFF_PIXEL_FLOAT64: u32 = 4;
+pub(crate) const PTIFF_PIXEL_INT16: u32 = 5;
+pub(crate) const PTIFF_PIXEL_INT32: u32 = 6;
 
 /// PTIFF_COMPRESSION_* codes (matches the core's `CompressionKind` discr).
 pub(crate) const PTIFF_COMPRESSION_NONE: u32 = 0;
 pub(crate) const PTIFF_COMPRESSION_LZW: u32 = 1;
 pub(crate) const PTIFF_COMPRESSION_DEFLATE: u32 = 2;
 pub(crate) const PTIFF_COMPRESSION_JPEG: u32 = 3;
+pub(crate) const PTIFF_COMPRESSION_PACKBITS: u32 = 4;
 
 /// PTIFF_LOG_* level codes (matches the core logger `LogLevel` ordering).
 pub(crate) const PTIFF_LOG_TRACE: u32 = 0;
@@ -39,10 +42,13 @@ pub(crate) fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PTIFF_PIXEL_UINT32", PTIFF_PIXEL_UINT32)?;
     m.add("PTIFF_PIXEL_FLOAT32", PTIFF_PIXEL_FLOAT32)?;
     m.add("PTIFF_PIXEL_FLOAT64", PTIFF_PIXEL_FLOAT64)?;
+    m.add("PTIFF_PIXEL_INT16", PTIFF_PIXEL_INT16)?;
+    m.add("PTIFF_PIXEL_INT32", PTIFF_PIXEL_INT32)?;
     m.add("PTIFF_COMPRESSION_NONE", PTIFF_COMPRESSION_NONE)?;
     m.add("PTIFF_COMPRESSION_LZW", PTIFF_COMPRESSION_LZW)?;
     m.add("PTIFF_COMPRESSION_DEFLATE", PTIFF_COMPRESSION_DEFLATE)?;
     m.add("PTIFF_COMPRESSION_JPEG", PTIFF_COMPRESSION_JPEG)?;
+    m.add("PTIFF_COMPRESSION_PACKBITS", PTIFF_COMPRESSION_PACKBITS)?;
     m.add("PTIFF_LOG_TRACE", PTIFF_LOG_TRACE)?;
     m.add("PTIFF_LOG_DEBUG", PTIFF_LOG_DEBUG)?;
     m.add("PTIFF_LOG_INFO", PTIFF_LOG_INFO)?;
