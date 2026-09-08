@@ -336,6 +336,12 @@ impl Scene {
         self.observations.len()
     }
 
+    /// Returns a slice of all observations in insertion order.
+    #[must_use]
+    pub fn observations(&self) -> &[Observation] {
+        &self.observations
+    }
+
     /// Looks up a Core Model [`Observation`] by its [`ObservationId`].
     ///
     /// # Errors
@@ -348,7 +354,7 @@ impl Scene {
             .ok_or_else(|| Error::not_found("Scene::observation: no observation with this id"))
     }
 
-    /// Appends a Core Model [`DataObject`] and returns its new
+    /// Looks up a Core Model [`Observation`] by its [`ObservationId`].
     /// [`DataObjectId`]. Independent of every other id family (see
     /// [`Scene::add_observation`]).
     ///
@@ -372,6 +378,12 @@ impl Scene {
     #[must_use]
     pub fn data_object_count(&self) -> usize {
         self.data_objects.len()
+    }
+
+    /// Returns a slice of all data objects in insertion order.
+    #[must_use]
+    pub fn data_objects(&self) -> &[DataObject] {
+        &self.data_objects
     }
 
     /// Looks up a Core Model [`DataObject`] by its [`DataObjectId`].
@@ -409,6 +421,12 @@ impl Scene {
     #[must_use]
     pub fn product_count(&self) -> usize {
         self.products.len()
+    }
+
+    /// Returns a slice of all products in insertion order.
+    #[must_use]
+    pub fn products(&self) -> &[Product] {
+        &self.products
     }
 
     /// Looks up a Core Model [`Product`] by its [`ProductId`].
@@ -557,6 +575,12 @@ impl Scene {
     #[must_use]
     pub fn process_record_count(&self) -> usize {
         self.process_records.len()
+    }
+
+    /// Returns a slice of all process records in insertion order.
+    #[must_use]
+    pub fn process_records(&self) -> &[ProcessRecord] {
+        &self.process_records
     }
 
     /// Looks up a provenance [`ProcessRecord`] by its [`ProcessRecordId`].

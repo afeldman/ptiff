@@ -31,6 +31,7 @@ pub mod image;
 pub mod io;
 pub mod logging;
 pub mod mf01;
+pub mod mf02;
 pub mod pixel_type;
 pub mod scene;
 pub mod semantic;
