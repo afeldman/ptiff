@@ -43,7 +43,7 @@ This RFC was approved under the PTIFF governance process
 formal review opened on 2026-09-08. No formal objections were raised. It has not been ratified
 by any standardization body.
 
-Once this RFC is **Approved**, subsequent changes MUST be additive and backward compatible
+Now that this RFC is **Approved**, subsequent changes MUST be additive and backward compatible
 (see Section 8, "Backward Compatibility"), or, where that is not appropriate, introduced only
 through a new RFC that supersedes this one. An **Approved** RFC that has reached broad
 acceptance MAY subsequently be declared **Stable**; the criteria and process are defined in

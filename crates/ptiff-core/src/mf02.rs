@@ -14,9 +14,9 @@
 //! The Manifest is a **representation**, not a second model. It reuses existing
 //! semantic types rather than duplicating them.
 
+use crate::semantic::ProvenanceRelation;
 use crate::semantic::{DataObject, Observation, ProcessRecord, Product, Relationship};
-use crate::semantic::{ProvenanceRelation, ProvenanceRelationKind};
-use crate::{ManifestEntityKind, ManifestMetadata, ManifestRef};
+use crate::{ManifestEntityKind, ManifestMetadata};
 
 /// A minimal typed internal manifest representation.
 ///
