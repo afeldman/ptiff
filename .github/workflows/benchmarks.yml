@@ -37,10 +37,10 @@ jobs:
     # local dev and the macos-latest binding jobs.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -74,12 +74,12 @@ jobs:
           # Rust via rustup in a later step (dtolnay/rust-toolchain).
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: "1.22"
 
       - name: Set up Julia
-        uses: julia-actions/setup-julia@v2
+        uses: julia-actions/setup-julia@v3
         with:
           version: "1.6"
 
@@ -133,7 +133,7 @@ jobs:
           ./run_benchmarks.sh python ruby go octave julia rust cli
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: benchmarks/benchmark-results/
